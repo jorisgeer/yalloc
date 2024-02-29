@@ -1,0 +1,21 @@
+== Introduction
+   yalloc is yet another memory allocator with emphasis on efficiency and compactness.
+
+   The main features of this allocator are :
+
+  - segregated metadata / no user block header
+    This reduces the risk of metadata corruption and results ina more cache / TLB friendly layout
+
+  - double free and invalid free detection
+    With copnfigurable reporting
+
+  - lock, contention and wait free by having a heap per thread
+
+  - modest code size & complexity
+    5 KLOC including embedded diagnostic/stats formatter
+
+== Status
+  Early stage, work in progress.
+
+== Building
+  ./build.sh -g
