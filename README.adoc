@@ -4,10 +4,10 @@
    The main features of this allocator are :
 
   - segregated metadata / no user block header
-    This reduces the risk of metadata corruption and results ina more cache / TLB friendly layout
+    This reduces the risk of metadata corruption and results in a more cache / TLB friendly layout
 
   - double free and invalid free detection
-    With copnfigurable reporting
+    With configurable reporting
 
   - lock, contention and wait free by having a heap per thread
 
