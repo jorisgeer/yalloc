@@ -5,7 +5,7 @@
 set -f
 set -eu
 
-tool=clang
+tool=gcc
 dbg=0
 
 case $tool in
@@ -25,7 +25,7 @@ case $tool in
   ;;
 
   'gcc')
-  cc=gcc-13
+  cc=gcc
   cdiag='-Wall -Wextra -Wshadow -Wundef -Wno-unused -Wno-padded -Wno-char-subscripts -Werror -Wstack-usage=35000'
   cfmt='-fmax-errors=60 -fno-diagnostics-show-caret -fno-diagnostics-show-option -fno-diagnostics-color -fcompare-debug-second'
   cxtra='-funsigned-char -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -ftls-model=local-exec'
