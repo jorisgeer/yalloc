@@ -16,6 +16,8 @@
 
 #include <unistd.h>
 
+#include <string.h>
+
 int oswrite(int fd,const char *buf,size_t len)
 {
   return write(fd,buf,len);
@@ -64,7 +66,7 @@ void *osmremap(void *p,size_t orglen,size_t newlen)
 #else
   np = osmmap(newlen);
   if (np) memcpy(np,p,orglen);
-  osmunmap(p,orglen);
+  munmap(p,orglen);
   return np;
 #endif
   return np;

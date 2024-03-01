@@ -196,16 +196,6 @@ typedef const char cchar;
 
 #define doalign(p,n) ( (p) + (n) - 1) & ~((n) - 1)
 
-#if SIZE_MAX == (1ul << 32) - 1
-  #define Size_t_bits 32
-  #define ctz_size_t(x) ctz((x))
-  #define clz_size_t(x) clz((x))
-#else
-  #define Size_t_bits 64
-  #define ctz_size_t(x) ctzl((x))
-  #define clz_size_t(x) clzl((x))
-#endif
-
 #if defined _FORTIFY_SOURCE && _FORTIFY_SOURCE > 0
   // #warning "_FORTIFY_SOURCE is defined"
 #endif

@@ -31,7 +31,7 @@
 
 #include <stdarg.h>
 #include <stddef.h> // size_t,max_align_t
-#include <stdint.h>
+#include <stdint.h> // SIZE_MAX
 #include <string.h> // memset
 
 #include "stdlib.h"

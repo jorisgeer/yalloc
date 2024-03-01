@@ -52,7 +52,7 @@ void *calloc (size_t count, size_t size)
 
   if ( (count | size) == 0) return malloc(0);
 
-#if SIZE_T_MAX == hi32
+#if SIZE_MAX == hi32
   unsigned long long nn = (unsigned long long)count * size;
   if (nn >= hi32) return oom(__LINE__,Fstd,count,size);
   n = (size_t)n;
