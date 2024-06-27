@@ -5,44 +5,47 @@
 set -f
 set -eu
 
-tool=gcc
+tool=clang
 dbg=0
 
 case $tool in
   'clang')
   cc=clang
-  cdiag='-Weverything -Wimplicit-int-conversion -Wunused -Wsign-conversion -Wno-padded -Wno-char-subscripts -Werror=format -Wno-c2x-compat'
+  cdiag='-Weverything -Wimplicit-int-conversion -Wunused -Wsign-conversion -Wpadded -Wchar-subscripts -Werror=format -Wno-c2x-compat -Wno-poison-system-directories'
   cfmt='-fno-caret-diagnostics -fno-color-diagnostics -fno-diagnostics-show-option -fno-diagnostics-fixit-info -fno-diagnostics-show-note-include-stack -std=c11 -funsigned-char'
   cxtra='-funsigned-char -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -ftls-model=local-exec'
   cana="--analyze"
   if [ $dbg -eq 1 ]; then
-    cdbg='-g1 -fsanitize=address,undefined,signed-integer-overflow,bounds -fno-sanitize-recover=all -ftrapv -fstack-protector -D_FORTIFY_SOURCE=3'
+    cdbg='-g -fsanitize=undefined,signed-integer-overflow,bounds -fno-sanitize-recover=all -ftrapv -fstack-protector -D_FORTIFY_SOURCE=3'
     UBSAN_OPTIONS=print_stacktrace=1
+    libs=
   else
-    cdbg='-g1 -fno-stack-protector -fno-wrapv -fcf-protection=none -fno-asynchronous-unwind-tables -D_FORTIFY_SOURCE=0' # -fno-stack-clash-protection
+    cdbg='-g -fno-stack-protector -fno-wrapv -fcf-protection=none -fno-asynchronous-unwind-tables -D_FORTIFY_SOURCE=0' # -fno-stack-clash-protection
+    libs=
   fi
-  lflags="-O1 $cdbg"
+  lflags="-O2 $cdbg"
   ;;
 
   'gcc')
-  cc=gcc
+  cc=gcc-13
   cdiag='-Wall -Wextra -Wshadow -Wundef -Wno-unused -Wno-padded -Wno-char-subscripts -Werror -Wstack-usage=35000'
   cfmt='-fmax-errors=60 -fno-diagnostics-show-caret -fno-diagnostics-show-option -fno-diagnostics-color -fcompare-debug-second'
-  cxtra='-funsigned-char -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -ftls-model=local-exec'
+  cxtra='-funsigned-char -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -ftls-model=local-exec -fcf-protection=none'
   cana="-fanalyzer"
   if [ $dbg -eq 1 ]; then
-    cdbg='-g1 -fsanitize=address,undefined,signed-integer-overflow,bounds -fno-sanitize-recover=all -ftrapv -fstack-protector'
+    cdbg='-g -fsanitize=address,undefined,signed-integer-overflow,bounds -fno-sanitize-recover=all -ftrapv -fstack-protector'
     UBSAN_OPTIONS=print_stacktrace=1
   else
-    cdbg='-g1 -fno-stack-protector -fno-wrapv -fcf-protection=none -fno-stack-clash-protection -fno-asynchronous-unwind-tables -D_FORTIFY_SOURCE=0'
+    cdbg='-g -fno-stack-protector -fno-wrapv -fcf-protection=none -fno-stack-clash-protection -fno-asynchronous-unwind-tables -D_FORTIFY_SOURCE=0'
   fi
-  lflags="-O1 -fuse-ld=gold $cdbg"
+  lflags="-O2 -fuse-ld=gold -g"
+    libs=
   ;;
 esac
 
 copt='-O2 -march=native'
 
-cflags="$copt $cdiag $cfmt $cdbg $cxtra"
+cflags="-I. -std=c11 $copt $cdiag $cfmt $cdbg $cxtra "
 
 # --gc-sections --no-ld-generated-unwind-info -z stack-size=1234
 
@@ -52,6 +55,7 @@ map=0
 dogen=0
 valgrind=0
 vrb=0
+bldtst=0
 target=''
 
 usage()
@@ -60,12 +64,11 @@ usage()
   echo
   echo '-a  - analyze'
   echo '-g  - run generators'
+  echo '-t   - build test'
   echo '-m  - create map file'
-  echo '-u  - unconditional'
   echo '-v  - verbose'
   echo '-vg - valgrind'
   echo '-h  - help'
-  echo '-L  - build license'
   echo
   echo 'target - only build given target'
 }
@@ -89,7 +92,6 @@ cc()
 {
   local src
   local tgt
-  local dep
 
   tgt="$1"
   src="$2"
@@ -104,36 +106,16 @@ cc()
 ld()
 {
   local tgt
-  local dep
+  local obj
 
   tgt="$1"
-  dep="$2"
+  obj="$2"
 
-  verbose "ld -o $tgt $dep" "$cc -o $tgt $lflags $dep"
-  $cc -o "$tgt" "$lflags" $dep
+  verbose "ld -o $tgt $obj" "$cc -o $tgt $lflags $obj"
+  $cc -o "$tgt" "$lflags" $obj $libs
   if [ $map -eq 1 ]; then
     nm --line-numbers -S -r --size-sort $tgt > $tgt.map
   fi
-
-  if [ "$tgt" = "$target" ]; then
-    exit 0
-  fi
-}
-
-run()
-{
-  local tgt
-  local dep
-  local cmd
-  local args
-
-  tgt="$1"
-  dep="$2"
-  cmd="$3"
-  args="$4"
-
-  echo "run $cmd $args"
-  $cmd $args
 
   if [ "$tgt" = "$target" ]; then
     exit 0
@@ -146,6 +128,7 @@ while [ $# -ge 1 ]; do
   '-h'|'-?') usage ;;
   '-m') map=1 ;;
   '-g') dogen=1 ;;
+  '-t') bldtst=1 ;;
   '-v') vrb=1 ;;
   '-vg') valgrind=1; cflags="$cflags -DVALGRIND" ;;
   *) target="$1" ;;
@@ -153,25 +136,28 @@ while [ $# -ge 1 ]; do
   shift
 done
 
-#cc printf.o printf.c base.h printf.h
+# cc printf.o printf.c
 
 if [ $dogen -eq 1 ]; then
-  cc genadm.o genadm.c base.h printf.h config.h stdio.h
+  cc configure.o configure.c
 #  cc  stdio.o stdio.c stdio.h printf.h
-  ld  genadm  "genadm.o printf.o"
+  ld  configure  "configure.o printf.o"
 
-  run layout.h config.h genadm "layout.h dir.h"
+  ./configure "layout.h"
 fi
 
-# cat dir.h
+cc yalloc.o yalloc.c
+# $cc -shared -o yalloc.so yalloc.o os.o printf.o
 
-cc yalloc.o yalloc.c alloc.h base.h buddy.h config.h diag.h heap.h os.h std.h printf.h region.h slab.h
+# cc os.o os.c
+# cc stdio.o stdio.c
 
-#cc os.o os.c os.h
-#cc stdio.o stdio.c stdio.h printf.h
+# ld -dylib -o yalloc.so yalloc.o os.o printf.o -flat_namespace -undefined suppress
 
-cc test.o test.c stdlib.h
-
-ld test "test.o yalloc.o os.o printf.o"
+if [ $dogen -eq 1 ]; then
+  cc test.o test.c stdlib.h
+  ld test "test.o yalloc.o os.o printf.o"
+fi
+# ld test_libc "test.o printf.o"
 
 # ~/bin/valgrind -s --redzone-size=4096 --exit-on-first-error=yes --error-exitcode=1 --track-fds=yes --leak-check=no --partial-loads-ok=no --track-origins=yes --malloc-fill=55 $*

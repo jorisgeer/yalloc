@@ -6,101 +6,152 @@
    SPDX-License-Identifier: GPL-3.0-or-later
 */
 
-// behaviour
-#define FREE_FAIL_REALLOC 0
+// -- portability --
 
-// vm
-#define Maxvm 40
-#define Maxvmsiz (1ul << Maxvm)
+/* threading model
+    0 - none, use a single static heap
+    1 - thread local store aka TLS
+    2 - pthreads : pthread_self() and hash
+    3 - C11 threads and hash
+ */
+#define Yal_thread_model 1
+
+// Support free(p) and realloc(p) with 'p' allocated in another thread
+#define Yal_inter_thread_free 1
+
+/*
+  Operating system locking
+  0 - none
+  1 - Linux (futex)
+  4 - macOS aka Darwin
+  5 - Windows
+ */
+#define Yal_locking 4
+
+// Set to prep TLS with a before-main function. gcc on darwin aka macos needs this
+#define Yal_prep_TLS 0
+
+#define Lockspin 100
+
+// --- behaviour ---
+
+#define Free_failed_realloc 0 // if realloc(p,n) fails, free p.
+
+// --- virtual memory ---
+
+// #define Page_override 12
+
+#define Vmsize 40 // 1 TB
 
 #define Minregion 16
+#define Maxregion 32
 
 #define Accel_cnt 3
 
-// 64k for 48/42-bit vm and 4/3 accels
-#define Maxregion (Maxvm - Minorder - 6 - (Accel_cnt * 6))
+#define Minorder 2  // smallest block
 
-// slab
+#define Mmap_initial_threshold 16u
+
+// --- slab ---
 //#define Maxsizclas 16
-#define Maxclasslen 4096u
+#define Clasbits 2 // size class granularity. steps between powers of two
+#define Maxclass Mmap_initial_threshold
 #define Clas_threshold 0u
-// #define Maxclas_len (1U << Maxsizclas)
-// #define Maxclas_cnt (1U << (Maxsizclas + Sizestep))
-#define Maxtclass 2048u
-#define Maxclass 256u
 
-#define Regstep 4
-#define Regclas ?
+#define Metaguard 0 // # guard pages around metadata blocks
 
-// regions
-#define Region 14
+#define Multilen 16 // runs of multi-cell blocks
 
-#define Regmem_inc 1024u
+// --- regions ---
+#define Regions 0x10000
+#define Iniregs 256
 
-#define Region_cnt (1u << Region) // e.g. Linux vm.max_map_count = 65530
+// #define Region 14
+
+#define Regmem_inc 32
+#define Xregmem_inc (64 * 4)
+
 #define Regfree_trim 4u
 
-// region directory
+#define Regbin 4
+#define Regbinsum (1ul << 22)
 
-// 8 : avg span = 20
-#define Dir 8
+// --- region directory ---
+//  vm:40 - pg:14 = 26 = 8 + 7 + leaf:11
+#define Dir1 8
+#define Dir2 7
+#define Dir3 11  // 4 KB leaf dir
 
-#define Dirmem 8192u
+//  40 - 20 = 20 = 2 x 10
 
-// 42 - 18 = 24
-#if (Maxvm - Minregion) <= Dir
- #error "VM directory too coarse"
-#endif
+#define Dirlimit 33
 
-#if (Maxvm - Minregion) > 3 * Dir
-  #define Dirlvl 4
-#elif (Maxvm - Minregion) > 2 * Dir
-  #define Dirlvl 3
-#else
-  #define Dirlvl 2
-#endif
+// number of directories
+#define Dirmem_init 4
+#define Dirmem 16
 
-#define Mmap_limit 22
+// threading
+#define Hash_order 32
 
-// preallocated
-#define  Iniheap 0x20000u
-#define Inimem 0x400u
+// --- preallocated ---
+#define Bumplen 0x8000u
+//#define Bumpmax 256u
+#define Bumpmax 1u
+
 // #define Initdir 8
-// #define Bootmem 0x1000
+#define Bootmem 0x1000
 #define Heap_del_threshhold 16
 
-// buddy
-
-#define Minorder 3  // smallest block
+// --- buddy ---
+#define Min2order 4  // smallest block
 #define Maxorder 26
-#define Orderrange 16
+#define Addorder 4
 
-// recycling bin
-//#define Binbit 16 // Recycle blocks below this size
-#define Bin 8 // #binned items per size
-#define Binmask ((1u << Bin) - 1)
+// --- recycling bin ---
+#define Bin 64 // #binned items per size. Even number
+#define Binful 16
 
-// align
+// --- align ---
 // #define Basealign _Alignof(max_align_t)
-#define Basealign 8u
+#define Basealign2 3
+#define Stdalign 16u
 
-#define Page 4096u
-
-// diag
+// --- diag ---
 #define Yal_enable_log 1
+#define Yal_enable_error 1
+#define Yal_enable_trace 1
+#define Yal_enable_dbg 1
+
+#define Yal_log_level 5 // 1 assert 2 error 3 warn 4 info 5 trace 6 dbg
+
+#define Diag_counts 256
+#define Diag_buf 256
+#define Yal_diag_init "yal_diag.cfg"
+
 #define Yal_enable_stats 1
+#define Yal_enable_check 1
+#define Yal_enable_valgrind 0
 
-#define Mmap_threshold (1ul << 24)
+#define Yal_trigger_stats 0x11223344 // calloc(0,trigger)
+#define Yal_trigger_stats_clear 0x11223345
 
+#define Yal_log_fd 1
+#define Yal_error_fd 1
+#define Yal_stats_buf (1ul << 18)
+
+#define Yal_stats_envvar "Yal_stats"
+
+#define Yal_enable_bist 1
+#define Bistlen (1ul << 20)
+#define Bistregs 2048
+
+#define Yal_enable_test 0
+
+// --- extensions / compatibility ---
 #define Yal_glibc_mtrace 1
-
-// Dynamic config vars with initial value
-
-static unsigned int inireg = 16; // Initial region size
-static unsigned int inidir = 8; // preallocated directory entries
-
-// static unsigned int mmap_threshold_bit = 24;
-static size_t mmap_threshold = Mmap_threshold;
-
-static unsigned int safe_mode = 1;
-static unsigned int guardbit = 0;
+#define Yal_enable_extensions 1
+#define Yal_enable_boot_malloc 0
+#define Yal_enable_mallopt 0
+#define Yal_enable_mallinfo 0
+#define Yal_enable_maltrim 0
+#define Yal_enable_glibc_malloc_stats 0

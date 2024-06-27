@@ -11,221 +11,320 @@
   A recycling bin for the latter two categories serves as a cache, forming a fast path
 */
 
-// Alloc large blocks directly with mmap
-static void *yal_mmap(heap *hb,size_t len)
+#undef Logfile
+#define Logfile Falloc
+
+static xregion *yal_mmap(heap *hb,size_t len,enum Loc loc)
 {
-  size_t n = doalign(len,Page);
-  void *p = osmem(__LINE__,Falloc,hb,n,"block > mmap threshold");
-  region *reg;
+  size_t alen = doalign(len,Pagesize);
+  void *p = osmem(Fln,hb,alen,"block > mmap threshold");
+  xregion *reg;
 
   if (p == nil) return nil;
 
-  reg = newregion(hb,p,len,0,Rmmap);
-  if (reg == nil) return nil;
-  reg->clas = Noclass;
-  reg->len = n;
-  hb->lastreg = reg;
+  ystats(hb->stats.mapallocs)
+  ytrace(loc,"Len %zu mmap %zu",len,hb->stats.mmaps)
+  reg = newxregion(hb,p,alen,len);
+  if (reg == nil) {
+    *hb->errmsg = 0;
+    if (hb->status != St_error) oom(hb,Fln,loc,len,1);
+    return nil;
+  }
+  reg->typ = Rmmap;
+  ytrace(loc,"len %zu mmap = %p",len,p)
+  // Bist_add(hb,p,len,loc)
   return p;
 }
 
-static void *mmap_realloc(heap *hb,region *reg,void *p,size_t orglen,size_t newlen)
+static const ub2 miniclas_align[9] = { 0,2,2,4, 4,8,8,8, 8 };
+
+static Hot void *heapalloc(heap *hb,size_t ulen,bool clr,enum Loc loc)
 {
-  void *np = osmremap(p,orglen,newlen);
-
-  if (np) {
-    if (np != p) regdir(hb,nil,(size_t)p,orglen);
-    reg->len = newlen;
-    reg->user = np;
-    regdir(hb,reg,(size_t)np,newlen);
-  } else {
-    delregion(hb,reg);
-  }
-  return np;
-}
-
-static ub1 miniclas[8] = { 0,2,2,4, 4,8,8,8 };
-
-// main entry
-static void *yalloc_heap(heap *hb,size_t len,bool clear)
-{
-  ub4 ord;
-  ub4 e;
-  ub4 alen,calen;
+  uint32_t alen,clen,len,align;
   void *p;
-  char *cp;
-  region *reg,*newreg,**clasregs;
-  ub4 pos,posa,align;
+  region *reg,**clasregs;
   ub2 clas;
-  ub2 tclas;
-  ub2 clascnt,tclascnt;
-  struct binentry *binp;
-  ub2 binmask;
-  ub2 cnt;
+  ub2 claspos,clastop;
+  ub4 ord,cord;
+  ub4 iter;
+  int locmod;
+  ylock_t one = 1;
 
-  len <<= guardbit;
-  reg = nil;
+  if (unlikely(ulen >= (1ul << (Maxorder - Addorder)))) {
+    return yal_mmap(hb,ulen,loc);
+  }
 
-  if (unlikely(len >= mmap_threshold)) return yal_mmap(hb,len);
+  len = (uint32_t)ulen;
 
-  if (len < Maxclasslen) {
-
-#if 1
-  // 'canned' initial bump allocator
-    pos = hb->inipos;
-    if (pos + len + 2 * Basealign <= Inimem) {
-      cp = hb->inimem + pos;
-      *(ub4 *)cp = (ub4)len;
-      pos += Basealign;
-      alen = doalign(len,Basealign);
-      hb->inipos += alen + Basealign;
-      p = hb->inimem + pos;
-      ylog(Falloc,"heap %u bump %u`b to %u`b = %p",hb->id,(ub4)len,hb->inipos,p);
-      return p;
-    }
+#if Yal_locking == 3 // c11 threads
+  if (unlikely(hb->boot != 0)) {
+    return __je_bootstrap_malloc(ulen);
+  }
 #endif
 
-    if (len <= 8) {
-      alen = calen = miniclas[len];
-    } else if (len <= 16) {
-      alen = calen = 16;
-    } else {
-      alen = doalign(len,16u);
-      calen = (alen >> 4) + 16;
+// size classes: mini, 16, 16 * pwr2, Clasbits
+#define Mini 4
+#define Base 1
+#define Pwr2 16 - Basealign2
+#define Fine Clasbits
+
+#define Clasinc (1u << Clasbits)
+
+  // try last used reg
+  reg = hb->prvallreg;
+  alen = reg->cellen;
+
+  if (len <= alen && len * 2 > alen) { // suitable
+    ystats(reg->stats.fastregs)
+
+  } else {
+
+  // find suitable size class
+  alen = len;
+  switch (len) {
+
+  case 0:
+    p = &zeroblock;
+    ytrace(loc,"alloc 0 = %p",p);
+    vg_mem_noaccess(p,1)
+    return p;
+
+  case 1: case 2: alen = 2; clas = 0; break;
+  case 3: case 4: alen = 4; clas = 1; break;
+  case 5: case 6: case 7: case 8: alen = 8; clas = 2; break;
+
+  case 9: case 10: case 11: case 12: case 13: case 14: case 15: case 16: alen = 16; clas = 3; break;
+
+  case 17: case 18: case 19: case 20: case 21: case 22: case 23: case 24: alen = 24; clas = 4; break;
+
+  case 25: case 26: case 27: case 28: case 29: case 30: case 31: case 32: alen = 32; clas = 5; break;
+
+  default:
+    if (len >= Maxclasslen) {
+      // todo buddy
+      return yal_mmap(hb,len,loc);
     }
+    // create class for in-between pwr2 sizes,e.g. 48, 56
+    ord = 32u - clz(len);
+    clas = Mini + Base + (ub2)(ord << Clasbits);
+    if (len & (len - 1)) {
+      cord = ord - Clasbits - 1;
+      align = (1u << cord);
+      alen = doalign(len,align);
+      clen = alen >> cord;
+      clas += (ub2)clen;
+    } else {
+      alen = len;
+      clas += (1u << Clasbits);
+    }
+  } // switch len
+  ycheck(nil,Lalloc,clas >= Clascnt,"class %u out of range %u",clas,Clascnt)
+  ycheck(nil,Lalloc,alen < len,"alen %u len %u",alen,len)
 
     // check size classes aka slabs, tentative at first for all sizes
-    tclas = hb->len2tclas[calen];
-    if (tclas == hi16 && (tclascnt = hb->tclascnt) < Maxtclass) {
-      tclas = hb->len2tclas[calen] = tclascnt;
-      ylog(Falloc,"new tclas %u for len %u,%u",tclas,alen,calen);
-      hb->tclas2len[tclas] = (ub2)calen;
-      hb->tclascnt = tclascnt + 1;
+#if Yal_enable_check
+  clen = hb->claslens[clas];
+  if (clen && clen != alen) { error(hb->errmsg,Lalloc,"clas %u len %u vs %u from %u",clas,clen,alen,len) return nil; }
+#endif
+  hb->claslens[clas] = alen;
+
+  clasregs = hb->clasregs + clas * Clasregs;
+  clastop = hb->clastop[clas];
+  if (likely(clastop != 0)) {
+    claspos = hb->claspos[clas];
+    reg = clasregs[claspos];
+  } else {
+    reg = newslab(hb,alen,len,clas,0);
+    if (unlikely(reg == nil)) return nil;
+    hb->clastop[clas] = 1;
+    clasregs[0] = reg;
+  }
+  hb->prvallreg = reg;
+  } // prvreg or not
+
+  ytrace(loc,"Len %u clr %u %2zu",len,clr,reg->stats.allocs)
+  iter = 1000;
+  do {
+    reg->clrlen = reg->clen;
+
+    ycheck(nil,Lalloc,reg->cellen != alen,"region %x cel len %u vs %u",reg->id,reg->cellen,alen)
+
+#if Yal_inter_thread_free
+    locmod = Atomget(hb->lockmode)
+    if (unlikely(locmod != 0)) {
+      if (locmod == 1) Atomset(hb->lockmode,2); // ack
+      Lock(hb,reg,1024 * 1024,Lalloc,Fln,nil,"slab alloc",len)
+    }
+#endif
+
+    p = slab_alloc(hb,reg,alen,loc);
+
+#if Yal_inter_thread_free
+    if (unlikely(locmod != 0)) {
+      Unlock(hb,reg,Lalloc,Fln,"slab alloc")
+    }
+#endif
+
+    if (likely(p != nil)) {
+#if Yal_enable_valgrind
+      if (vg_mem_isaccess(p,alen)) error(hb->errmsg,Lalloc,"malloc(%p) was allocated earlier",p)
+#endif
+      if (unlikely(clr != 0)) {
+        if (reg->clrlen) memset(p,0,reg->clrlen);
+        vg_mem_def(p,len)
+      } else {
+        vg_mem_undef(p,len)
+      }
+      ytrace(loc,"len %u = %p %2zu",len,p,reg->accstats.allocs)
+      Bist_add(hb,reg,p,len,loc)
+      return p;
+    } // p != nil aka have space
+
+    if (unlikely(reg->status == St_error)) {
+      ytrace(loc,"len %u = nil %2zu",len,reg->accstats.allocs)
+      reg->status = St_ok;
+      hb->status = St_error;
+      hb->errfln = reg->errfln;
+      return nil;
+    }
+    clas = reg->clas;
+    claspos = 0;
+    clastop = hb->clastop[clas];
+    if (clastop >= Clasregs - 1) {
+      hb->status = St_error;
+      hb->errfln = Fln;
+      error(hb->errmsg,Lalloc,"class %u size %u regions exceed %u",clas,alen,clastop)
+      return nil;
     }
 
-    if (tclas != hi16) {
-      clas = hb->tclas2clas[tclas];
-      if (clas != hi16) {
-        if ( (binmask = hb->binmasks[clas]) ) { // check recycling bin
-          binp = hb->bins + clas * Bin;
-          e = ctz(binmask);
-          reg = binp[e].reg;
-          p = binp[e].p;
-          hb->binmasks[clas] = binmask & ~(1u << e);
-          if (clear) memset(p,0,len);
-          return p;
-        } // bin
-
-        clasregs = hb->clasreg + clas;
-        reg = *clasregs;
-        if (reg) {
-          if (reg->frecnt == 0) {
-            newreg = newslab(hb,alen,len);
-            if (newreg == nil) return nil;
-            newreg->clas = clas;
-            newreg->nxt = reg;
-            newreg->prv = reg->prv;
-            reg = newreg;
-            *clasregs = reg;
-          }
-        } else { // regions deleted earlier
-          reg = *clasregs = newslab(hb,alen,len);
-        }
-      } else if ( (clascnt = hb->clascnt) < Maxclass) { // no class yet, count
-        cnt = (hb->sizecount[tclas] + 1) & 0x7f;
-        hb->sizecount[tclas] = cnt;
-        ylog(Falloc,"tclas %u cnt %u",tclas,cnt);
-        if (cnt > Clas_threshold) { // new class
-          ylog(Falloc,"new clas %u for len %u,%u",clascnt,alen,calen);
-          hb->tclas2clas[tclas] = clas = clascnt;
-          hb->clascnt = clascnt + 1;
-          reg = newslab(hb,alen,len);
-          if (reg == nil) return nil;
-          reg->clas = clas;
-          hb->clasreg[clas] = reg;
-        } // new class
-      } // no class
-      if (reg) return slab_alloc(hb,reg,clear);
+    clasregs = hb->clasregs + clas * Clasregs;
+    while (claspos <= clastop) {
+      reg = clasregs[claspos];
+      if (reg == nil) { // create new
+        reg = hb->prvallreg = newslab(hb,alen,len,clas,clastop);
+        if (unlikely(reg == nil)) return nil;
+        clasregs[claspos] = reg;
+        hb->clastop[clas] = clastop + 1;
+        hb->claspos[clas] = claspos;
+        break;
+      } else {
+        if (reg->binpos || reg->premsk || reg->preofs < reg->runcnt) break;
+      }
+      claspos++;
     }
-  } // len < Maclass
+  } while (--iter);
+  return nil;
+}
 
-  // default to buddy
-  if (len < 1ul << Minorder) len = 1ul << Minorder;
+static void *yal_heap(heap *hb,size_t len,bool clr,enum Loc loc)
+{
+  void *p;
+  enum Status st;
 
-  p = buddy_alloc(hb,len,clear);
+  p = heapalloc(hb,len,clr,loc);
+
+  if (likely(p != nil)) {
+    vg_mem_maydef(p,len,clr)
+    return p;
+  }
+
+  st = hb->status; hb->status = St_ok;
+  *hb->errmsg = 0;
+  errorctx(loc,hb->errmsg,"heap %u len %zu`",hb->id,len);
+  error2(hb->errmsg,loc,hb->errfln,"status %u",st);
+  if (st == St_error) return p;
+
+  *hb->errmsg = 0;
+  oom(hb,Fln,loc,len,1);
+
+  if (st != St_ok) {
+    hb->status = St_ok;
+    if (st == St_oom) return osmmap(len);
+  }
+
+  // rare: contention
+  ylog(Lalloc,"alloc(%zu): new contention heap",len)
+  hb = new_heap();
+  if (hb == nil) return osmmap(len);
+  p = heapalloc(hb,len,clr,loc);
   return p;
 }
 
-// main entry
-static void *yalloc(size_t len,bool clear)
+// main entry.
+static void *yalloc(size_t len,bool clr,enum Loc loc)
 {
-  void *p;
   heap *hb;
-  ub4 pos,posa,align;
-  static _Atomic ub4 nested;
-  static char tls[512];
+  void *p;
 
-  ylog(Falloc,"yalloc %zu`b%s",len,clear ? " zeroed" : "");
-
-  if  (atomic_fetch_add_explicit(&nested,1,memory_order_relaxed) > 5) {
-    // ylog(Falloc,"yalloc > %p",tls);
-    return tls;
-  }
-
-#if 0
-  pos = atomic_fetch_add_explicit(&bootem_pos,len + Basealign,memory_order_relaxed);
-  atomic_fetch_add_explicit(&bootem_pos,hi16,memory_order_relaxed); // avoid overflow
-
-  if (pos + len + Basealign <= Inimem) {
-    align = get_align((ub4)len);
-    posa = doalign(pos,align);
-    p = bootmem + posa;
-    ylog(Falloc,"bump %u",(ub4)len);
-    return p;
-  }
-#endif
-
-  // oswrite(2,"yalloc 1\n",9);
   hb = getheap();
-  atomic_fetch_sub_explicit(&nested,1,memory_order_relaxed);
-  // oswrite(2,"yalloc 2\n",9);
-  if (unlikely(hb == nil)) return nil;
 
-  return yalloc_heap(hb,len,clear);
+  if (unlikely(hb == nil)) {
+#if Bumplen
+    mheap *mhb;
+    ub4 pos;
+    ub4 ulen,alen;
+    if (len < Bumpmax) {
+      ulen = (ub4)len;
+      if (ulen == 0) return &zeroblock;
+      alen = doalign(ulen,Stdalign);
+      mhb = getminiheap(1);
+      if (mhb == nil) return nil;
+      pos = mhb->pos;
+      if (pos + alen <= Bumplen) {
+        mhb->meta[pos / Stdalign] = (ub2)(alen / Stdalign);
+        mhb->pos = pos + alen;
+        return mhb->mem + pos;
+      }
+    }
+#endif
+    hb = new_heap();
+    if (hb == nil) return osmmap(len);
+  }
+  p = yal_heap(hb,len,clr,loc);
+  return p;
 }
 
 static void *yalloc_align(size_t align, size_t len)
 {
   void *p,*ap;
-  ub4 alen;
+  ub4 align4;
+  size_t alen;
   heap *hb;
-  region *reg;
+  xregion *reg;
   size_t ip;
 
-  if (len <= 8) alen = miniclas[len];
-  else alen = 16;
-
-  if (align <= alen) return yalloc(len,0);
+  if (len < 8)  align4 = miniclas_align[len] & 0xff;
+  else if (len == 8) align4 = 8;
+  else align4 = 16;
 
   hb = getheap();
-  if (hb == nil) return nil;
+  if (unlikely(hb == nil)) {
+    hb = new_heap();
+    if (hb == nil) return osmmap(len);
+  }
 
-  len = max(len,align);
-  if (align > Page) len += align;
-  if (len > Mmap_threshold) {
-    if (align <= Page) return yalloc_heap(hb,len,0);
-    p = yalloc_heap(hb,len,0);
-    ip = (size_t)p;
+  if (align <= align4) return yal_heap(hb,len,0,Lallocal); // no adjustment needed
+
+  alen = max(len,align);
+  if (align > Pagesize) alen += align;
+  if (alen >= hb->mmap_threshold) {
+    if (align <= Pagesize) return yal_heap(hb,len,0,Lallocal); // no adjustment needed
+
+    // need to move base
+    ylog(Lallocal,"aligned_alloc(%zu,%zu",align,len);
+    reg = yal_mmap(hb,alen,Lallocal);
+    if (reg == nil) return nil;
+    ip = (size_t)reg->user;
     ip = doalign(ip,align);
     ap = (void *)ip;
-    reg = hb->lastreg;
     reg->meta = ap;
+    return ap;
   }
-  p = buddy_alloc(hb,len,0);
+  p = yal_heap(hb,alen,0,Lallocal);
   if (p == nil) return p;
   ip = (size_t)p;
   ip = doalign(ip,align);
   ap = (void *)ip;
-  reg = hb->lastreg;
-  buddy_addref(hb,reg,p,ap);
+  // todo buddy_addref(hb,reg,p,ap);
   return ap;
 }

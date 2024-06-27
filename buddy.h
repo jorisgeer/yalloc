@@ -5,9 +5,6 @@
    SPDX-FileCopyrightText: © 2024 Joris van der Geer
    SPDX-License-Identifier: GPL-3.0-or-later
 
-
-test edit 
-
   Admin space overhead is 12%.
   Admin consists of a 'line' of allocated bitmap cells as ulongs per order. Each lower order doubles the cell count. Each cell bit represents a possible user block.
   The lowest few orders, representing 1 and 2-byte blocks, are omitted.
@@ -82,6 +79,9 @@ test edit
   free() uses the region directory to determine the region and the order to find the size and thus cell.
 */
 
+#undef Logfile
+#define Logfile Fbuddy
+
 static ub4 admlens[Maxorder]; // todo
 
 static region *newbuddy(heap *hb,ub4 order)
@@ -89,7 +89,7 @@ static region *newbuddy(heap *hb,ub4 order)
   // ub2 ordlo= max(Minorder,order - min(order,Orderrange));
   size_t len = 1UL << order;
   ub4 admlen = admlens[order];
-  region *reg = newregion(hb,nil,len,admlen,Rbuddy);
+  region *reg = newregion(hb,order,len,admlen,Rbuddy);
 
   return reg;
 }
@@ -104,7 +104,8 @@ static void *buddy_allocreg(heap *hb,region *reg,uint32_t len,ub4 ord,ub4 alord,
 
   sums[alord]--;
 
-  ylog(Fbuddy,"heap %u reg %u len %u ord %u",hb->id,reg->id,len,ord);
+  ylog(Lalloc,"heap %u reg %u len %u ord %u",hb->id,reg->id,len,ord);
+  return nil;
 
   if (clear) memset(user,0,len);
   return user;
@@ -116,7 +117,9 @@ static void *buddy_allocfixreg(heap *hb,region *reg,uint32_t len,ub4 ord,bool cl
   // ub8 *meta = reg->meta;
   void *user = reg->user;
 
-  ylog(Fbuddy,"heap %u reg %u len %u ord %u",hb->id,reg->id,len,ord);
+  ylog(Lalloc,"heap %u buddy reg %u len %u ord %u",hb->id,reg->id,len,ord);
+  return nil;
+
   if (clear) memset(user,0,len);
   return user;
 }
@@ -127,18 +130,16 @@ static void *buddy_alloc(heap *hb,size_t slen,bool clear)
   uint32_t mask = hb->buddymask;
   ub4 ord,alord,order;
 
-  uint32_t len = (uint32_t)slen & ((1u << Maxorder) - 1);
+  uint32_t len = (uint32_t)slen;
 
   ord = 32u - clz(len);
-  ylog(Fbuddy,"buddy alloc len %u` ord %u %u mask %x",len,ord,clz(len),mask);
-  if (len & (len-1)) len = 1U << (++ord);
+  ylog(Lalloc,"buddy alloc len %u` ord %u %u mask %x",len,ord,clz(len),mask);
+  if (len & (len-1)) len = 1U << (++ord); // next pwr2
 
-  // ylog(Fbuddy,"buddy alloc len %u` ord %u mask %x",len,ord,mask);
   if ( (mask & (len - 1)) == 0 ) { // no space
-    order = max(newregorder(hb),ord);
+    order = max(newregorder(),ord + Addorder);
     reg = newbuddy(hb,order);
     if (reg == nil) return nil;
-    reg->clas = Noclass;
     alord = ord;
     hb->buddies[ord - Minorder] = reg;
     hb->buddymask |= (1u << ord);
@@ -153,16 +154,6 @@ static void *buddy_alloc(heap *hb,size_t slen,bool clear)
   return buddy_allocreg(hb,reg,len,ord,alord,clear);
 }
 
-static void *buddy_realloc(heap *hb,region *reg,void *p,size_t newlen)
-{
-  return p;
-}
-
-// make ap being recognised as link from p
-static void buddy_addref(heap *hb,region *reg,void *p,void *ap)
-{
-}
-
 static bool buddy_free(heap *hb,region *reg,size_t ip)
 {
   ub8 *meta = reg->meta;
@@ -172,7 +163,7 @@ static bool buddy_free(heap *hb,region *reg,size_t ip)
   ub4 order = reg->order;
   ub4 minord = reg->minorder;
   ub4 ordrng = order - minord;
-  uint64_t smask = reg->smask;
+  ub8 smask = reg->smask;
   uint32_t ofs = (uint32_t)(ip - (size_t)user) >> minord;
   ub4 cntord;
 
@@ -186,5 +177,25 @@ static bool buddy_free(heap *hb,region *reg,size_t ip)
 
   hb->buddyreg_f++;
   return (smask == hi32);
-  return 0;
+}
+
+static void *buddy_realloc(heap *hb,region *reg,void *p,size_t newlen)
+{
+  size_t ip = (size_t)p;
+  ub8 *meta = reg->meta;
+  void *user = reg->user;
+  ub4 order = reg->order;
+  ub4 minord = reg->minorder;
+  ub4 ordrng = order - minord;
+  uint32_t ofs = (uint32_t)(ip - (size_t)user) >> minord;
+
+  ub1 *ordline = (ub1 *)(meta + ordrng);
+  ub4 ord = ordline[ofs];
+  size_t orglen = 1ul << ord;
+
+  void *np = buddy_alloc(hb,newlen,0);
+
+  if (np == nil) return nil;
+  memcpy(np,p,orglen);
+  return np;
 }

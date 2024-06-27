@@ -1,5 +1,5 @@
 == Introduction
-   yalloc is yet another memory allocator with emphasis on efficiency and compactness.
+   yalloc is yet another memory allocator with emphasis on efficiency, safety and compactness.
 
    The main features of this allocator are :
 
@@ -10,12 +10,26 @@
     With configurable reporting
 
   - lock, contention and wait free by having a heap per thread
+    on-demand locking once free / realloc is detected on a bloc allocated from a different thread
 
   - modest code size & complexity
-    5 KLOC including embedded diagnostic/stats formatter
+    7 KLOC including embedded diagnostic, stats and tests
 
 == Status
-  Early stage, work in progress.
+  Later stage, work in progress.
 
 == Building
+  review and edit config.h
   ./build.sh -g
+
+== Using
+
+=== static linking, any platform
+link yalloc.o printf.o os.o with your app
+
+=== Linux
+
+LD_PRELOAD=yalloc.so myprog
+
+=== macos
+DYLD_INSERT_LIBRARIES=yalloc.so myprog

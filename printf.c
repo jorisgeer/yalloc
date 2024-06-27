@@ -5,16 +5,23 @@
    SPDX-FileCopyrightText: © 2024 Joris van der Geer
    SPDX-License-Identifier: GPL-3.0-or-later
 
-   mini snprintf(). All C11 features except multibyte / wide char are supported. C23 features are recognised, yet ignored
+   mini snprintf(). All C11 features except multibyte / wide char are supported. C23 features are recognised, yet only wN supported
+
+   A nonstandard backtick <after> an integer conversion spec formats a human-readable int with K/M/G/T suffix
+   A nonstandard %n pointing to an intever with value Printf_dot will make the next %d/x/b use digit grouping
+   These two in order to have the compler's format diagnostics work whilst having a way to use extensions.
+
+   TODO floating point rounding is inaccurate, last digit may be off
 
    The base function is :
 
    unsigned int snprintf_mini(char * restrict str, unsigned int offset, unsigned int len, const char * restrict format, ...)
 
-   Formatted output, including a null byte, is written into string 'str' starting at offset 'offset' up to the maximum string length 'len'.
+   Formatted output, including a null byte, is written into 'str' starting at 'offset' up to the maximum string length 'len'.
    The offset facilitates stepwise appending to a string without adjusting the length parameter
-   In contrast with snprintf, at most (len - 1) bytes, including a null, are written, thus the actual buffer length can be passed.
-   Also, the number of chars - excluding the null - actually written is returned. Example:
+
+   In contrast with snprintf, at most (len - 1) bytes are written and a null always appended, thus the actual buffer length can be passed.
+   The number of chars - excluding the null - actually written is returned. Example:
 
    char buffer[Buf_len]
    unsigned int count;
@@ -31,12 +38,13 @@
    conversion is performed
    negative values are converted as positive and sign prepended
    zero values are handled specially
+   padding and decimal separators are added at the end
  */
 
 #define Mini_printf_float_formats 0 // %f %g %a
 
 #include <errno.h> // %m
-#include <limits.h>
+#include <limits.h> // long_max
 
 #if Mini_printf_float_formats > 0
  #include <float.h> // mant-dig
@@ -50,6 +58,8 @@
 #include "base.h"
 
 #include "printf.h"
+
+#include <unistd.h>
 
 #define Maxfmt 256
 
@@ -83,7 +93,7 @@ enum Packed8 Fmt {
   // 0-9
   Dig0,Dig1,Dig2,Dig3,Dig4,Dig5,Dig6,Dig7,Dig8,Dig9,
 
-  Flgdot3=64,
+  Flgsep=64,
 
   Fmtc,Fmts,Fmtm,
 
@@ -107,12 +117,11 @@ enum Packed8 Cnv {
   // derived
   Cnvlu,Cnvllu,
   Cnvle,
-  Cnvju,
-  Cnvln
+  Cnvju
 };
 
-static const char hextab[16] = "0123456789abcdef";
-static const char Hextab[16] = "0123456789ABCDEF";
+static const ub1 hextab[16] = "0123456789abcdef";
+static const ub1 Hextab[16] = "0123456789ABCDEF";
 
 // %u
 static ub1 *ucnv(ub1 *end,unsigned int x)
@@ -124,7 +133,7 @@ static ub1 *ucnv(ub1 *end,unsigned int x)
 // %x
 static ub1 *hexcnv(ub1 *end,unsigned int x,ub1 Case)
 {
-  const char *tab = Case ? Hextab : hextab;
+  const unsigned char *tab = Case ? Hextab : hextab;
 
   do {
     *--end = tab[x & 0xf];
@@ -149,7 +158,7 @@ static ub1 *xcnv(ub1 *end,unsigned int x,enum Radix rdx,enum Fmt flags)
   return end;
 }
 
-static const char cnvtab[200] =
+static const unsigned char cnvtab[200] =
   "00010203040506070809"
   "10111213141516171819"
   "20212223242526272829"
@@ -165,7 +174,7 @@ static const char cnvtab[200] =
 // %lu
 static ub1 *ulcnv(ub1 *end,unsigned long x)
 {
-  cchar *p;
+  const unsigned char *p;
 
   if (x == 0) { *--end = '0'; return end; }
 
@@ -179,10 +188,10 @@ static ub1 *ulcnv(ub1 *end,unsigned long x)
   return end;
 }
 
-// as above, l mod
+// %lx
 static ub1 *hexlcnv(ub1 *end,unsigned long x,ub1 Case)
 {
-  const char *tab = Case ? Hextab : hextab;
+  const unsigned char *tab = Case ? Hextab : hextab;
 
   do {
     *--end = tab[x & 0xf];
@@ -190,6 +199,7 @@ static ub1 *hexlcnv(ub1 *end,unsigned long x,ub1 Case)
    return end;
 }
 
+// %lo %lb
 static ub1 *xlcnv(ub1 *end,unsigned long x,enum Radix rdx,enum Fmt flags)
 {
   ub1 msk=1,shr=1;
@@ -210,7 +220,7 @@ static ub1 *xlcnv(ub1 *end,unsigned long x,enum Radix rdx,enum Fmt flags)
 // ll mod
 static ub1 *ullcnv(ub1 *end,unsigned long long x)
 {
-  cchar *p;
+  const unsigned char *p;
   ub4 n = 0;
 
   if (x == 0) { *--end = '0'; return end; }
@@ -227,7 +237,7 @@ static ub1 *ullcnv(ub1 *end,unsigned long long x)
 
 static ub1 *hexllcnv(ub1 *end,unsigned long long x,ub1 Case)
 {
-  const char *tab = Case ? Hextab : hextab;
+  const unsigned char *tab = Case ? Hextab : hextab;
 
   do {
     *--end = tab[x & 0xf];
@@ -250,29 +260,32 @@ static ub1 *xllcnv(ub1 *end,unsigned long long x,enum Radix rdx,enum Fmt flags,u
   if ( (flags & Flgalt) && *end != '0') *--end = '0';
   return end;
 }
-#else
+#elif Mini_printf_float_formats > 0
   #define ullcnv(end,x) ulcnv(end,x)
   #define hexllcnv(end,x,case) hexlcnv(end,x,case)
 #endif
 
 // human-readable %u, 2.3G
-static ub1 *hrcnv(ub1 *end,ub4 x1,ub4 x2,char scale)
+static ub1 *hrcnv(ub1 *end,ub4 x1,ub4 x2,ub1 scale)
 {
   *--end = scale;
   *--end = ' ';
 
-  x2 = (x2 & 0x3ff) / 100;
+  x2 &= 0x3ff;
+  if (x2 > 999) { x1++; x2 = 0; }
+  else x2 /= 100;
 
-  *--end = (ub1)min(x2,9) + '0';
-  *--end = '.';
-
+  if (x2) {
+    *--end = (ub1)x2 + '0';
+    *--end = '.';
+  }
   return ucnv(end,x1);
 }
 
 static ub1 *Ucnv(ub1 *end,ub4 x)
 {
   ub4 x1,x2;
-  char scale;
+  ub1 scale;
 
   if (x >= 1024u * 1024u * 1024u) { x1 = x >> 30; x2 = x >> 20; scale = 'G'; }
   else if (x >= 1024u * 1024u) { x1 = x >> 20; x2 = x >> 10; scale = 'M'; }
@@ -288,7 +301,7 @@ static ub1 *Ucnv(ub1 *end,ub4 x)
 static ub1 *Ulcnv(ub1 *end,unsigned long x)
 {
   ub4 x1,x2;
-  char scale;
+  ub1 scale;
   ub2 shift;
 
   if (x >= (1ul << 60)) { shift = 60; scale = 'E'; }
@@ -308,7 +321,7 @@ static ub1 *Ulcnv(ub1 *end,unsigned long x)
 // for %f
 static ub1 *ullcnv_dot(ub1 *end,unsigned long long x,ub4 dotpos)
 {
-  cchar *p;
+  const unsigned char *p;
   ub4 n = 0;
 
   if (x == 0) { *--end = '0'; return end; }
@@ -414,7 +427,8 @@ static ub1 *ecnv(ub1 *end,double x,enum Fmt flags,ub2 prec)
   imant = (unsigned long long)mant;
   if (xmant >= 0.5) imant++;
 
-  if (exp < 0) { neg = 1; exp = -exp;
+  if (exp < 0) {
+    neg = 1; exp = -exp;
   } else neg = 0;
   end = ucnv(end,exp);
   *--end = 'e';
@@ -468,8 +482,6 @@ static ub1 *acnv(ub1 *end,double x,enum Fmt flags,ub2 prec,ub1 Case)
 
 #endif // Mini_printf_float_formats
 
-// enum Lenmod { L_none,L_hh,L_h,L_l,L_ll,L_j,L_z,L_t,L_w,L_wf,L_L,L_H,L_D,L_DD };
-
 static const enum Fmt fmtmap[128] = { // 'parse' format template
   [0] = Fmteof,
 
@@ -480,7 +492,7 @@ static const enum Fmt fmtmap[128] = { // 'parse' format template
   ['#'] = Flgalt,
   ['0'] = Dig0,
   ['I'] = Flghr,
-  ['\''] = Flgdot3,
+  ['\''] = Flgsep,
 
   ['.'] = Fmtdot,
   ['*'] = Fmtast,
@@ -517,20 +529,16 @@ static const enum Fmt fmtmap[128] = { // 'parse' format template
   ['%'] = Fmtpct
 };
 
-static ub1 modwtab[129] = {0};
-
 // writes into dst + pos, upto dst + dlen from fmt and args. Always zero-terminates. Returns #chars written
 ub4 mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
 {
   // width and precision
-  ub2 wid;
-  ub4 prec,mindig,P,pad0,slen,sndx;
+  ub4 wid,prec,mindig,P,pad0,slen,sndx;
 
   // modifiers
   // enum Lenmod mods;
-  ub2 modw = 0;
+  ub4 modw = 0;
   ub1 modl,modh;
-  bool modwf;
   ub1 modD;
 
   // cnv specs
@@ -539,23 +547,28 @@ ub4 mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
   enum Radix rdx;
 
   // flags
-  enum Fmt flags;
+  enum Fmt flags,nxflags=0;
   ub1 sign;
   bool isneg,iszero;
-  bool flgdon;
+  bool flgdon,dotseen;
   ub1 Case,casemsk;
 
   // args
   sb4 s4=0;
+  long s8=0;
   ub4 u4=0;
-  ub8 u8=0;
+  unsigned long u8=0;
   uintmax_t uj=0;
+#if LLONG_MAX > LONG_MAX
+  unsigned long long ull;
+#endif
 
   double f8=0;
   long double lf8;
   int fpclas = 0;
 
   void *vp=nil;
+  unsigned int *uip;
   const char *p8;
   char cc[2];
 
@@ -569,10 +582,10 @@ ub4 mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
   int local_err = 0;
   ub4 pi=0;
   ub2 dig,grp;
-  ub1 x1;
   bool simple;
 
-  unsigned char c,d;
+  unsigned char c;
+  char d;
 
   ub4 len,xlen;
   ub4 sorg,padorg;
@@ -586,89 +599,86 @@ ub4 mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
 
  while (pos + n + 2 < dlen) {
 
-  c = p[pi++];
+  c = (ub1)p[pi++];
 
 // all conversions
  if (c == '%') {
   cnv = Cnvinv;
   prec = hi32;
-  wid = hi16;
+  wid = hi32;
   mindig = hi32;
-  // mods = L_none;
   modl = modh = modD = 0;
   mod = 0;
-  flags = 0;
+  flags = nxflags;
+  nxflags = 0;
   rdx = Radixdec;
   sign = 0;
   flgdon = 0;
+  dotseen = 0;
   Case = 0;
   simple = 1;
 
  do { // while cnv
-  c = p[pi++];
+  c = (ub1)p[pi++];
 
   if (c < 128) fx = fmtmap[c];
   else fx = Fmtinv;
 
   switch (fx) {
    // flags:
-   case Flgleft: case Flgpls: case Flgws: case Flgalt: case Flgdot3: case Flghr: case Flgpad0:
+   case Flgleft: Fallthrough
+   case Flgpls: case Flgws: case Flgalt: case Flgsep: case Flghr:
      simple = 0;
      flags |= fx; // check flag assignment
      break;
 
    // width and precision
-   case Dig0: if (flgdon == 0) { flags |= Flgpad0; break; } Fallthrough
-
+   case Dig0: if (flgdon == 0) flags |= Flgpad0; flgdon = 1; Fallthrough
    case Dig1: case Dig2: case Dig3: case Dig4: case Dig5: case Dig6: case Dig7: case Dig8: case Dig9:
-     if (flgdon) break;
+     flgdon = 1;
 
      u4 = fx - Dig0;
-     while ( (c = p[pi]) >= '0' && c <= '9') {
-       u4 = (u4 & hi28) * 10 + (c - '0');
-       pi++;
+     if (dotseen) prec = prec * 10 + u4;
+     else {
+       if (wid == hi32) wid = u4;
+       else wid = wid * 10 + u4;
      }
-
-     if (mod == Modw) { // wN
-       modw = (ub2)min(u4,sizeof(modwtab)-1);
-       break;
-     }
-
      flgdon = 1; // no more flags
-
-     if (wid == hi16) wid = (ub2)u4; else prec = u4;
-     if (u4 > 1) simple = 0;
      break;
 
    case Fmtdot: // between width and precision
-     flgdon = 1;
-     if (wid == hi16) wid = 0;
+     dotseen = flgdon = 1;
      prec = 0;
      break;
 
-  // %*.*d
-   case Fmtast: flgdon = 1; // no more flags
-             s4 = va_arg(ap,int);
-             if (wid == hi16) {
-               if (s4 < 0) { wid = (ub2)-s4; flags |= Flgleft; }
-               else wid = (ub2)s4;
-               if (wid > 1) simple = 0;
-             } else if (s4 >= 0) {
-               prec = u4;
-               if (prec > 1) simple = 0;
-             }
-             break;
+   case Fmtast: // %*.*d
+     flgdon = 1;
+     s4 = va_arg(ap,int);
+     if (dotseen) {
+       if (s4 >= 0) {
+         prec = (ub4)s4;
+         simple = 0;
+       }
+     } else {
+       dotseen = 1;
+       if (s4 < 0) { wid = (ub4)-s4; flags |= Flgleft; }
+       else wid = (ub4)s4;
+       if (wid > 1) simple = 0;
+     }
+     break;
 
    // l, h and D modifiers
    case Modh: modh = (modh + 1) & 7; break;
    case Modl:  modl = (modl + 1) & 7; break;
    case ModD:  modD = (modD + 1) & 3; break;
 
-  // wN
+  // c23 wN
    case Modw:
-     modw = 0; modwf = 0;
-     if (p[pi] == 'f') { modwf = 1; pi++; }
+     if (p[pi] == 'f') pi++; // ignore
+     modw = 0;
+     while ( (c = p[pi]) >= '1' && c <= '9') { modw = (modw & hi16) * 10 + c - '0'; pi++; }
      Fallthrough
+
    case Modj:
    case Modz:
    case Modt:
@@ -676,8 +686,8 @@ ub4 mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
    case ModL: mod = fx; break;
 
    // integer conversions
-   case Fmtd: sign = 1; Fallthrough
    case Fmtc: cnv = Cnvc; break;
+   case Fmtd: sign = 1; Fallthrough
    case Fmtu: cnv = Cnvu; break;
    case FmtB: Case = 1; Fallthrough
    case Fmtb: rdx = Radixbin; cnv = Cnvu; break;
@@ -697,12 +707,12 @@ ub4 mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
    // misc
    case Fmtp: cnv = Cnvu; rdx = Radixhex; mod = Modz; flags |= Flgalt; break;
 
-   case Fmtn: break;
+   case Fmtn: cnv = Cnvn; break;
 
-   case Fmtpct: dst[n++] = c; break;
+   case Fmtpct: dst[n++] = (char)c; break;
 
-   case Fmtinv: dst[n++] = '%'; dst[n++] = c; dst[n++] = '!'; break;
-   case Fmteof: break;
+   case Fmtinv: dst[n++] = '%'; dst[n++] = (char)c; dst[n++] = '!'; break;
+   case Fmteof: case Flgpad0: break;
   } // switch fx
 
   if (cnv == Cnve) {
@@ -714,52 +724,57 @@ ub4 mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
 
   } while (fx && fx < Fmtc); // end at cnvspec
 
-  if (p[pi] == '`') {
+  if (p[pi] == '`') { // nonstandard human-readable ints
     if (cnv == Cnvu) { pi++; flags |= Flghr; }
   }
 
   // apply modifiers
-  switch (cnv) {
-   case Cnvu:
-     if (mod == Modw) {
-       x1 = modwtab[modw];
-       modl = x1 >> 3; modh = x1 & 7;
-     }
-#if ULLONG_MAX > ULONG_MAX
-     if (modl == 1) cnv = Cnvlu;
-     else if (modl) cnv = Cnvllu;
+  if  (cnv == Cnvu) {
+    if (mod == Modw) {
+      switch (modw) {
+        case 8: modh = 2; break;
+        case 16:  modh = 1; break;
+        case 32: if (sizeof(long) == 32) modl = 1; break;
+        case 64:if (sizeof(long) == 32) modl = 2; else modl = 1; break;
+        case 128: modl = 2; break;
+      }
+    }
+#if LLONG_MAX > LONG_MAX
+     if (modl == 1) cnv = Cnvlu; // ld
+     else if (modl) cnv = Cnvllu; // lld
 #else
      if (modl) cnv = Cnvlu;
 #endif
 
 #if SIZE_MAX > UINT_MAX
-     else if (mod == Modz) cnv = Cnvlu;
+     else if (mod == Modz) cnv = Cnvlu; // zd
 #endif
 
 #if PTRDIFF_MAX > INT_MAX
-     else if (mod == Modt) cnv = Cnvlu;
+     else if (mod == Modt) cnv = Cnvlu; // td
 #endif
 
-     else if (mod == Modj ) cnv = Cnvju;
+     else if (mod == Modj ) cnv = Cnvju; // jd
+
      if (prec == hi32) prec = 1;
      else {
-       flags &= (ub1)~Flgpad0;
+       flags = flags & ~Flgpad0;
        if (prec > Maxfmt - 32) prec = Maxfmt - 32;
      }
      mindig = prec;
-     break;
 
-   case Cnve:
+  } else if (cnv == Cnve) { // Cnvu
+
      sign = 1;
 #if Mini_printf_float_formats > 0
  #if LDBL_MANT_DIG > DBL_MANT_DIG
      if (mod == ModL) cnv = Cnvle;
  #endif
 #endif
-   break;
 
-   default: flags &= ~(Flgpad0 | Flgdot3); // %s
-  } // each cnvspec
+  } else {
+    flags = flags & ~(Flgpad0 | Flgsep); // %s
+  } // each base cnvspec
 
   isneg = 0; iszero = 0;
   casemsk = Case ? 0 : 0x20;
@@ -771,7 +786,7 @@ ub4 mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
    case Cnvc: // %c
      s4 = va_arg(ap,int);
      if (simple) {
-       dst[n++] = (unsigned char)s4;
+       dst[n++] = (char)s4;
        cnv = Cnvinv;
      } else {
        *cc = (char)s4; cc[1] = 0;
@@ -782,7 +797,10 @@ ub4 mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
    case Cnvu:    // %u %x %o %b
      u4 = va_arg(ap,unsigned int);
      iszero = (u4 == 0);
-     if (sign && (sb4)u4 < 0) { u4 = -(sb4)u4; isneg = 1; }
+     if (sign) {
+       s4 = (sb4)u4;
+       if (s4 < 0) { u4 = (ub4)-s4; isneg = 1; }
+     }
      if (modh == 1) u4 = (unsigned short)u4;
      else if (modh) u4 = (unsigned char)u4;
    break;
@@ -790,26 +808,29 @@ ub4 mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
    case Cnvlu: // %lu
      u8 = va_arg(ap,unsigned long);
      iszero = (u8 == 0);
-     if (sign && (sb8)u8 < 0) { u8 = -(sb8)u8; isneg = 1; }
+     if (sign) {
+       s8 = (sb8)u8;
+       if (s8 < 0) { u8 = (ub8)-s8; isneg = 1; }
+     }
      if (u8 <= UINT_MAX) { u4 = (ub4)u8; cnv = Cnvu; }
      break;
 
-#if ULLONG_MAX > ULONG_MAX
    case Cnvllu: // %llu
+#if LLONG_MAX > LONG_MAX
      ull = va_arg(ap,unsigned long long);
      iszero = (ull == 0);
-     if (sign && (long long)ull < 0) { ull = -(sbll)ull; isneg = 1; }
+     if (sign && (long long)ull < 0) { ull = -(long long)ull; isneg = 1; }
      if (ull <= UINT_MAX) { u4 = (ub4)ull; cnv = Cnvu; }
      else if (ull <= ULONG_MAX) { u8 = (ub8)ull; cnv = Cnvlu; }
-     break;
 #endif
+     break;
 
    case Cnvju: // %ju
      uj = va_arg(ap,uintmax_t);
      iszero = (uj == 0);
-     if (sign && (long long)uj < 0) { uj = -(intmax_t)uj; isneg = 1; }
+     if (sign && (long long)uj < 0) { uj = (unsigned long long)-(intmax_t)uj; isneg = 1; }
      if (uj <= hi32) { u4 = (ub4)uj; cnv = Cnvu; }
-     else cnv = Cnvllu;
+     else cnv = sizeof(long) == sizeof(long long) ? Cnvlu : Cnvllu;
      break;
 
    case Cnve:    // %f,e
@@ -844,22 +865,29 @@ ub4 mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
    case Cnvm: // %m -> 'no such file: 2'
      local_err = errno;
      if (local_err) {
-       org = ucnv(end,local_err);
-       *--org = ' '; *--org = ':';
        p8 = strerror(local_err);
-     } else p8 = "(errno 0)";
-     while (org > cnvbuf && (*--org = *p8++) ) ;
+       u4 = (ub4)strlen(p8);
+       if (u4 + 8 > end - cnvbuf) u4 = (ub4)(end - cnvbuf - 8);
+       org = end - u4;
+       memcpy(org,p8,u4);
+       *--org = ' ';
+       if (local_err < 0) u4 = (ub4)-local_err;
+       else u4 = (ub4)local_err;
+       org = ucnv(org,u4);
+       if (local_err < 0) *--org = '-';
+       *--org = ' '; *--org = ':';
+     }
      cnv = Cnvinv;
      break;
 
-   default: break;
+   case Cnvinv: break;
   } // get args
 
   // print
   if (iszero) { // Cnvu except %p
-    flags &= ~Flgalt;
+    flags = flags & ~Flgalt;
     if (prec == 0) {
-      if (wid == hi16 || wid == 0) cnv = Cnvinv;
+      if (wid == hi32 || wid == 0) cnv = Cnvinv;
       else { cnv = Cnvs; vp = ""; }
     } else if (simple) { dst[n++] = '0'; cnv = Cnvinv; }
   }
@@ -867,7 +895,7 @@ ub4 mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
   switch (cnv) {
 
    case Cnvu:
-     if (rdx == Radixhex && u4 <= 9) flags &= (ub1)~Flgalt;
+     if (rdx == Radixhex && u4 <= 9) flags = flags & ~Flgalt;
      if (iszero) *--org = '0';
      else {
        if (flags & Flghr) org = Ucnv(end,u4);
@@ -875,7 +903,8 @@ ub4 mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
        else if (rdx == Radixhex) org = hexcnv(end,u4,Case);
        else org = xcnv(end,u4,rdx,flags);
        if (simple && org + 1 == end) {
-          dst[n++] = *org; org = end;
+         if (isneg) dst[n++] = '-';
+          dst[n++] = (char)*org; org = end;
        }
      }
    break;
@@ -925,31 +954,36 @@ ub4 mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
       break;
 
    case Cnvn:
-   case Cnvln:
+
      if (modl == 1) *(unsigned long *)vp = n;
      else if (modl) *(unsigned long long *)vp = n;
      else if (modh == 1) *(unsigned short *)vp = (ub2)n;
      else if (modh) *(unsigned char *)vp = (ub1)n;
+     else {
+       uip = (unsigned int *)vp;
+       if (*uip == Printf_dot) nxflags = Flgsep; // comnpatibility hack to get %'x and %'b
+       else *uip = n;
+     }
      break;
 
    case Cnvs:
      if (vp == nil) vp = "(nil)";
      p8 = (const char *)vp;
      slen = 0;
-     if (wid != hi16 && wid) {
+     if (wid != hi32 && wid) {
        sndx = 0;
        while (slen < prec && slen < wid && p8[sndx++]) slen++; // get length
-       if (wid <= slen) wid = hi16;
+       if (wid <= slen) wid = hi32;
      }
 
-     if (wid != hi16 && wid > slen) { // pad
+     if (wid != hi32 && wid > slen) { // pad
        if ((flags & Flgleft)) { sorg = n; padorg = n + slen; }
        else { sorg = n + wid - slen; padorg = n; }
        memcpy(dst + sorg,p8,slen);
        memset(dst + padorg,' ',wid - slen);
        n += wid;
      } else {
-       while (prec && (d = *p8++) ) { dst[n++] = d; prec--; }
+       while (prec && (d = *p8++ ) ) { dst[n++] = d; prec--; }
      }
      break;
 
@@ -959,7 +993,7 @@ ub4 mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
   len = min( (ub4)(end - org),dlen - n - pos);
   if (len) {
     if (mindig != hi32 && mindig > len) pad0 = mindig;
-    else if ( (flags & Flgpad0) && wid != hi16) { pad0 = wid; wid = hi16; }
+    else if ( (flags & Flgpad0) && wid != hi32) { pad0 = wid; wid = hi32; }
     else pad0 = 1;
     xlen = len;
     if (isneg || (flags & (Flgws | Flgpls) )) xlen++;
@@ -967,15 +1001,17 @@ ub4 mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
 
     while (org > cnvbuf + 6 && pad0-- > xlen) *--org = '0'; // minimum number of digits for int or pad with zero for int/float
 
-    // dotted-decima
-    if  (flags & Flgdot3) {
+    // digit grouping: 3 for decimal, 4 for hex and bin
+    if  (flags & Flgsep) {
       org2 = org; end2 = end;
       end = org = cnvbuf2 + Maxfmt;
-      dig = 0; grp = rdx == Radixdec ? 3 : 4;
+      dig = 0;
+      if (rdx == Radixdec) { grp = 3; d = '.'; }
+      else { grp = 4; d = '_'; }
       do {
-        *--org = *--end2;
-        if (dig == grp) { *--org = '_'; dig = 0; }
+        if (dig == grp) { *--org = d; dig = 1; }
         else dig++;
+        *--org = *--end2;
       } while (org > cnvbuf2 + 6 && end2 > org2);
     }
     if ( (cnv == Cnvu || cnv == Cnve) && (flags & Flgalt) ) {
@@ -993,13 +1029,13 @@ ub4 mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
       else if  ((flags & Flgws)) *--org = ' ';
     }
     len = min( (ub4)(end - org),dlen - n - pos);
-    if (wid != hi16 && wid > len && (flags & Flgleft)) {
+    if (wid != hi32 && wid > len && !(flags & Flgleft)) { // pad
       wid -= len;
       memset(dst + n,' ',wid); n += wid;
       len = min( (ub4)(end - org),dlen - n - pos);
     }
     memcpy(dst + n,org,len); n += len;
-    if (wid != hi16 && wid > len && !(flags & Flgleft)) {
+    if (wid != hi32 && wid > len && (flags & Flgleft)) {
       wid -= len;
       memset(dst + n,' ',wid); n += wid;
     }
@@ -1007,7 +1043,7 @@ ub4 mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
 
   if (fx == Fmteof) break;
  } else { // lit
-   dst[n] = c;
+   dst[n] = (char)c;
    if (c == 0) return n;
    n++;
  }
@@ -1018,7 +1054,7 @@ ub4 mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
  return n;
 } // minprint
 
-ub4 _Printf(4,5) mini_snprintf(char *dst,ub4 pos,ub4 len,cchar *fmt,...)
+ub4 Printf(4,5) snprintf_mini(char *dst,ub4 pos,ub4 len,cchar *fmt,...)
 {
   va_list ap;
   ub4 n;
@@ -1028,6 +1064,8 @@ ub4 _Printf(4,5) mini_snprintf(char *dst,ub4 pos,ub4 len,cchar *fmt,...)
   va_start(ap,fmt);
   n = mini_vsnprintf(dst,pos,len,fmt,ap);
   va_end(ap);
+
+  dst[pos + n] = 0;
 
   return n;
 }
@@ -1043,7 +1081,7 @@ static void wrch(char c)
   write(1,&c,1);
 }
 
-static bool _Printf(3,4) check(int line,cchar *exp,cchar *fmt,...)
+static bool Printf(3,4) check(int line,cchar *exp,cchar *fmt,...)
 {
   va_list ap;
   ub1 buf[Testbuf];
@@ -1060,12 +1098,21 @@ static bool _Printf(3,4) check(int line,cchar *exp,cchar *fmt,...)
 
   if (memcmp(exp,buf,explen+1) == 0 && pos == explen) return 0;
 
+  // do not use printf to format - we know it is broken if we come here
   end = ucnv(tmp + 16,line);
   write(1,end,tmp + 16 - end);
   wrch(' ');
 
+  end = ucnv(tmp + 16,pos);
+  write(1,end,tmp + 16 - end);
+  wrch(' ');
+
+  end = ucnv(tmp + 16,explen);
+  write(1,end,tmp + 16 - end);
+  wrch(' ');
+
   write(1,"exp: '",6); write(1,exp,explen);  wrch(sq); wrch('\n');
-  write(1,"    ",4);
+  write(1,"     ",5);
   write(1,"act: '",6); write(1,buf,pos);  wrch(sq); wrch('\n');
   wrch('\n');
   return 1;
@@ -1074,8 +1121,27 @@ static bool _Printf(3,4) check(int line,cchar *exp,cchar *fmt,...)
 static int test(void)
 {
   bool rv = 0;
+  char buf[32];
+  ub4 pos;
+
+  pos = snprintf_mini(buf,0,16,"123 %s 456","12345678901234567890");
+  if (pos != 16 || memcmp(buf,"123 123456789012",16)) {
+    wrch('"'); write(1,buf,pos); wrch('"'); wrch('\n'); rv = __LINE__;
+  }
 
   rv |= check(__LINE__,"abc 'ghi' def","abc '%s' def","ghi");
+
+  rv |= check(__LINE__,"abc '1234567890' def","abc '%.10s' def","123456789012345678901234567890123456789");
+
+  rv |= check(__LINE__,"abc 'gh' def","abc '%.2s' def","ghi");
+  rv |= check(__LINE__,"abc 'ghi             ' def","abc '%-16s' def","ghi");
+
+  // rv |= check(__LINE__,"abc '34' def","abc '%w8x' def",0x1234);
+
+  rv |= check(__LINE__,"101","%b",5);
+  rv |= check(__LINE__,"0101","%llb",0x123456789abcdef0ull);
+
+  return  rv;
 
   rv |= check(__LINE__,"abc '1.2000' ghi","abc '%f' ghi",1.2);
   rv |= check(__LINE__,"abc '1.2000' ghi","abc '%.18f' ghi",1.2);
@@ -1098,37 +1164,8 @@ static int test(void)
   return rv;
 }
 
-static int generate(void)
-{
-  char buf[Testbuf];
-  ub4 i,pos;
-  ub4 wtab = 129;
-  ub1 l,h;
-
-  // long double tenlog2 = 0.3.0102999566398119521373889472449302676818988146210854131042746112
-
-  pos = mini_snprintf(buf,0,Testbuf,"\nstatic ub1 modwtab[%u] = {\n",wtab);
-  for (i = 0; i < wtab; i++) {
-    l = h = 0;
-    if (i <= 8) h = 2;
-    else if (i <= 16) h = 1;
-    else if (i <= 32) ;
-    else if (i <= 64) l = 1;
-    else if (i <= 128) {
-      if (sizeof(long long) == 16) l = 2;
-      else l = 3;
-   }
-    pos += mini_snprintf(buf,pos,Testbuf,"%x",(l << 3) | h);
-  }
-  buf[pos++] = '\n';
-  write(1,buf,pos);
-  return 0;
-}
-
 int main(int argc,char *argv[])
 {
-  if (argc > 1 && strcmp(argv[1],"gen") == 0) return generate();
-
   return test();
 }
 #endif

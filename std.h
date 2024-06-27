@@ -1,4 +1,4 @@
-/*std.h - standard library
+/*std.h - standard library interface aka stdlib.h bindings
 
    This file is part of yalloc, yet another memory allocator with emphasis on efficiency and compactness.
 
@@ -6,87 +6,118 @@
    SPDX-License-Identifier: GPL-3.0-or-later
 */
 
-static size_t zeroblock;
+#undef Logfile
+#define Logfile Fstd
 
-void *malloc(size_t n)
+void *malloc(size_t len)
 {
   void *p;
 
-  // oswrite(2,"malloc\n",7);
-
-  if (likely(n != 0)) {
-    if (unlikely(n > (Maxvmsiz >> 2) )) return oom(__LINE__,Fstd,n,1);
-    p = yalloc(n,0);
-#ifdef VALGRIND
-    if (p) {
-      vg_mem_undef(p,n)
-    }
-#endif
-  } else {
-    p = &zeroblock;
-    ylog(Fstd,"alloc 0 = %p",p);
-    vg_mem_noaccess(p,sizeof(zeroblock))
+#if Yal_prep_TLS
+  if (unlikely(yal_tls_inited == 0)) {
+    ylog(Lalloc,"boot malloc %zu",len)
+    return __je_bootstrap_malloc(len);
   }
+#endif
+
+  p = yalloc(len,0,Lalloc);
+
   return p;
 }
 
 void free(void *p)
 {
-  if (p == nil) return;
-  if (p == &zeroblock) {
-    if (zeroblock != 0) error(__LINE__,Fstd,"written to malloc(0) block (%zx)",zeroblock);
-    return;
-  }
-  yfree(p,0);
-}
-
-void free_sized(void *p,Unused size_t n)
-{
-  free(p);
+  if (likely(p != nil)) yfree(p,0);
 }
 
 void *calloc (size_t count, size_t size)
 {
   void *p;
-  size_t n;
+  size_t len,maxlen;
+  bool rv;
 
-  if ( (count | size) == 0) return malloc(0);
-
-#if SIZE_MAX == hi32
-  unsigned long long nn = (unsigned long long)count * size;
-  if (nn >= hi32) return oom(__LINE__,Fstd,count,size);
-  n = (size_t)n;
-#else
-  if (sat_mul(count,size,&n))  return oom(__LINE__,Fstd,count,size);
-  if (n > (Maxvmsiz >> 2) ) return oom(__LINE__,Fstd,count,size);
+#if Yal_prep_TLS
+  if (unlikely(yal_tls_inited == 0)) {
+    ylog(Lfree,"boot calloc %zu * %zu",count,size)
+    return __je_bootstrap_calloc(count,size);
+  }
 #endif
 
-  p = yalloc( (size_t)n,1);
-  if (p) {
-    vg_mem_def(p,n)
+#if SIZE_MAX == hi32
+  ub8 nn = (ub8)count * size;
+  if (unlikely(nn >= hi32)) return oom(nil,Fln,Lcalloc,count,size);
+  len = (size_t)len;
+#else
+  maxlen = 1ul << (Vmsize - 2);
+  rv = sat_mul(count,size,&len);
+  if (unlikely(rv != 0 || len > maxlen)) return oom(nil,Fln,Lcalloc,count,size);
+#endif
+
+#if Yal_enable_stats
+  if (unlikely(len == 0)) {
+    if (size == Yal_trigger_stats || size == Yal_trigger_stats_clear) {
+      yal_mstats(nil,1,0,size == Yal_trigger_stats_clear,"calloc(x)");
+      return &zeroblock;
+    }
   }
+#endif
+
+  p = yalloc(len,1,Lcalloc);
+
+#if Yal_enable_valgrind
+  if (len && p && vg_mem_isaccess(p,len)) { error(hb->errmsg,"calloc(%p) was previously allocated",p) return nil; }
+  vg_mem_def(p,len)
+#endif
+
   return p;
 }
 
 void *realloc(void *p,size_t newlen)
 {
-  if (p == nil) return malloc(newlen);
+  size_t maxlen;
+  void *q;
 
-  if (newlen == 0) {
-    free(p);
-    return nil;
+  ylog(Lreal,"realloc(%p,%zu)",p,newlen)
+
+#if Yal_prep_TLS
+  if (unlikely(yal_tls_inited == 0)) {
+    void *q = __je_bootstrap_malloc(newlen);
+    return q; // no oldlen available, not copied
   }
-  if (newlen > (Maxvmsiz >> 2) ) return oom(__LINE__,Fstd,newlen,1);
+#endif
 
-  return yrealloc(p,newlen);
+  if (p == nil) {
+    p = yalloc(newlen,0,Lreal);
+    return p;
+  }
+
+  if (unlikely(newlen == 0)) {
+    yfree(p,0);
+    return &zeroblock;
+  }
+  maxlen = 1ul << (Vmsize - 2);
+  if (unlikely(newlen >= maxlen)) return oom(nil,Fln,Lreal,newlen,1);
+
+  q = yrealloc(p,newlen);
+  ylog(Lreal,"realloc(%p,%zu) = %p",p,newlen,q)
+  // if (unlikely(q == nil)) { _yal_mstats(nil,1,0); exit(1); }
+  return q;
 }
 
 void *aligned_alloc(size_t align, size_t size)
 {
-  ub4 ord;
+  size_t maxlen;
 
-  if (size > (Maxvmsiz >> 1) || align > (Maxvmsiz >> 2) ) return oom(__LINE__,Fstd,size,1);
-  else if (size == 0) return malloc(0);
+#if Yal_prep_TLS
+  if (unlikely(yal_tls_inited == 0)) {
+    ylog(Lallocal,"boot aligned_alloc %zu",len)
+    return __je_bootstrap_malloc(len);
+  }
+#endif
+
+  if (size == 0) return yalloc(0,0,Lallocal);
+  maxlen = 1ul << (Vmsize - 2);
+  if (unlikely(size >= maxlen || align > maxlen)) return oom(nil,Fln,Lallocal,size,1);
   return yalloc_align(align,size);
 }
 
@@ -107,14 +138,14 @@ int posix_memalign(void **memptr, size_t align, size_t size)
 
 #ifdef _Yal_enable_c23
 
-void free_sized(void *ptr, Unused size_t size)
+void free_sized(void *ptr,size_t size)
 {
-  free(ptr,size);
+  if (likely(ptr != nil)) yfree(ptr,size);
 }
 
 void free_aligned_sized(void *ptr, size_t alignment, size_t size)
 {
-  free(ptr,size);
+  f (likely(ptr != nil)) yfree(ptr,size);
 }
 
 #endif
