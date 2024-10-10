@@ -1,0 +1,143 @@
+== Introduction
+*yalloc* is yet another memory allocator providing affordable safety in a compact package. +
+ +
+
+You can use it as a drop-in replacement for the system's malloc(), free() and related library functions. The behaviour is fully compatible with C11.
+
+Many memory allocators prioritize performance over safety aka security. Some others prioritize the other way around.
+Essential safety, such as detecting double and invalid frees, and safeguarding internal control structures from overwrinting, comes with unavoidable implementation cost. +
+ +
+ 
+yalloc's main goal is to provide such safety with low enough cost to make the added value affordable in terms of efficiency.
+Secondary goal is to keep implementation size, complexity and dependencies low.
+
+The main features of this allocator are :
+
+segregated metadata / no headers:: Metadata is kept separate from user data. This reduces the risk of metadata corruption and results in a more cache / TLB friendly layout
+
+double free and invalid free detection:: With configurable handling and reporting. Includes concurrent access from multiple threads.
+
+multithreading supported by nonblocking atomics::  creating heaps on-demand to avoid contention
+
+configurable statistics, tracing and diagnostics:: todo
+
+modest code size & complexity:: 10 KLOC including statistics, tests and dependencies
+
+good performance:: compares well in many link:https://github.com/daanx/mimalloc-bench[benchmarks]
+
+== Status
+Early alpha, no outstanding issues. +
+Most benchmarks and tests work on 64-bit Linux and MacOS and show decent results.
+Preliminary 32-bit Linux test passes
+Some synthetic tests show high memory usage
+
+== Prerequisites
+- 64 or 32 bit Unix-like operating system with mmap() support. Linux and MacOs tested.
+
+- C11 C compiler or C99 compiler with atomics support. If atomics are not available, free(p) and realloc(p,n) need to be called from the same thread p was allocated.
+
+yalloc has minimal OS dependencies and, as expected, quite minimal standard library dependencies.
+For diagnostics and statistics formatting, a miniature self-contained printf is included.
+
+== Building
+Review `config.h`. +
+
+The preferred way to build is :
+
+  ./build.sh
+
+If building otherwise, make sure first to run once :
+
+  ./configure
+
+Essentially, you need to compile the main yalloc.c module with the helper modules os.c and printf.c. e.g.
+
+  cc -c os.c printf.c configure.c
+  cc -o configure os.o printf.o configure.o && ./configure
+  cc -c yalloc.c os.c printf.c
+  cc -shared -o yalloc.so yalloc.o os.o printf.o
+
+== Using
+
+=== static linking, any platform
+  cc -o myprog [ your projct ] yalloc/{yalloc,os,printf}.o
+
+=== dynamic linking, Linux
+
+  LD_PRELOAD=/path/to/yalloc.so gcc -O -c lvm.c
+
+  gdb -iex "set exec-wrapper env LD_PRELOAD=./yalloc.so" --args python -c 'print(1+1)'
+
+=== idem, macos
+  DYLD_INSERT_LIBRARIES=yalloc.so 
+
+=== included in source
+Alternatively, you can include yalloc.c directly in your source, provided static identifiers will not conflict.
+
+== Diagnostics / troubleshooting
+
+=== Statistics
+You can enable support with compile time variable `Yal_enable_stats`. This will add minimal overhead.
+Set environment variable `Yalloc_stats` to print statistics at program exit.
+
+=== Tracing
+You can enable support with compile time variable `Yal_enable_trace`. This will add minimal overhead.
+Set environment variable `Yalloc_trace` to enable at runtime.
+
+=== Callsite reporting
+You can have file coordinates included in a trace by replacing malloc(len) with yal_alloc(len,tag) and enabling `Yal_enable_tag`
+This tag can contain encoded file coordinates or symbolic callsite label as enum
+
+- Enable Valgrind support and run `./vg myprog`
+
+- Build and run tests
+
+== Usage patterns
+Usage pattens can vary considerably. Some pattens align better with yalloc than others.
+
+- short-lived blocks, e.g. allocating and freeing a small number of blocks within a loop. Favourable
+
+- many similar-sized blocks, e.g. building a large graph. Favourable
+
+- allocating a high number of same-sized small blocks, then use them many times. Very favourable
+
+- free and realloc from another thread than the block was allocated. Less favourable due to double directory lookup
+
+- allocating blocks from a large size distribution. Popular sizes go in fixed-size bins, others into a bump allocator. Moderately favourable (more memory overhead)
+
+- creating a large number of threads, each allocating some blocks. With low contention, only a small number of heaps will be created. Higer meory usage.
+
+== Design
+
+A _heap_ is the toplevel structure to hold all user data and admin aka metadata.
+Memory ranges are obtained from the OS as large _regions_. Each region has separately mmap()ed user data and metadata.
+User blocks above a given size are mmap()ed directly, described by a virtual region. Initial regions are of a given size, subsequent regions of the same size class will be successively larger.
+
+Regions are described by a region descriptor table, similar to how multi-level page tables describe virtual memory. A single top-level directory holds entries to mid-level tables.
+These in turn hold entries to leaf tables. The latter holds a region pointer per OS memory page.
+free() and realloc() uses these to locate an entry, given the minimum region size. Valid pointers are guaranteed by leading to a region and being at a valid cell start.
+
+Within a region, user data is kept separate from admin aka metadata. This protects metadata from being overwriitten
+The user data is a single block, consisting of fixed-size cells. The metadata contains entries per cell.
+User blocks have no header or trailer. Consecutively allocated blocks are adjacent without a gap. This helps cache and TLB efficiency.
+Once a region becomes fully free, it is 'aged' gradually and eventually returned to the os. During this period, it can be reused for similar ort other size classes.
+
+Blocks are aligned following _weak alignment_ as in link:https://www.open-std.org/JTC1/SC22/WG14/www/docs/n2293.htm[C11 WG14 / N2293]
+Thus, small blocks follow the alignment of the largest type that fits in. 2=2 3=4 4=4 5=8 ...
+
+Freed blocks are held in a recycling bin aka freelist.. A subsequent malloc() of similar size hands these out most recently freed first.
+In additon, each cell has a 'free' marker used to detect double free.
+
+Multiple threads are supported by having each thread use a private heap during the call, from a pool of several heaps.
+The number of heaps is determined by detecting contention and grows on demand.
+Allocations are always local in a thread's own heap.
+If free / realloc cannot locate a block [in the local heap], a global region descriptor tabel is consulted. This table holds an aggregate region directory and is updated atomically.
+Each region contains a local and remote freelist. A free or realloc from the same thread is taken from the local freelist without atomics (except double-free detect) or locking.
+Free or realloc from a different thread is handled by adding it to the owner region's remote freelist.
+This is handled by a set of atomic compare-swap and a tiny, nonblocking interlock. A subsequent alloc request will inspect the local freelist first.
+If empty, the remote freelist is checked and a nonblocking opportunistic lock is used to remove the entry.
+For realloc(), the size can be obtained first. If a change is needed, a new block is allocated from the local heap, and the free of the original block is handled
+as with a free().
+
+Double-free detection is done using atomic compare-swap, to detect double or concurrent free / realloc in the presence of multiple threads.
+This is independent from the freelist binning described above. Without such check, a doubly freed block would result in the same block being handed out by subsequent mallocs of a similar size.
