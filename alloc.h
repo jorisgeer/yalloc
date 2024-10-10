@@ -12,9 +12,6 @@
 
 #define Logfile Falloc
 
-// How many free() calls between region trim. Must be pwr2 - 1
-static const ub4 regalloc_interval = 0xff;
-
 // large blocks. For align > 0, len is already adjusted
 static mpregion *yal_mmap(heapdesc *hd,heap *hb,size_t len,size_t align,enum Loc loc,ub4 fln)
 {

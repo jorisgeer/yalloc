@@ -236,7 +236,7 @@ static ub4 genconfig(cchar *name,ub4 pagebits,char *nowtim)
 
   pos +=  snprintf_mini(buf,pos,len,"#define Size_max %s\n\n",sizet);
 
-  pos += snprintf_mini(buf,pos,len,"static const ub4 global_sizes[4] = { %u,%u,%u,%u }; // int long llong ptr\n\n",intsiz,longsiz,llongsiz,ptrsiz);
+  pos += snprintf_mini(buf,pos,len,"static const unsigned int global_sizes[4] = { %u,%u,%u,%u }; // int long llong ptr\n\n",intsiz,longsiz,llongsiz,ptrsiz);
 
   pos +=  snprintf_mini(buf,pos,len,"#define Config_gen\n\n");
 
