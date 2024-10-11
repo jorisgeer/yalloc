@@ -68,8 +68,8 @@ static void sat_inc(unsigned int *a)
   }
   static Const int clzl(unsigned long x)
   {
-    int n = sizeof(long) * 8;
-    while ( (x & (1u << n)) == 0) n--;
+    int n = sizeof(long) * 8 - 1;
+    while ( (x & (1ul << n)) == 0) n--;
     return sizeof(long) * 8 - n;
   }
 #endif

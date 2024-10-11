@@ -10,7 +10,7 @@
 set -f
 set -eu
 
-tool=clang
+tool=guess
 dbg=0
 
 usage()
@@ -210,8 +210,9 @@ cc yalloc.o yalloc.c
 
 if [ $bldtst -ge 2 ]; then
   cc test.o test.c
-#  cc yaldum.o yaldum.c
+  cc yaldum.o yaldum.c
 fi
+
 if [ $bldtst -ge 1 ]; then
   ld test "test.o yalloc.o $objs"
 #  ld test_libc "test.o yaldum.o $objs"

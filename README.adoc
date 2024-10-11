@@ -111,9 +111,9 @@ Usage pattens can vary considerably. Some pattens align better with yalloc than 
 
 yalloc development is helped by using the following tools:
 
-link:https://valgrind.org[valgrind dynamic analyzer]
+link:https://valgrind.org[valgrind] - dynamic analyzer
 
-link:https://pvs-studio.com/en/pvs-studio/?utm_source=website&utm_medium=github&utm_campaign=open_source[static analyzer for C, C++, C#, and Java code]
+link:https://pvs-studio.com/en/pvs-studio/?utm_source=website&utm_medium=github&utm_campaign=open_source[PVS-Studio] - static analyzer for C, C++, C#, and Java code
 
 == Design
 
