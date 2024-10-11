@@ -252,12 +252,11 @@ static Hot void *alloc_heap(heapdesc *hd,heap *hb,size_t reqlen,size_t ulen,enum
       if (clascnt < threshold && clas < Clascnt - 3) { // size class not popular yet
         for (nx = 1; nx < 3; nx++) {
           nxclas = clas + nx;
-          ycheck(nil,loc,nxclas >= Clascnt,"class %u for len  %u out of range %u",nxclas,alen,Clascnt)
+          // ycheck(nil,loc,nxclas >= Clascnt,"class %u for len  %u out of range %u",nxclas,alen,Clascnt)
           if (hb->claslens[nxclas] < alen) continue;
           nxclasregs = hb->clasregs + nxclas * Clasregs;
           nxpos = hb->claspos[nxclas];
           ycheck(nil,loc,nxpos >= 32,"clas %u pos %u",clas,nxpos);
-          ycheck(nil,loc,nxpos >= Clascnt,"class %u for len  %u out of range %u",nxclas,alen,Clascnt)
           reg = nxclasregs[nxpos];
           if (reg) { // use a larger one
             clas = nxclas;
@@ -317,7 +316,6 @@ static Hot void *alloc_heap(heapdesc *hd,heap *hb,size_t reqlen,size_t ulen,enum
       hb->clasmsk[clas] = clasmsk;
     }
     pos = ctz(clasmsk);
-    ycheck(nil,loc,pos >= 32,"clas %u pos %u",clas,pos);
     ydbg3(loc,"clas %u pos %u msk %x",clas,pos,clasmsk);
     if (pos >= Clasregs) {
       ydbg3(loc,"clas %u wrap pos mask %x",clas,clasmsk);

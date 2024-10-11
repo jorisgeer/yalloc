@@ -55,7 +55,7 @@ static bool newbump(heap *hb,ub4 hid,bregion *reg,ub4 len,ub4 regpos,enum Rtype 
   reg->meta = meta;
   reg->cnt = celcnt;
   reg->freorg = freorg;
-  reg->tagorg = taglen ? tagorg : 0;
+  reg->tagorg = taglen ? tagorg : 0; // -V547 PVS-always-false
   reg->len = len;
   reg->typ = typ;
 

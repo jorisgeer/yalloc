@@ -182,8 +182,8 @@ static ub4 genconfig(cchar *name,ub4 pagebits,char *nowtim)
 
   info(L,"int %u long %u llong %u ptr %u",intsiz,longsiz,llongsiz,ptrsiz);
 
-  snprintf_mini(bck,0,len,"%s.bak",name);
-  rename(name,bck);
+  pos = snprintf_mini(bck,0,len,"%s.bak",name);
+  if (pos) rename(name,bck);
 
   if (sizeof(int) == 8) byte8 = "int";
   else if (sizeof(long) == 8) byte8 = "long";

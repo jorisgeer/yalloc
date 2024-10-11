@@ -606,11 +606,13 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
   sum.version = yal_version;
 
   // mini heaps and heapdesc stats
-  *buf = '\n';
-  pos = diagfln(buf,1,len,Fln);
-  pos += snprintf_mini(buf,pos,len,"%-2u                yalloc stats for %u %s` and %u %s`\n\n",hd->id,Atomget(global_tid,Monone) - 1u,"thread",Atomget(global_hid,Monone) - 1u,"heap");
-  oswrite(fd,buf,pos,Fln);
-  pos = 0;
+  if (print) {
+    *buf = '\n';
+    pos = diagfln(buf,1,len,Fln);
+    pos += snprintf_mini(buf,pos,len,"%-2u                yalloc stats for %u %s` and %u %s`\n\n",hd->id,Atomget(global_tid,Monone) - 1u,"thread",Atomget(global_hid,Monone) - 1u,"heap");
+    oswrite(fd,buf,pos,Fln);
+    pos = 0;
+  }
 
   xhd = Atomget(global_heapdescs,Monone);
   while (xhd) {
@@ -669,7 +671,7 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
     }
     xhd = xhd->nxt;
   }
-  if (pos) {
+  if (print && pos) {
     buf[pos++] = '\n';
     oswrite(fd,buf,pos,Fln);
     pos = 0;

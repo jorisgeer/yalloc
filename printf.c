@@ -844,7 +844,7 @@ ub4 Cold mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
     else if (prec > Maxfmt - 32) prec = Maxfmt - 32;
   }
 
-  } while (fx && fx < Fmtc); // end at cnvspec
+  } while (fx != 0 && fx < Fmtc); // end at cnvspec
 
   if (p[pi] == '`') { // nonstandard human-readable ints or plurals
     if (cnv == Cnvu || cnv == Cnvs) { pi++; flags |= Flghr; }

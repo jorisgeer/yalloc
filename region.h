@@ -134,7 +134,7 @@ static void setgregion(heap *hb,xregion *reg,size_t bas,size_t len,bool add)
     do {
       Atomseta(dir3 + pos3,xreg,Monone);
     } while (++pos3 < posend);
-  } while (org < end);
+  } while (org < end); // -V776 PVS inf loop false positive ?
 
   // dirver = Atomad(global_dirver,1,Moacqrel);
 
@@ -174,7 +174,7 @@ static bool setregion(heap *hb,xregion *reg,size_t bas,size_t len,bool add,enum 
 
   do {
     pos1 = (org >> shift1) & Dir1msk;
-    ycheck(1,Lnone,pos1 >= Dir1len,"pos1 %u above %u",pos1,Dir1len)
+    // ycheck(1,Lnone,pos1 >= Dir1len,"pos1 %u above %u",pos1,Dir1len)
     dir2 = dir1[pos1];
     if (dir2== nil) {
       dir2 = newdir(hb);
@@ -187,7 +187,7 @@ static bool setregion(heap *hb,xregion *reg,size_t bas,size_t len,bool add,enum 
     posend = (ub4)min(end - org + pos3,Dir3len);
     org += posend - pos3;
 
-    ycheck(1,Lnone,pos2 >= Dir2len,"pos1 %u above %u",pos2,Dir2len)
+    // ycheck(1,Lnone,pos2 >= Dir2len,"pos1 %u above %u",pos2,Dir2len)
     dir3 = dir2[pos2];
     if (dir3== nil) {
       dir3 = newleafdir(hb);
@@ -195,7 +195,6 @@ static bool setregion(heap *hb,xregion *reg,size_t bas,size_t len,bool add,enum 
       dir2[pos2] = dir3;
     }
     do {
-      ycheck(1,Lnone,dir3 == nil,"dir3 %zx",(size_t)dir3)
       ycheck(1,Lnone,pos3 >= Dir3len,"pos1 %u above %u",pos3,Dir3len)
       dir3[pos3] = xreg;
     } while (++pos3 < posend);
@@ -221,20 +220,20 @@ static Hot xregion *findregion(heap *hb,size_t ip)
   ip1 = ip >> shift1;
   pos1 = ip1 & Dir1msk;
 
-  ycheck(nil,Lnone,pos1 >= Dir1len,"pos1 %u above %u",pos1,Dir1len)
+  // ycheck(nil,Lnone,pos1 >= Dir1len,"pos1 %u above %u",pos1,Dir1len)
   dir2 = dir1[pos1];
 
   if (unlikely(dir2 == nil)) return nil;
 
   shift2= Vmbits - Dir1 - Dir2;
   pos2 = (ip >> shift2) & Dir2msk;
-  ycheck(nil,Lnone,pos2 >= Dir2len,"pos1 %u above %u",pos2,Dir2len)
+  // ycheck(nil,Lnone,pos2 >= Dir2len,"pos1 %u above %u",pos2,Dir2len)
   dir3 = dir2[pos2];
 
   if (unlikely(dir3 == nil)) return nil;
 
   pos3 = (ip >> Page) & Dir3msk;
-  ycheck(nil,Lnone,pos3 >= Dir3len,"pos1 %u above %u",pos3,Dir3len)
+  // ycheck(nil,Lnone,pos3 >= Dir3len,"pos1 %u above %u",pos3,Dir3len)
   reg = dir3[pos3];
 
   if (unlikely(reg == nil)) { ydbg2(0,"pos %u,%u,%u.%x %zx %zx %u",pos1,pos2,pos3,pos3,ip,ip & (Pagesize - 1),Pagesize); return nil; }
@@ -465,7 +464,7 @@ static region *newregion(heap *hb,ub4 order,size_t len,size_t metaulen,ub4 celle
 
     // remove from free reg list
     if (preg) {
-      ycheck(nil,0,preg->typ != Rslab,"region %u typ %d",preg->id,preg->typ);
+      ycheck(nil,0,preg->typ != Rslab,"region %u typ %s",preg->id,regnames[preg->typ]);
       preg->frenxt = reg->frenxt;
     } else hb->freeregs[order] = reg->frenxt;
 
@@ -508,7 +507,7 @@ static region *newregion(heap *hb,ub4 order,size_t len,size_t metaulen,ub4 celle
     if (hb->reglst == nil) hb->reglst = hb->regtrim = hb->regprv = reg;
     else {
       preg = hb->regprv;
-      ycheck(nil,0,preg->typ != Rslab,"region %u typ %d",preg->id,preg->typ);
+      ycheck(nil,0,preg->typ != Rslab,"region %u typ %s",preg->id,regnames[preg->typ]);
       preg->nxt = reg;
       hb->regprv = reg;
     }
@@ -594,7 +593,7 @@ static mpregion *newmpregion(heap *hb,size_t len)
   preg = trimreg = trimpreg = nil;
   iter = 50;
   while (reg && --iter) {
-    ycheck(nil,0,reg->typ != Rmmap,"region %u typ %d",reg->id,reg->typ);
+    ycheck(nil,0,reg->typ != Rmmap,"region %u typ %s",reg->id,regnames[reg->typ]);
     if (len <= reg->len && 4 * len > reg->len) break; // suitable size
     else if (reg->len == 0 && trimreg == nil) { trimreg = reg; trimpreg = preg; }
     preg = reg;
@@ -617,7 +616,7 @@ static mpregion *newmpregion(heap *hb,size_t len)
       hb->mpreglst = hb->mpregtrim = hb->mpregprv = reg;
     } else {
       preg = hb->mpregprv;
-      ycheck(nil,0,preg->typ != Rmmap,"region %u typ %d",preg->id,preg->typ);
+      ycheck(nil,0,preg->typ != Rmmap,"region %u typ %s",preg->id,regnames[preg->typ]);
       preg->nxt = reg;
       hb->mpregprv = reg;
     }
@@ -658,7 +657,7 @@ static mpregion *newmpregion(heap *hb,size_t len)
 
   // remove from free reg list
   if (preg) {
-    ycheck(nil,0,preg->typ != Rmmap,"region %u typ %d",preg->id,preg->typ);
+    ycheck(nil,0,preg->typ != Rmmap,"region %u typ %s",preg->id,regnames[preg->typ]);
     preg->frenxt = reg->frenxt;
   } else hb->freempregs[order] = reg->frenxt;
   reg->frenxt = nil;

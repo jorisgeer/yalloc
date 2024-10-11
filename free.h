@@ -120,17 +120,11 @@ static size_t free_remote(heapdesc *hd,xregion *reg,size_t ip,size_t reqlen,enum
     return ulen;
   } // Rmmap
 
+  // Rnone
   ypush(hd,Fln)
   hd->stat.invalid_frees++;
   errorctx(Fln,loc,"from heap %u",hid)
-  return error(loc,"region %u.%u from %u invalid mmap free(%zx) len %zu typ %u",reg->hid,reg->id,hid,ip,reg->len,typ);
-
-  ypush(hd,Fln)
-
-  error2(loc,Fln,"region %u type %u in heap %u from heap %u",reg->id,typ,hd->id,hd->id)
-
-  // Rnone
-  return 0;
+  return error(loc,"%s region %u.%u from %u invalid free(%zx) len %zu",regname(reg),reg->hid,reg->id,hid,ip,reg->len);
 } // free_remote
 
 // returns len if found, zero if not, Nolen if cancelled
@@ -196,7 +190,7 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 slabeffort,ub4 mapeffort)
 {
   region *reg,*startreg,*xreg,*nxreg,**clasregs;
   mpregion *mreg,*mpstartreg,*mpxreg,*mpnxreg;
-  ub4 hid = hb->id;
+  ub4 hid;
   ub4 rid;
   ub4 order;
   ub4 claspos,claseq;
@@ -218,8 +212,8 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 slabeffort,ub4 mapeffort)
   static ub4 effort_ages[] = { 2,3,4 };
 
   if (unlikely(hb == nil)) { error(Lnone,"nil heap for trim effort %u,%u",slabeffort,mapeffort) return 1; }
-
-  ydbg2(Lnone,"heap %u trim effort %u,%u",hb->id,slabeffort,mapeffort)
+  hid = hb->id;
+  ydbg2(Lnone,"heap %u trim effort %u,%u",hid,slabeffort,mapeffort)
 
   memset(metalens,0,sizeof(metalens));
   memset(lens,0,sizeof(lens));
@@ -234,7 +228,7 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 slabeffort,ub4 mapeffort)
   iter = Trim_scan;
 
   while (likely(reg != nil)) {
-    ycheck(1,Lfree,reg->typ != Rslab,"region %u typ %u",reg->id,reg->typ)
+    ycheck(1,Lfree,reg->typ != Rslab,"region %u typ %s",reg->id,regnames[reg->typ])
     if (reg == startreg && iter < Trim_scan) break;
     if (--iter == 0) break;
     nxreg = reg->nxt;
@@ -345,7 +339,7 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 slabeffort,ub4 mapeffort)
     aged = mreg->aged;
     if (age == 0 || aged == 3) { mreg = mpnxreg; continue; } // unavailable or aged
 
-    ycheck(1,Lfree,mreg->typ != Rmmap,"region %u typ %u",mreg->id,mreg->typ)
+    ycheck(1,Lfree,mreg->typ != Rmmap,"region %u typ %s",mreg->id,regnames[mreg->typ])
 
     if (age == 1) { // not empty ?
       set = Atomget(mreg->set,Moacq);
@@ -369,7 +363,7 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 slabeffort,ub4 mapeffort)
       mpxreg = hb->freempregs[order];
       hb->freempregs[order] = mreg;
       mreg->frenxt = mpxreg;
-      ycheck(1,Lnone,mpxreg == mreg,"empty region %u vs %u",rid,mpxreg ? mpxreg->id : 0)
+      ycheck(1,Lnone,mpxreg == mreg,"empty region %u vs %u",rid,mpxreg->id)
       mreg->aged = 1;
     }
 
@@ -647,7 +641,7 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,struct p
   }
 
   hd->stat.invalid_frees++;
-  errorctx(Fln,loc,"from heap %u type %u",hd->id,reg->typ)
+  errorctx(Fln,loc,"from heap %u type %s",hd->id,regname(reg))
   error2(loc,Fln,"region %u.%u ptr %zx",reg->hid,reg->id,ip)
   return 0;
 } // yfree_heap

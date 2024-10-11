@@ -119,7 +119,7 @@ static region *newslab(heap *hb,ub4 cellen,ub4 clas,ub4 claseq)
   reg->binorg = binorg;
   reg->rbinorg = rbinorg;
   reg->lenorg = lenorg;
-  reg->tagorg = taglen ? tagorg : 0;
+  reg->tagorg = taglen ? tagorg : 0; // -V547 PVS-always-false
   // reg->metacnt = metacnt;
 
   setregion(hb,(xregion *)reg,reg->user,xlen,1,Lalloc,Fln);
@@ -698,7 +698,8 @@ static Hot size_t slab_newalcel(region *reg,ub4 align,ub4 cellen,ub4 tag)
 
   reg->inipos = cel + 1;
 
-  if (inipos < cel) { // move preceding cels in bin -V1051
+  if (inipos < cel) { // -V1051 PVS-assign-check
+    // move preceding cels in bin
     binp = meta + reg->binorg;
     for (c = inipos; c < cel; c++) {
       rv = slab_markused(reg,c,0,Fln);
