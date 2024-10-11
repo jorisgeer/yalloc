@@ -150,14 +150,17 @@ static heap *heap_new(heapdesc *hd,enum Loc loc,ub4 fln)
 
   while (hb) {
     zero = 0;
-    if (Atomget(hb->lock,Monone) == zero) {
+    didcas = Cas(hb->lock,zero,1);
+    if (unlikely(didcas == 0)) {
+      Pause
+      zero = 0;
       didcas = Cas(hb->lock,zero,1);
-      if (didcas) {
-        heap_reset(hb);
-        hd->stat.useheaps++;
-        ydbg2(Lnone,"use next heap %u for %u",hb->id,hd->id);
-        return hb;
-      }
+    }
+    if (didcas) {
+      heap_reset(hb);
+      hd->stat.useheaps++;
+      ydbg2(Lnone,"use next heap %u for %u",hb->id,hd->id);
+      return hb;
     }
     hd->stat.nogetheap0s++;
     hb = hb->nxt;
