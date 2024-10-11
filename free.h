@@ -217,7 +217,7 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 slabeffort,ub4 mapeffort)
   ub4 *ages = Trim_ages;
   static ub4 effort_ages[] = { 2,3,4 };
 
-  if (unlikely(hb == nil)) error(Lnone,"nil heap for trim effort %u,%u",slabeffort,mapeffort)
+  if (unlikely(hb == nil)) { error(Lnone,"nil heap for trim effort %u,%u",slabeffort,mapeffort) return 1; }
 
   ydbg2(Lnone,"heap %u trim effort %u,%u",hb->id,slabeffort,mapeffort)
 
@@ -500,14 +500,16 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,struct p
 
     // try twice to lock owner heap
     xhb = reg->hb;
-    xpct = 0;
-    didcas = Cas(xhb->lock,xpct,1);
-    if (didcas == 0) {
+    if (xhb == nil) didcas = 0; // e.g. mini
+    else {
       xpct = 0;
-      Pause
       didcas = Cas(xhb->lock,xpct,1);
+      if (didcas == 0) {
+        xpct = 0;
+        Pause
+        didcas = Cas(xhb->lock,xpct,1);
+      }
     }
-
     if (didcas == 0) { // cannot obtain owner heap, free remote
       alen = free_remote_region(hd,reg,ip,reqlen,pi,tag,loc | Lremote);
       if (likely(alen != 0)) return alen;

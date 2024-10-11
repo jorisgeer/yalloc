@@ -200,7 +200,7 @@ static ub1 *ulcnv(ub1 *end,unsigned long x)
     *--end = p[0];
     x /= 100;
   }
-  if (x) *--end = (ub1)((x % 10) + '0');
+  if (x) *--end = (ub1)(x + '0');
   return end;
 }
 
@@ -348,7 +348,7 @@ static ub1 *ullcnv_dot(ub1 *end,unsigned long long x,ub4 dotpos)
     *--end = p[0]; if (++n == dotpos) *--end = '.';
     x /= 100;
   }
-  if (x) *--end = (ub1)((x % 10) + '0');
+  if (x) *--end = (ub1)(x + '0');
   return end;
 }
 
@@ -363,7 +363,7 @@ static double sixteentab[17] = { 1.0,16.0,256.0,4096.0,65536.0,1.04857600e+06,1.
 static ub1 *acnv(ub1 *end,double x,enum Fmt flags,ub4 prec,ub1 Case)
 {
   int exp;
-  ub4 p = prec;
+  ub4 p;
   ub4 uexp = 0,nexp;
   double mant;
   unsigned long long imant;
@@ -469,7 +469,7 @@ static ub1 *fcnv(ub1 *end,double x,enum Fmt flags,ub1 casemsk,ub4 prec)
       *--end = (x >= 0.5) ? '1' : '0';
       return end;
     }
-    while (x < itentab[dig] && dig < prec - 1) dig++;
+    while (dig < prec - 1 && x < itentab[dig]) dig++;
     while (exp < prec - dig && x < itentab[exp]) exp++;
     if (exp + prec > 18) { *--end = '0'; return end; } // return ecnv(end,x,flags,prec);
     x *= tentab[exp + prec];
@@ -717,8 +717,6 @@ ub4 Cold mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
   ub4 n = 0;
   cchar *p = fmt;
 
-  p = fmt;
-
   dst += pos;
   *dst = 0;
 
@@ -763,8 +761,6 @@ ub4 Cold mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
      Fallthrough
 
    case Dig1: case Dig2: case Dig3: case Dig4: case Dig5: case Dig6: case Dig7: case Dig8: case Dig9:
-     flgdon = 1;
-
      u4 = fx - Dig0;
      if (dotseen) {
        dotseen++;
@@ -1083,6 +1079,7 @@ ub4 Cold mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
    break;
 
    case Cnvn:
+     if (vp == nil) break;
      if (modl == 1) *(unsigned long *)vp = n;
      else if (modl) *(unsigned long long *)vp = n;
      else if (modh == 1) *(unsigned short *)vp = (ub2)n;
@@ -1112,8 +1109,10 @@ ub4 Cold mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
      p8 = (const char *)vp;
      if ( (flags & Flghr) && prvone != 1) { // plural
        sndx = 0;
-       while (sndx < Pluralbuf - 2 && sndx < prec + 1 && p8[sndx]) { pluralbuf[sndx] = (ub1)p8[sndx]; sndx++; }
-       if (prvone == 0) pluralbuf[sndx++] = 's';
+       while (sndx < Pluralbuf - 3 && sndx < prec + 1 && p8[sndx]) { // -V557
+         pluralbuf[sndx] = (ub1)p8[sndx]; sndx++; // -V557
+       }
+       pluralbuf[sndx++] = 's';
        pluralbuf[sndx] = 0;
        p8 = (const char *)pluralbuf;
      }

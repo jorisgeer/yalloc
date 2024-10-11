@@ -68,7 +68,7 @@ static Noret void mysigact(int sig,siginfo_t *si,void *pp)
 
   default:
     name = "def";
-    minidiag(fln|__LINE__,Lsig,Fatal,id,"yalloc: signal %u\n",sig);
+    minidiag(fln|__LINE__,Lsig,Fatal,id,"yalloc: signal %d\n",sig);
   }
   ip = (size_t)adr;
   minidiag(fln|__LINE__,Lsig,Fatal,id,"yalloc[%lu]: sig%s at adr %zx",ospid(),name,ip);

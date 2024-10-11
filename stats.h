@@ -345,7 +345,6 @@ static Cold size_t yal_mstats_heap(int fd,heap *hb,yalstats *ret,bool print,ub4 
   }
 
   if (issum == 0) {
-    sp->frecnt = sp->fresiz = 0;
     sp->callocs = sp->reallocles = sp->reallocgts = 0;
     sp->rbinskip = sp->slabxfrees = 0;
 
@@ -552,8 +551,8 @@ static void sumup(yalstats *sum,yalstats *one)
 size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
 {
 #if Yal_enable_stats
-  enum Yal_stats_opts allthreads = (opts & Yal_stats_totals);
-  enum Yal_stats_opts print = (opts & Yal_stats_print);
+  bool allthreads = (opts & Yal_stats_totals);
+  bool print = (opts & Yal_stats_print);
 
   heap *hb;
   bregion *mhb;
@@ -588,15 +587,9 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
   if (print) { // prevent mutiple threads printing simultaneoulsy : redirect to file if needed
     didcas = Cas(oneprint,zero,1);
     if (didcas) fd = Yal_stats_fd;
-    else fd = -1;
     if (fd == -1) {
       fd = newlogfile(Yal_stats_file,allthreads ? "-all" : "",hd->id);
-      if (fd == -1) {
-        error(Lstats,"cannot create %s",Yal_stats_file[0])
-        if (didcas) Atomset(oneprint,0,Morel);
-        return 1;
-      }
-      didopen = 1;
+      if (fd != 2) didopen = 1;
     }
   }
   if (allthreads == 0) {
@@ -615,7 +608,7 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
   // mini heaps and heapdesc stats
   *buf = '\n';
   pos = diagfln(buf,1,len,Fln);
-  pos += snprintf_mini(buf,pos,len,"%-2u                yalloc stats for %u %s` and %u %s`\n\n",hd->id,Atomget(global_tid,Monone) - 1,"thread",Atomget(global_hid,Monone) - 1,"heap");
+  pos += snprintf_mini(buf,pos,len,"%-2u                yalloc stats for %u %s` and %u %s`\n\n",hd->id,Atomget(global_tid,Monone) - 1u,"thread",Atomget(global_hid,Monone) - 1u,"heap");
   oswrite(fd,buf,pos,Fln);
   pos = 0;
 

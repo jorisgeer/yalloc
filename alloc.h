@@ -341,7 +341,7 @@ static void *yal_heap(heapdesc *hd,heap *hb,size_t len,size_t ulen,enum Loc loc,
   if (likely(p != nil)) return p;
 
   st = hd->status; hd->status = St_ok;
-  error(loc,"status %u",st)
+  error(loc,"status %d",st)
   if (st == St_error) return p;
 
   if (st == St_oom) {
@@ -471,7 +471,7 @@ static void *yalloc_align(size_t align, size_t len)
   alen = max(len,align);
 
   if (unlikely(alen >= mmap_limit && align > Pagesize)) { // mmap
-    if (align > Pagesize) len += align; // mmap base is not more than page aligned
+    len += align; // mmap base is not more than page aligned
     ytrace(Lallocal,"Alloc %zu`b @%zu",len,align);
   }
 

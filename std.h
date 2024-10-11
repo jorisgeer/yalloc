@@ -60,7 +60,7 @@ void *calloc (size_t count, size_t size)
 #endif
 
   p = yalloc(len,len,Lcalloc,Fln);
-  ytrace(Lalloc,"-calloc(%zu,%zu) = %p %x",count,size,p,*(char *)p)
+  ytrace(Lalloc,"-calloc(%zu,%zu) = %p",count,size,p)
 
   return p;
 }

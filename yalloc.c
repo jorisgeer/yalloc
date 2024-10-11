@@ -248,7 +248,7 @@ static Printf(5,6) ub4 minidiag(ub4 fln,enum Loc loc,enum Loglvl lvl,ub4 id,char
   if (loc == Lsig) {
     return pos;
   }
-  // if (lvl < Warn) _Exit(1);
+  if (lvl < Warn) _Exit(1);
   return pos;
 }
 
@@ -623,7 +623,6 @@ static Hot heapdesc *getheapdesc(enum Loc loc)
       thread_heap = hd;
       thread_setclean(hd);
       hd->hb = nil;
-      hd->hb = nil;
       return hd;
     }
   }
@@ -801,7 +800,7 @@ ub4 yal_options(enum Yal_options opt,size_t arg1,size_t arg2)
     case Yal_diag_enable: return diag_enable(arg1,(ub4)arg2);
     case Yal_trace_enable: return trace_enable((ub4)arg2);
     case Yal_logmask: rv = ylog_mask; ylog_mask = (ub4)arg1; return rv;
-    default: do_ylog(Yal_diag_ill,Lnone,Fln,Warn,0,"unknown option '%u'",opt); return __LINE__;
+    default: do_ylog(Yal_diag_ill,Lnone,Fln,Warn,0,"unknown option '%d'",opt); return __LINE__;
   }
 }
 

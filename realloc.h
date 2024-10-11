@@ -110,7 +110,6 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
 
     if (likely(typ == Rslab)) {
       reg = (region *)xreg;
-      ulen = pi->len;
       np = alloc_heap(hd,hb,newlen,newulen,Lreal,Fln);
       if (unlikely(np == nil)) return (void *)__LINE__;
       real_copy(p,np,ulen);
@@ -177,7 +176,6 @@ static void *yrealloc(void *p,size_t newlen,ub4 tag)
 
   if (unlikely(alen == 0)) { // zero-sized block
     ytrace(Lreal,"<%p len 0 -> %zu",p,newlen)
-    if (unlikely(newlen == 0)) return p;
     newlen = doalign8(newlen,Stdalign);
     return yal_heapdesc(hd,newlen,newlen,Lreal,tag);
   }

@@ -156,7 +156,7 @@ static bool setregion(heap *hb,xregion *reg,size_t bas,size_t len,bool add,enum 
 #if Yal_enable_check
 
   if (reg->typ != Rmini) {
-    if (hid != reg->hid) { do_ylog(Diagcode,loc,fln,Assert,0,"heap %u vs %u typ %u",hid,reg->hid,reg->typ); return 1; }
+    if (hid != reg->hid) { do_ylog(Diagcode,loc,fln,Assert,0,"heap %u vs %u for %s region %u",hid,reg->hid,regname(reg),reg->id); return 1; }
     if (reg->typ == Rslab && len < Pagesize) { do_ylog(Diagcode,loc,fln,Assert,0,"heap %u type %s region has len %zu",hid,regname(reg),len); return 1; }
   }
   if (len < Pagesize) { do_ylog(Diagcode,loc,fln,Assert,0,"heap %u type %s region has len %zu",hid,regname(reg),len); return 1; }
@@ -352,10 +352,11 @@ static void *region_near(size_t ip,char *buf,ub4 len)
 
   if (rega == nil && regb == nil) return nil;
   if (rega == nil) rega = regb;
-  if (regb == nil) regb = rega;
+  else if (regb == nil) regb = rega;
+  if (rega == nil || regb == nil) return nil;
 
-  lena = rega ? rega->len : 0;
-  lenb = regb ? regb->len : 0;
+  lena = rega->len;
+  lenb = regb->len;
 
   if (ip > baseb && ip < baseb + lenb) {
     snprintf_mini(buf,0,len,"ptr %zx is %zu`b inside %s region %u.%u len %zu` at %zx .. %zx",ip,ip - baseb,regname(regb),regb->hid,regb->id,lenb,baseb,baseb + lenb);
@@ -427,8 +428,8 @@ static region *newregion(heap *hb,ub4 order,size_t len,size_t metaulen,ub4 celle
   ub4 iter;
   yalstats *sp = &hb->stat;
 
-  ycheck(nil,Lalloc,len < Pagesize,"heap %u type %u region has len %zu",hid,typ,len)
-  ycheck(nil,Lalloc,len >= Vmsize,"heap %u type %u region has len %zu`",hid,typ,len)
+  ycheck(nil,Lalloc,len < Pagesize,"heap %u type %s region has len %zu",hid,regnames[typ],len)
+  ycheck(nil,Lalloc,len >= Vmsize,"heap %u type %s region has len %zu`",hid,regnames[typ],len)
 
   ycheck(nil,Lnone,order > Regorder,"region len %zu` order %u",len,order)
 
@@ -464,7 +465,7 @@ static region *newregion(heap *hb,ub4 order,size_t len,size_t metaulen,ub4 celle
 
     // remove from free reg list
     if (preg) {
-      ycheck(nil,0,preg->typ != Rslab,"region %u typ %u",preg->id,preg->typ);
+      ycheck(nil,0,preg->typ != Rslab,"region %u typ %d",preg->id,preg->typ);
       preg->frenxt = reg->frenxt;
     } else hb->freeregs[order] = reg->frenxt;
 
@@ -507,7 +508,7 @@ static region *newregion(heap *hb,ub4 order,size_t len,size_t metaulen,ub4 celle
     if (hb->reglst == nil) hb->reglst = hb->regtrim = hb->regprv = reg;
     else {
       preg = hb->regprv;
-      ycheck(nil,0,preg->typ != Rslab,"region %u typ %u",preg->id,preg->typ);
+      ycheck(nil,0,preg->typ != Rslab,"region %u typ %d",preg->id,preg->typ);
       preg->nxt = reg;
       hb->regprv = reg;
     }
@@ -560,6 +561,7 @@ static region *newregion(heap *hb,ub4 order,size_t len,size_t metaulen,ub4 celle
       return nil;
     }
   } else {
+    ycheck(nil,0,ometa == nil,"nil meta for len %zu",omlen)
     meta = ometa;
     mlen = omlen;
     memset(ometa,0,min(metaulen,omlen));
@@ -592,7 +594,7 @@ static mpregion *newmpregion(heap *hb,size_t len)
   preg = trimreg = trimpreg = nil;
   iter = 50;
   while (reg && --iter) {
-    ycheck(nil,0,reg->typ != Rmmap,"region %u typ %u",reg->id,reg->typ);
+    ycheck(nil,0,reg->typ != Rmmap,"region %u typ %d",reg->id,reg->typ);
     if (len <= reg->len && 4 * len > reg->len) break; // suitable size
     else if (reg->len == 0 && trimreg == nil) { trimreg = reg; trimpreg = preg; }
     preg = reg;
@@ -615,7 +617,7 @@ static mpregion *newmpregion(heap *hb,size_t len)
       hb->mpreglst = hb->mpregtrim = hb->mpregprv = reg;
     } else {
       preg = hb->mpregprv;
-      ycheck(nil,0,preg->typ != Rmmap,"region %u typ %u",preg->id,preg->typ);
+      ycheck(nil,0,preg->typ != Rmmap,"region %u typ %d",preg->id,preg->typ);
       preg->nxt = reg;
       hb->mpregprv = reg;
     }
@@ -656,7 +658,7 @@ static mpregion *newmpregion(heap *hb,size_t len)
 
   // remove from free reg list
   if (preg) {
-    ycheck(nil,0,preg->typ != Rmmap,"region %u typ %u",preg->id,preg->typ);
+    ycheck(nil,0,preg->typ != Rmmap,"region %u typ %d",preg->id,preg->typ);
     preg->frenxt = reg->frenxt;
   } else hb->freempregs[order] = reg->frenxt;
   reg->frenxt = nil;

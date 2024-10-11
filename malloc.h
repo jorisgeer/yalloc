@@ -76,7 +76,7 @@ extern void * yal_alloc(size_t size,unsigned int tag);
 extern void yal_free(void *p,unsigned int tag);
 extern void * yal_realloc(void *p,size_t newsize,unsigned int tag);
 
-#define Yal_sftag(file) ((file << 16) | (__LINE__ & 0xffff)) // basic callsite identification
+#define Yal_sftag(file) (((file) << 16) | (__LINE__ & 0xffff)) // basic callsite identification
 
 // bump allocation from small static pool. Compatible with jemalloc.
 extern void *__je_bootstrap_malloc(size_t len);

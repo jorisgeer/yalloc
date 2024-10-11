@@ -35,8 +35,6 @@ static bool newbump(heap *hb,ub4 hid,bregion *reg,ub4 len,ub4 regpos,enum Rtype 
   freorg = tagorg + taglen;
   metalen = freorg * 4 + celcnt;
 
-  ycheck(1,loc,len == 0,"bump reg %u nil len",hid)
-  ycheck(1,loc,metalen == 0,"bump reg %u nil len",hid)
   ycheck(1,loc,celcnt > Hi16,"bump reg %u cels %u",hid,celcnt)
 
   if (hid < 10) {
@@ -96,7 +94,7 @@ static void *bumpalloc(heap *hb,ub4 hid,bregion *regs,ub4 regcnt,ub4 len,ub4 ule
       reg = regs + regpos;
       if (unlikely(reg->len == 0)) {
         if (newbump(hb,hid,reg,Bumplen,regpos,typ,loc)) return nil;
-        setregion(hb,(xregion *)reg,reg->user,reg->len,1,loc,Fln);
+        if (hb) setregion(hb,(xregion *)reg,reg->user,reg->len,1,loc,Fln);
       }
       pos = reg->pos;
       if (pos + len > reg->len) continue;

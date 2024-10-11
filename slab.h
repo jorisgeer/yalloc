@@ -351,7 +351,7 @@ static ub4 slab_remalloc(region *reg)
       ycheck(Nocel,Lalloc,cel >= celcnt,"bin pos %u + %u above %u",pos,rpos,celcnt)
       // set = slab_chkused(reg,cel);
       // if (set != 2) error(Lalloc,"reg %.01llu cel %u is not free %u",reg->uid,cel,set);
-      bin[pos] = cel;
+      bin[pos++] = cel;
     }
     Atomseta(lockp + 1,0,Morel); // empty remote bin segment
 #else
@@ -454,10 +454,6 @@ static ub4 add2rbin(heapdesc *hd,struct remote *rem,region *reg,ub4 bkt,ub4 cnt)
       }
       break;
     } // didcas
-
-    if (likely(didcas != 0)) {
-      break;
-    }
 
     while (Atomgeta(lockp,Monone) && iter++ < 2) { Pause } // inspired by https://rigtorp.se/spinlock
 
@@ -579,8 +575,6 @@ static ub4 slab_free_remote(heapdesc *hd,region *reg,size_t ip,size_t len,enum L
       if (oreg == nil) { ovf++; continue; }
       ocel = ovf->cel;
       ouid = oreg->uid;
-
-      ycheck(Hi32,loc,oreg == nil,"nil reg uid %.01llu pos %u/%u",uid,lo,pos)
 
       set = slab_chkused(oreg,ocel); // dbg
       if (set != 2) error(loc,"reg %.01llu.cel %-3u is not free %u",oreg->uid,ocel,set);
@@ -704,7 +698,7 @@ static Hot size_t slab_newalcel(region *reg,ub4 align,ub4 cellen,ub4 tag)
 
   reg->inipos = cel + 1;
 
-  if (inipos < cel) { // move preceding cels in bin
+  if (inipos < cel) { // move preceding cels in bin -V1051
     binp = meta + reg->binorg;
     for (c = inipos; c < cel; c++) {
       rv = slab_markused(reg,c,0,Fln);

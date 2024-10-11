@@ -94,9 +94,9 @@ static Printf(2,3) ub4 info(ub4 fln,cchar *fmt,...)
 
 static ub4 write_cfg(char *buf,ub4 pos,ub4 len)
 {
-  pos += snprintf_mini(buf,pos,len," log_fd %u \\n\\\n",Yal_log_fd);
-  pos += snprintf_mini(buf,pos,len," err_fd %u \\n\\\n",Yal_err_fd);
-  pos += snprintf_mini(buf,pos,len," stats_fd %u \\n\\\n",Yal_stats_fd);
+  pos += snprintf_mini(buf,pos,len," log_fd %d \\n\\\n",Yal_log_fd);
+  pos += snprintf_mini(buf,pos,len," err_fd %d \\n\\\n",Yal_err_fd);
+  pos += snprintf_mini(buf,pos,len," stats_fd %d \\n\\\n",Yal_stats_fd);
   pos += snprintf_mini(buf,pos,len," check_default %u \\n\\\n",Yal_check_default);
   pos += snprintf_mini(buf,pos,len," enable_stats %u \\n\\\n",Yal_enable_stats);
   pos += snprintf_mini(buf,pos,len," trigger_stats %u \\n\\\n",Yal_trigger_stats_threads);
@@ -197,7 +197,7 @@ static ub4 genconfig(cchar *name,ub4 pagebits,char *nowtim)
   } else if (sizeof(void *) == 8) {
     sizet = "0xfffffffffffffffful";
     vmbits = Vmbits64;
-    vmsize = 1ul << min(vmbits,63);
+    vmsize = 1ul << min(vmbits,63); // -V547
   } else return error(L,"unsupported platform, sizeof(void *) %zu",sizeof(void *));
 
   if (pagebits) pagesize = 1u << pagebits; //user override
@@ -272,7 +272,7 @@ int main(int argc,char *argv[])
     arg = argv[1];
     if (arg[0] == '-') {
       if ((c = arg[1]) == 'h' || c == '?') return usage();
-      if (strcmp(arg + 1,"-help")) return usage();
+      if (strcmp(arg + 1,"-help") == 0) return usage();
     }
   }
   now = time(NULL);
