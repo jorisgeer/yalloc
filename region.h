@@ -352,10 +352,10 @@ static void *region_near(size_t ip,char *buf,ub4 len)
   if (rega == nil && regb == nil) return nil;
   if (rega == nil) rega = regb;
   else if (regb == nil) regb = rega;
-  if (rega == nil || regb == nil) return nil;
+  // if (rega == nil || regb == nil) return nil;
 
-  lena = rega->len;
-  lenb = regb->len;
+  lena = rega->len; // -V522 PVS nil ptr deref
+  lenb = regb->len; // -V522 PVS nil ptr deref
 
   if (ip > baseb && ip < baseb + lenb) {
     snprintf_mini(buf,0,len,"ptr %zx is %zu`b inside %s region %u.%u len %zu` at %zx .. %zx",ip,ip - baseb,regname(regb),regb->hid,regb->id,lenb,baseb,baseb + lenb);

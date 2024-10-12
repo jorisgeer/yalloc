@@ -216,7 +216,8 @@ static ub4 genconfig(cchar *name,ub4 pagebits,char *nowtim)
   dirbits = vmbits - pagebits;
   if (dirbits < 3) fatal(L,"Vmsize  %u page bits %u",vmbits,pagebits);
 
-  memset(dir,0,sizeof(dir));
+  dir[0] = dir[1] = dir[2] = 0;
+  //coverity[INFINITE_LOOP]
   while (dir[0] + dir[1] + dir[2] != dirbits) {
     dir[dirone]++;
     if (dirone == 2) dirone = 0;

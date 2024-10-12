@@ -72,6 +72,7 @@ static void inixor(ub8 *state)
   state[16] = 0; // p
 }
 
+//coverity[-overflow_const]
 static ub8 xorshift64star(void)
 {
   ub8 x = 0x05a3ae52de3bbf0aULL;
@@ -82,6 +83,7 @@ static ub8 xorshift64star(void)
   return (x * 2685821657736338717ULL);
 }
 
+//coverity[-overflow_const]
 static ub8 xorshift1024star(ub8 *state)
 {
   ub4 p = (ub4)state[16];
@@ -182,6 +184,7 @@ static void diaena(ub4 x)
   yal_options(Yal_diag_enable,x,1);
 }
 
+//coverity[-RESOURCE_LEAK]
 static int slabs(cchar *cmd,size_t from,size_t to,size_t cnt,size_t iter)
 {
   size_t len,alen,i,c;
@@ -250,6 +253,7 @@ static void waitus(ub8 usec)
   }
 }
 
+//coverity[-RESOURCE_LEAK]
 static void *xfree_thread(void *arg)
 {
   struct xinfo *ap = (struct xinfo *)arg;
@@ -339,6 +343,7 @@ static int xfalloc(struct xinfo *a1,struct xinfo *a2,size_t len,size_t cnt)
   return 0;
 }
 
+//coverity[-RESOURCE_LEAK]
 static int xffree(struct xinfo *a1,size_t len,size_t cnt)
 {
   ub4 exp,iter;
@@ -367,6 +372,7 @@ static int xffree(struct xinfo *a1,size_t len,size_t cnt)
  - a .tid1. .tid2. .len. .count. -> allocate .count. blocks of .len. in .tid1., export to '.id2.
  - f .tid1. .tid2. .pos. .count.  -> free .count. blocks from .pos. as allocated
  */
+//coverity[-RESOURCE_LEAK]
 static int xfree(cchar *cmd,size_t tidcnt,int argc,char *argv[])
 {
   char *arg;
@@ -468,6 +474,7 @@ static int xfree(cchar *cmd,size_t tidcnt,int argc,char *argv[])
   return 0;
 }
 
+//coverity[-RESOURCE_LEAK]
 static void *mt_alfre_thread(void *arg)
 {
   struct xinfo *ap = (struct xinfo *)arg;
@@ -482,7 +489,7 @@ static void *mt_alfre_thread(void *arg)
   for (l = 0; l < 16; l++) state[l] = xorshift64star();
 
   iter = ap->iter;
-  cnt = ap->cnt;
+  cnt = max(ap->cnt,1);
   len = ap->len;
   mode = ap->mode;
 
@@ -501,7 +508,7 @@ static void *mt_alfre_thread(void *arg)
         if (pos < Pointers) ap->ps[pos++] = p;
       }
     } else {
-      pp = rnd(pos,state);
+      pp = rnd(max(pos,1),state);
       pe = min(pos,rnd(cnt,state));
       while (pp < min(pe,Pointers)) {
         p = ap->ps[pp];
@@ -550,6 +557,7 @@ static int mt_alfre(cchar *cmd,size_t tidcnt,size_t iter2,int argc,char *argv[])
     iter = atoul(*argv++);
     mode = atou(*argv++);
     argc -= 5;
+    cnt = max(cnt,1);
     info(L,"+thread %u cnt %zu len %zu iter %zu mode %u",tid,cnt,len,iter,mode);
     a1 = infos + tid;
     a1->cnt = cnt;
@@ -590,6 +598,7 @@ static int mt_alfre(cchar *cmd,size_t tidcnt,size_t iter2,int argc,char *argv[])
 }
 
 // double free
+//coverity[-USE_AFTER_FREE]
 static int fre2(size_t small,size_t large,size_t noerr)
 {
   ub4 i;
@@ -618,7 +627,8 @@ static int fre2(size_t small,size_t large,size_t noerr)
   return rv;
 }
 
-static int rand(size_t als,size_t fres,size_t hilen,size_t iter)
+//coverity[-RESOURCE_LEAK]
+static int tstrand(size_t als,size_t fres,size_t hilen,size_t iter)
 {
   size_t it,len,newlen;
   size_t loadr,hiadr,adrlen,ip;
@@ -626,6 +636,8 @@ static int rand(size_t als,size_t fres,size_t hilen,size_t iter)
   ub4 al,fre;
   void *p;
   struct yal_stats stats;
+
+  memset(&stats,0,sizeof(stats));
 
   info(L,"iter %zu als %zu fres %zu len %zu",iter,als,fres,hilen);
   for (it = 0; it < iter; it++) {
@@ -671,6 +683,8 @@ static int rand(size_t als,size_t fres,size_t hilen,size_t iter)
 static void *global_ptrs[Global_ptrs];
 
 // alloc many of one size, free the same, rinse, repeat
+//coverity[-USE_AFTER_FREE]
+//coverity[-RESOURCE_LEAK]
 static int allfre(cchar *cmd,size_t cnt,size_t len,size_t iter,size_t cnt2)
 {
   size_t i,n,c;
@@ -712,7 +726,7 @@ static int do_test(cchar *cmd,size_t arg1,size_t arg2,size_t arg3,size_t arg4)
 //  if (haschr(cmd,'b')) { rv = blocks(arg1,arg2); if (rv) return rv; }
   if (haschr(cmd,'a')) { tstcnt++; rv = allfre(cmd,arg1,arg2,arg3,arg4); if (rv) return rv; }
   if (haschr(cmd,'2')) { tstcnt++; rv = fre2(arg1,arg2,arg3); if (rv) return rv; }
-  if (haschr(cmd,'r')) { tstcnt++; rv = rand(arg1,arg2,arg3,arg4); if (rv) return rv; }
+  if (haschr(cmd,'r')) { tstcnt++; rv = tstrand(arg1,arg2,arg3,arg4); if (rv) return rv; }
 
   info(L,"'%s' - %u %s` ok",cmd,tstcnt,"test");
 
@@ -766,14 +780,16 @@ static int doclose(int fd,int line) {
    A .align. .count. .size. - allocate aligned
    @ .file. redirect args from file
  */
+//coverity[-RESOURCE_LEAK]
 static int manual(int argc,char *argv[])
 {
   char cmd,*arg;
   char *a1,*a2,*a3;
   size_t v1,v2,v3,from,len = 0,newlen,cnt,align,c;
+  long nr;
   ub4 pos = 0;
   void *p,*np;
-  char *cp;
+  ub1 *cp;
   char filbuf[4096];
   ub4 fbpos = 0,fblen = 0;
   struct osstat st;
@@ -787,7 +803,7 @@ static int manual(int argc,char *argv[])
       a1 = filarg(filbuf,fblen,&fbpos);
       if (a1 == nil) return L;
       a2 = filarg(filbuf,fblen,&fbpos);
-      if (a1 == nil) return L;
+      if (a2 == nil) return L;
     } else {
       if (argc == 0) return 0;
       if (argc < 3) {
@@ -806,17 +822,19 @@ static int manual(int argc,char *argv[])
 
     // input from file
     if (cmd == '@') {
+      memset(filbuf,0,sizeof(filbuf));
       fd = osopen(a1,&st);
       if (fd == -1) return L;
       if (st.len < 3) return doclose(fd,L);
-      if (st.len > sizeof(filbuf)) return doclose(fd,L);
-      fblen = (ub4)osread(fd,filbuf,st.len);
+      if (st.len >= sizeof(filbuf)) return doclose(fd,L);
+      nr = osread(fd,filbuf,st.len);
       osclose(fd);
+      if (nr <= 0) { error(L,"cannot read %s: %ld",a1,nr); return L; }
+      fblen = (ub4)nr;
       if (fblen < st.len) return L;
       info(L,"redir %s(%u)",a1,fblen);
       redir = 1;
       fbpos = 0;
-      filbuf[fblen] = 0;
     }
 
     // alloc
@@ -852,6 +870,7 @@ static int manual(int argc,char *argv[])
       if (redir && fbpos < fblen) a3 = filarg(filbuf,fblen,&fbpos);
       else if (argc) { a3 = *argv++; argc--; }
       else return L;
+      if (a3 == nil) return L;
       v3 = atoul(a3);
       len = v1;
       cnt = v2;
@@ -914,16 +933,16 @@ static int manual(int argc,char *argv[])
       from = v1;
       len = v2;
       if (from >= Maxptr) continue;
-      cp = (char *)ps[from];
+      cp = (ub1 *)ps[from];
       info(L,"set %p = %zu`",cp,v2);
-      for (c = 0; c < len; c++) cp[c] = (char)c;
+      for (c = 0; c < len; c++) cp[c] = (ub1)c;
 
     // check
     } else if (cmd == 'V') {
       from = v1;
       len = v2;
       if (from >= Maxptr) continue;
-      cp = (char *)ps[from];
+      cp = (ub1 *)ps[from];
       info(L,"chk %p = %zu`",cp,v2);
       for (c = 0; c < len; c++) {
         if (cp[c] != (char)c) { error(L,"pos %zu val %u",c,cp[c]); return L; }

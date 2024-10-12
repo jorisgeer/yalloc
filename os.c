@@ -90,6 +90,12 @@ Vis void oswrite(int fd,const char *buf,size_t len,unsigned int fln)
 
   if (buf == NULL) { buf = "\noswrite: nil buf\n"; len = 17; }
   else if (len == 0) { buf = "\noswrite: nil lenf\n"; len = 17; }
+  if (fd < 0) {
+    writeint(2,(unsigned int)-fd,1);
+    fd = 2;
+    buf = "oswrite: fd < 0\n";
+    len = 15;
+  }
 
   if (chkzeros) {
     p = buf;
@@ -104,12 +110,11 @@ Vis void oswrite(int fd,const char *buf,size_t len,unsigned int fln)
   }
 
   do {
-    nw = write(fd,buf,len);
-    if (nw == -1) {
+    nn = len < 65536 ? len : 65536;
+    nw = write(fd,buf,nn);
+    if (nw < 0) {
       ec = errno;
       write(2,"\ncannot write to fd ",20);
-      if (fd < 0) writeint(2,(unsigned int)-fd,1);
-      else writeint(2,(unsigned int)fd,0);
       write(2," : ",3);
       writeint(2,(unsigned int)ec,0);
       write(2,buf,len < 64 ? len : 64); // snippet

@@ -401,6 +401,7 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 slabeffort,ub4 mapeffort)
 
   for (i = 0; i < rbpos; i++) {
     if (lens[i]) osunmem(Fln,hd,(void *)bases[i],lens[i],"trim");
+    //coverity[uninit_use_in_call]
     if (metalens[i]) osunmem(Fln,hd,metas[i],metalens[i],"trim");
   }
 

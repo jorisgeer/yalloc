@@ -8,6 +8,7 @@
 
 // David Stafford's murmur3 variant mixer - http://zimbry.blogspot.com/2011/09/better-bit-mixing-improving-on.html
 
+//coverity[-overflow]
 static
 #if Isgcc || Isclang
 __attribute__((no_sanitize("unsigned-integer-overflow")))

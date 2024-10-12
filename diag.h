@@ -244,37 +244,39 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
  */
 static Cold void diag_initrace(void)
 {
-  ub4 len = 1024;
-  char buf[1024];
-  ub4 x,y,i;
+  ub4 len = 4096;
+  char buf[4096];
+  ub4 x,y;
   ub1 v;
   char c,m;
   int fd = osopen(Yal_trace_ctl,nil);
-  long nn,n;
+  long nw;
+  ub4 nn,n;
 
   minidiag(Fln,Lnone,Debug,0,"diag fd %d",fd);
 
   if (fd == -1) return;
 
   memset(buf,0,len);
-  nn = osread(fd,buf,len - 4);
+  nw = osread(fd,buf,len - 2);
   osclose(fd);
-  if (nn <= 0) return;
+  if (nw <= 0 || nw >= len) return;
 
+  nn = (ub4)nw;
   n = 0;
   while (n < nn) {
     m = buf[n++];
-    x = y = i = 0;
-    while ( (c = buf[n++]) >= '0' && c <= '9' && i++ < 5) x = x * 10 + (ub4)c - '0';
+    x = y = 0;
+    c = 0;
+    while (n < len &&  (c = buf[n++]) >= '0' && c <= '9' && x < Diagcnts) x = x * 10 + (ub4)c - '0';
     if (c == '-') {
-      i = 0;
-      while ( (c = buf[n++]) >= '0' && c <= '9' && i++ < 5) y = y * 10 + (ub4)c - '0'; // range
+      while (n < len && (c = buf[n++]) >= '0' && c <= '9' && y < Diagcnts) y = y * 10 + (ub4)c - '0'; // range
     }
-    if (x >= Diagcnts) {
+    if (x >= Diagcnts - 1) {
       minidiag(Fln,Lnone,Warn,0,"invalid diag code %u",x);
-      x = Diagcnts - 1;
+      x = Diagcnts - 2;
     }
-    if (y >= Diagcnts) {
+    if (y >= Diagcnts - 1) {
       minidiag(Fln,Lnone,Warn,0,"invalid diag cocd %u",y);
       y = 0;
     }
@@ -288,7 +290,7 @@ static Cold void diag_initrace(void)
     if (y == 0) y = x;
     minidiag(Fln,Lnone,Debug,0,"diag %u-%u = %u",x,y,v);
     do diagctls[x++] = v; while(x <= y);
-    while (c && c != '\n') c = buf[n++];
+    while (n < len && c && c != '\n') c = buf[n++];
   }
 }
 

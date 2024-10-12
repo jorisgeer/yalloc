@@ -385,7 +385,7 @@ static ub1 *acnv(ub1 *end,double x,enum Fmt flags,ub4 prec,ub1 Case)
   imant = (unsigned long long)mant;
 
   if (uexp > 1) {
-    memset(end - uexp,'0',uexp);
+    do *--end = '0'; while (--uexp);
     end -= uexp;
   }
   end = hexllcnv(end,imant,Case);
@@ -409,6 +409,8 @@ static ub1 *ecnv(ub1 *end,double x,enum Fmt flags,ub1 casemsk,ub4 prec)
   ub8 ix;
   double xx,ten;
   bool eneg = 0;
+
+  prec = min(prec,17);
 
   if (x < 1.0) {
     eneg = 1;
@@ -764,6 +766,7 @@ ub4 Cold mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
      u4 = fx - Dig0;
      if (dotseen) {
        dotseen++;
+       //coverity[INTEGER_OVERFLOW]
        prec = prec * 10 + u4;
      } else {
        if (wid == Hi32) wid = u4;
@@ -1060,7 +1063,7 @@ ub4 Cold mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
      if (fpclas == FP_ZERO) {
        if (fmtf == Fmte) { *--org = '0'; *--org = '0'; *--org = '+'; *--org = 'E' | casemsk; }
        else if (fmtf == Fmta) { *--org = '0'; *--org = '+'; *--org = 'P' | casemsk; }
-       if (prec) { memset(org - prec,'0',prec); org -= prec; *--org = '.'; }
+       if (prec) { while (prec--) *--org = '0'; *--org = '.'; }
        else if (flags & Flgalt) *--org = '.';
        *--org = '0';
        break;

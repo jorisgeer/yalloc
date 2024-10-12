@@ -63,9 +63,9 @@ static region *newslab(heap *hb,ub4 cellen,ub4 clas,ub4 claseq)
       }
     }
     if (cnt < (2u << (claseq >> 2) ) ) {
-      if (order == maxord) break;
+      if (order >= maxord) break;
       order++;
-    } else if (cnt >= Hi32) order--;
+    } else if (cnt >= Hi32 && order > Minregion) order--;
     else break;
   } while (1);
 
@@ -119,7 +119,7 @@ static region *newslab(heap *hb,ub4 cellen,ub4 clas,ub4 claseq)
   reg->binorg = binorg;
   reg->rbinorg = rbinorg;
   reg->lenorg = lenorg;
-  reg->tagorg = taglen ? tagorg : 0; // -V547 PVS-always-false
+  reg->tagorg = Yal_enable_tag ? tagorg : 0;
   // reg->metacnt = metacnt;
 
   setregion(hb,(xregion *)reg,reg->user,xlen,1,Lalloc,Fln);
