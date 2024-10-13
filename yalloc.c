@@ -162,6 +162,12 @@ static const unsigned long  mmap_limit = (1ul << Mmap_threshold);
 
 #define Clasregs 32 // ~Vmbits - Maxregion, ub4 clasmsk
 
+#if Yal_enable_tag
+  #define Tagarg(t) ,t
+#else
+  #define Tagarg(t)
+#endif
+
 // -- end derived config --
 
 #ifdef Inc_os
@@ -290,9 +296,13 @@ struct Align(16) st_xregion { // base, only type
 
   ub4 hid;
   ub4 id;
+
+  ub4 age;
+  ub4 aged;
+
   // - common
 
-  char filler[12];
+  ub4 filler;
 };
 typedef struct st_xregion xregion;
 
@@ -308,6 +318,10 @@ struct Align(16) st_mpregion { // mmap region. allocated as pool from heap
 
   ub4 hid;
   ub4 id;
+
+  ub4 age;
+  ub4 aged;
+
   // - common
 
   _Atomic ub4 set; // 0 never used 1 alloc 2 free
@@ -315,8 +329,6 @@ struct Align(16) st_mpregion { // mmap region. allocated as pool from heap
   size_t ulen;  // gross minus user aka net len
 
   size_t align;  // offset if alioc_align > pagesize
-  ub4 age;
-  ub4 aged;
   ub4 order;
   ub4 filler;
 
@@ -338,6 +350,10 @@ struct Align(16) st_bregion { // bump region. statically present in heap
 
   ub4 hid;
   ub4 id;
+
+  ub4 age;
+  ub4 aged;
+
   // - common
 
   ub4 metalen;  // metadata aka admin size
@@ -372,6 +388,10 @@ struct Align(16) st_region { // slab region. allocated as pool from heap
 
   ub4 hid;
   ub4 id;
+
+  ub4 age;
+  ub4 aged;
+
   // - common
 
   ub4 cellen; // gross and aligned cel len
@@ -407,10 +427,6 @@ struct Align(16) st_region { // slab region. allocated as pool from heap
   size_t binorg; // offset in meta
   size_t lenorg;
   size_t tagorg;
-
-  // region trim
-  ub4 age;
-  ub4 aged;
 
   // remote bin
   size_t rbinorg;

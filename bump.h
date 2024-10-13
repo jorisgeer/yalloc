@@ -225,6 +225,7 @@ static ub4 bump_free(heapdesc *hd,heap *hb,bregion *reg,size_t ip,size_t reqlen,
     ydbg1(loc,"bumpfree region %u.%u reset at ptr %zx len %u cel %u",reg->hid,reg->id,ip,len,cel);
     reg->pos = 0;
     memset(meta + reg->freorg,0,reg->len / Stdalign); // clear state
+    reg->aged++;
   }
   return len;
 }

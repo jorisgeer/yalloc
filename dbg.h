@@ -33,7 +33,7 @@ static void callstack(heapdesc *hd)
 
   for (i = 0; i <= pos; i++) {
     fln = stack[i];
-    if (fln || i == 0) minidiag(fln,Lnone,Info,hd ? hd->id : 0,"pos %u/%u",i,pos);
+    if (fln || i == 0) minidiag(fln,Lnone,Info,hd->id,"pos %u/%u",i,pos);
   }
 #endif
 }

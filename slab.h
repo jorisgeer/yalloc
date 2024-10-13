@@ -310,6 +310,7 @@ static ub4 slab_remalloc(region *reg)
 
   size_t binorg = reg->binorg;
   ub4 *meta = reg->meta;
+  celset_t set;
 
   bin = meta + binorg;
   pos  = reg->binpos;
@@ -349,8 +350,9 @@ static ub4 slab_remalloc(region *reg)
       cel = Atomgeta(lockp + 2 + c,Moacq); // dev
 
       ycheck(Nocel,Lalloc,cel >= celcnt,"bin pos %u + %u above %u",pos,rpos,celcnt)
-      // set = slab_chkused(reg,cel);
-      // if (set != 2) error(Lalloc,"reg %.01llu cel %u is not free %u",reg->uid,cel,set);
+      set = slab_chkused(reg,cel);
+      if (set != 2) error(Lalloc,"reg %.01llu cel %u is not free %u",reg->uid,cel,set);
+
       bin[pos++] = cel;
     }
     Atomseta(lockp + 1,0,Morel); // empty remote bin segment
@@ -662,7 +664,7 @@ static ub4 slab_free_remote(heapdesc *hd,region *reg,size_t ip,size_t len,enum L
    aligned_alloc selects a cel from the never allocated pool that may leave a gap
    This gap is moved to the bin
  */
-static Hot size_t slab_newalcel(region *reg,ub4 align,ub4 cellen,ub4 tag)
+static Hot size_t slab_newalcel(region *reg,ub4 align,ub4 cellen Tagarg(tag) )
 {
   size_t ip,base;
   ub4 c,cel,celcnt,ofs;
@@ -823,7 +825,7 @@ static Hot void *slab_alloc(region *reg,ub4 ulen,enum Loc loc,ub4 tag)
       reg->stat.Allocs++;
       sat_inc(reg->stat.aligns + abit);
 #endif
-      ip = slab_newalcel(reg,ulen,cellen,tag);
+      ip = slab_newalcel(reg,ulen,cellen Tagarg(tag) );
       return (void *)ip;
     } else if (loc == Lreal) {
     }

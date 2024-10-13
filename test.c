@@ -72,7 +72,6 @@ static void inixor(ub8 *state)
   state[16] = 0; // p
 }
 
-//coverity[-overflow_const]
 static ub8 xorshift64star(void)
 {
   ub8 x = 0x05a3ae52de3bbf0aULL;
@@ -80,10 +79,10 @@ static ub8 xorshift64star(void)
   x ^= x >> 12; // a
   x ^= x << 25; // b
   x ^= x >> 27; // c
+  //coverity[overflow_const]
   return (x * 2685821657736338717ULL);
 }
 
-//coverity[-overflow_const]
 static ub8 xorshift1024star(ub8 *state)
 {
   ub4 p = (ub4)state[16];
@@ -95,6 +94,7 @@ static ub8 xorshift1024star(ub8 *state)
   s0 ^= s0 >> 30; // c
   state[p] = s0 ^ s1;
 
+  //coverity[overflow_const]
   return (ub4)(state[p] * 1181783497276652981ULL);
 }
 
@@ -184,7 +184,7 @@ static void diaena(ub4 x)
   yal_options(Yal_diag_enable,x,1);
 }
 
-//coverity[-RESOURCE_LEAK]
+//coverity[-alloc]
 static int slabs(cchar *cmd,size_t from,size_t to,size_t cnt,size_t iter)
 {
   size_t len,alen,i,c;
@@ -253,7 +253,7 @@ static void waitus(ub8 usec)
   }
 }
 
-//coverity[-RESOURCE_LEAK]
+//coverity[-alloc]
 static void *xfree_thread(void *arg)
 {
   struct xinfo *ap = (struct xinfo *)arg;
@@ -343,7 +343,7 @@ static int xfalloc(struct xinfo *a1,struct xinfo *a2,size_t len,size_t cnt)
   return 0;
 }
 
-//coverity[-RESOURCE_LEAK]
+//coverity[-alloc]
 static int xffree(struct xinfo *a1,size_t len,size_t cnt)
 {
   ub4 exp,iter;
@@ -372,7 +372,7 @@ static int xffree(struct xinfo *a1,size_t len,size_t cnt)
  - a .tid1. .tid2. .len. .count. -> allocate .count. blocks of .len. in .tid1., export to '.id2.
  - f .tid1. .tid2. .pos. .count.  -> free .count. blocks from .pos. as allocated
  */
-//coverity[-RESOURCE_LEAK]
+//coverity[-alloc]
 static int xfree(cchar *cmd,size_t tidcnt,int argc,char *argv[])
 {
   char *arg;
@@ -474,7 +474,7 @@ static int xfree(cchar *cmd,size_t tidcnt,int argc,char *argv[])
   return 0;
 }
 
-//coverity[-RESOURCE_LEAK]
+//coverity[-alloc]
 static void *mt_alfre_thread(void *arg)
 {
   struct xinfo *ap = (struct xinfo *)arg;
@@ -598,7 +598,6 @@ static int mt_alfre(cchar *cmd,size_t tidcnt,size_t iter2,int argc,char *argv[])
 }
 
 // double free
-//coverity[-USE_AFTER_FREE]
 static int fre2(size_t small,size_t large,size_t noerr)
 {
   ub4 i;
@@ -610,9 +609,11 @@ static int fre2(size_t small,size_t large,size_t noerr)
   l = malloc(large);
   free(s);
   if (noerr) diadis(Yal_diag_dblfree);
+  //coverity[double_free]
   free(s);
 
   free(l);
+  //coverity[double_free]
   free(l);
 
   if (haserr(2,s,0,L)) return L;
@@ -627,7 +628,7 @@ static int fre2(size_t small,size_t large,size_t noerr)
   return rv;
 }
 
-//coverity[-RESOURCE_LEAK]
+//coverity[-alloc]
 static int tstrand(size_t als,size_t fres,size_t hilen,size_t iter)
 {
   size_t it,len,newlen;
@@ -683,8 +684,7 @@ static int tstrand(size_t als,size_t fres,size_t hilen,size_t iter)
 static void *global_ptrs[Global_ptrs];
 
 // alloc many of one size, free the same, rinse, repeat
-//coverity[-USE_AFTER_FREE]
-//coverity[-RESOURCE_LEAK]
+//coverity[-alloc]
 static int allfre(cchar *cmd,size_t cnt,size_t len,size_t iter,size_t cnt2)
 {
   size_t i,n,c;
@@ -780,7 +780,7 @@ static int doclose(int fd,int line) {
    A .align. .count. .size. - allocate aligned
    @ .file. redirect args from file
  */
-//coverity[-RESOURCE_LEAK]
+//coverity[-alloc]
 static int manual(int argc,char *argv[])
 {
   char cmd,*arg;

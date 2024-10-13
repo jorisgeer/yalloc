@@ -306,7 +306,7 @@ static xregion *findgregion(enum Loc loc,size_t ip)
 static void *region_near(size_t ip,char *buf,ub4 len)
 {
   size_t basea = Size_max,baseb = 0,bas,lena,lenb,ip1;
-  ub4 b;
+  ub4 b,pos;
   xregion *rega = nil,*regb = nil;
   mpregion *mpreg;
   bregion *breg;
@@ -358,7 +358,7 @@ static void *region_near(size_t ip,char *buf,ub4 len)
   lenb = regb->len; // -V522 PVS nil ptr deref
 
   if (ip > baseb && ip < baseb + lenb) {
-    snprintf_mini(buf,0,len,"ptr %zx is %zu`b inside %s region %u.%u len %zu` at %zx .. %zx",ip,ip - baseb,regname(regb),regb->hid,regb->id,lenb,baseb,baseb + lenb);
+    pos = snprintf_mini(buf,0,len,"ptr %zx is %zu`b inside %s region %u.%u len %zu` age %u.%u",ip,ip - baseb,regname(regb),regb->hid,regb->id,lenb,regb->age,regb->aged);
     return regb;
   }
   if (ip > baseb && ip - baseb - lenb < basea - ip) {
