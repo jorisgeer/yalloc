@@ -131,7 +131,6 @@ static ub4 write_cfg(char *buf,ub4 pos,ub4 len)
   pos += snprintf_mini(buf,pos,len," L1line %u \\n\\\n",L1line);
   pos += snprintf_mini(buf,pos,len," thread_exit %u \\n\\\n",Yal_thread_exit);
   pos += snprintf_mini(buf,pos,len," Contention %u \\n\\\n",Contention);
-  pos += snprintf_mini(buf,pos,len," Segment %u \\n\\\n",Segment);
   pos += snprintf_mini(buf,pos,len," prep_TLS %u \\n\\\n",Yal_prep_TLS);
   pos += snprintf_mini(buf,pos,len," Bootmem %u \\n\\\n",Bootmem);
   pos += snprintf_mini(buf,pos,len," Basealign2 %u \\n\\\n",Basealign2);

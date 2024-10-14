@@ -143,7 +143,7 @@ static void *bump_alloc(heap *hb,ub4 len,ub4 ulen,enum Loc loc,ub4 tag)
   return bumpalloc(hb,hb->id,hb->bumpregs,Bumpregions,len,ulen,loc,tag);
 }
 
-// returns len
+// returns len. hb may be nil
 static ub4 bump_free(heapdesc *hd,heap *hb,bregion *reg,size_t ip,size_t reqlen,ub4 fretag,enum Loc loc)
 {
   size_t base = reg->user;
@@ -157,11 +157,17 @@ static ub4 bump_free(heapdesc *hd,heap *hb,bregion *reg,size_t ip,size_t reqlen,
   ub4 altag;
   bool didcas;
   enum Rtype typ = reg->typ;
+  char buf[256];
+  void *p;
 
+#if Yal_enable_check
   if (hb && typ != Rmini) {
-    ycheck(0,loc,reg < hb->bumpregs,"%s region %.01llu (%zx) not in heap %u (%zx)",regnames[typ],reg->uid,(size_t)reg,hb->id,(size_t)hb->bumpregs)
-    ycheck(0,loc,reg > hb->bumpregs + Bumpregions,"%s bump region %.01llu not in heap %u",regnames[typ],reg->uid,hb->id)
+    p = region_near(ip,buf,255);
+    errorctx(Fln,loc,"near %s %p",buf,p);
+    if (reg < hb->bumpregs) return error2(loc,Fln,"%s region %.01llu (%zx) not in heap %u (%zx)",regnames[typ],reg->uid,(size_t)reg,hb->id,(size_t)hb->bumpregs);
+    if (reg > hb->bumpregs + Bumpregions) return error2(loc,Fln,"%s region %.01llu not in heap %u",regnames[typ],reg->uid,hb->id);
   }
+#endif
 
   if (ip < base || ip > base + reg->len - Stdalign) {
     error(loc,"invalid ptr %zx", ip)
@@ -193,9 +199,8 @@ static ub4 bump_free(heapdesc *hd,heap *hb,bregion *reg,size_t ip,size_t reqlen,
       }
     }
     ypush(hd,Fln)
-    if (one == 0) error(loc,"bumpregion %.01llu ptr %zx len %u never allocated tag %.01u",reg->uid,ip,len,fretag)
-    else  error(loc,"bumpregion %.01llu ptr %zx len %u tag %.01u state %u",reg->uid,ip,len,fretag,one)
-    return 0;
+    if (one == 0) return error(loc,"bumpregion %.01llu ptr %zx len %u never allocated tag %.01u",reg->uid,ip,len,fretag)
+    else  return error(loc,"bumpregion %.01llu ptr %zx len %u tag %.01u state %u",reg->uid,ip,len,fretag,one)
   }
 
   one = 1;
@@ -224,7 +229,7 @@ static ub4 bump_free(heapdesc *hd,heap *hb,bregion *reg,size_t ip,size_t reqlen,
   if (unlikely(frees + 1 == allocs)) { // empty, reset
     ydbg1(loc,"bumpfree region %u.%u reset at ptr %zx len %u cel %u",reg->hid,reg->id,ip,len,cel);
     reg->pos = 0;
-    memset(meta + reg->freorg,0,reg->len / Stdalign); // clear state
+    memset(meta + reg->freorg,0,reg->len / Stdalign); // clear state todo sync with remote
     reg->aged++;
   }
   return len;

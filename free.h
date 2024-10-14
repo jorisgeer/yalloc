@@ -59,132 +59,6 @@ static enum Status free_mmap(heapdesc *hd,mpregion *reg,size_t ap,size_t ulen,en
   return St_ok;
 }
 
-struct remote_info {
-  xregion *reg;
-  heap *hb;
-  ub4 len; // nonzero for mini
-  ub4 cnt;
-};
-
-#if Yal_inter_thread_free
-
-/* mmap - mark atomically, owner will age
-  slab -  add to remote bin
-  mini - stats only
-  bump - stats only
-
-  returns 0 on error, Nolen on cancel or ulen
-*/
-static size_t free_remote(heapdesc *hd,xregion *reg,size_t ip,size_t reqlen,enum Loc loc)
-{
-  size_t ulen,len;
-  ub4 ulen4;
-  ub4 hid = hd->id;
-  enum Rtype typ;
-  enum Status rv;
-  ub4 refcnt;
-  mpregion *mpreg;
-  region *creg;
-
-  ycheck(0,loc,reg == nil,"heap %u nil reg",hid)
-
-  typ = reg->typ;
-  if (likely(typ == Rslab)) { // add to remote recycling bin
-    creg = (region *)reg;
-    refcnt = Atomad(creg->refcnt,1,Moacqrel);
-    if (unlikely(refcnt > Hi20)) return 0;
-    ulen4 = slab_free_remote(hd,creg,ip,reqlen,loc);
-    Atomsub(creg->refcnt,1,Moacqrel);
-    return ulen4;
-  } // slab
-
-  if (typ == Rbump || typ == Rmini) {
-    ulen4 = bump_free(hd,nil,(bregion *)reg,ip,reqlen,0,loc);
-    return ulen4;
-  }
-
-  if (unlikely(typ == Rmmap)) {
-    mpreg = (mpregion *)reg;
-    len = reg->len;
-    ulen = mpreg->ulen;
-    ypush(hd,Fln)
-
-    ytrace(loc,"heap %u region %u ptr+%zx mmap len %zu",hid,mpreg->id,ip,len)
-    rv = free_mmap(hd,mpreg,ip,len,loc,Fln);
-    ystats(hd->stat.xmapfrees)
-    if (rv == St_error) {
-      ypush(hd,Fln)
-      hd->stat.invalid_frees++; // error
-      return 0;
-    }
-    return ulen;
-  } // Rmmap
-
-  // Rnone
-  ypush(hd,Fln)
-  hd->stat.invalid_frees++;
-  errorctx(Fln,loc,"from heap %u",hid)
-  return error(loc,"%s region %u.%u from %u invalid free(%zx) len %zu",regname(reg),reg->hid,reg->id,hid,ip,reg->len);
-} // free_remote
-
-// returns len if found, zero if not, Nolen if cancelled
-static size_t free_remote_region(heapdesc *hd,xregion *reg,size_t ip,size_t reqlen,struct ptrinfo *pi,ub4 tag,enum Loc loc)
-{
-  size_t alen;
-  region *creg;
-  mpregion *mpreg;
-  enum Rtype typ;
-  ub4 len;
-  ub4 cel;
-  ub4 set;
-
-  typ = reg->typ;
-  if (likely(reqlen != Nolen)) {
-    alen = free_remote(hd,reg,ip,reqlen,loc);
-    ytrace(Lfree,"rfree(%zx) len %zu %s tag %.01u",ip,alen,regnames[typ],tag)
-    if (unlikely(alen == 0)) {
-      callstack(hd);
-      // errorctx(errfln,Lfree,"region %u",reg->id);
-      error2(Lfree,Fln,"cannot free(%zx) in region %u from heap %u",ip,reg->id,hd->id)
-    }
-    return alen;
-  }
-
-  // malloc_usable_size todo merge with below
-  pi->reg = reg;
-  if (likely(typ == Rslab)) {
-    creg = (region *)reg;
-    len = creg->cellen;
-    cel = slab_cel(creg,ip,len,creg->celcnt,Lfree);
-    if (unlikely(cel == Nocel)) return 0;
-    pi->cel = cel;
-    pi->len = len <= Cel_nolen ? len : slab_getlen(creg,cel,len);
-    return len;
-  } else if (typ == Rmmap) {
-    mpreg  =(mpregion *)reg;
-    alen = reg->len;
-    set = Atomget(mpreg->set,Moacq); // check free
-    if (set == 2) {
-      error(loc,"region %u.%u ptr %zx len %zu is freed",reg->hid,reg->id,ip,alen)
-      return 0;
-    }
-    pi->len = alen;
-    return alen;
-  } else if (typ == Rbump || typ == Rmini) {
-    len = bump_free(hd,nil,(bregion *)reg,ip,reqlen,0,loc);
-    pi->len = len;
-    return len;
-  } else {
-    return 0;
-  }
-}
-
-#else // Yal_inter_thread_free
-
-static size_t free_remote_slab(heapdesc *hd,region *reg,size_t ip,size_t len) { return 1; }
-
-#endif // Yal_inter_thread_free
-
 // Mark empty regions for reuse, and free after a certain 'time'
 static bool free_trim(heapdesc *hd,heap *hb,ub4 slabeffort,ub4 mapeffort)
 {
@@ -239,9 +113,9 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 slabeffort,ub4 mapeffort)
     if (likely(age == 0 || aged == 3)) { reg = nxreg; continue; } // not empty or already aged
 
     if (age == 1) { // to check
-      isempty = (reg->rbincnt + reg->binpos == reg->inipos); // quick pessimistic assessment
+      isempty = (reg->rbinpos + reg->binpos == reg->inipos); // quick pessimistic assessment
       if (isempty == 0) {
-        rbincnt = reg->rbincnt = slab_rbincnt(reg);
+        rbincnt = slab_rbincnt(reg);
         isempty = (reg->binpos + rbincnt == reg->inipos); // verify
       }
       if (isempty) reg->age = 2; // next time aging starts
@@ -394,7 +268,7 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 slabeffort,ub4 mapeffort)
 
   hb->mpregtrim = mreg ? mreg : hb->mpreglst;
  } //mapeffort
- 
+
   from = 1;
   didcas = Cas(hb->lock,from,0); // unlock
   ycheck(0,Lfree,didcas == 0,"heap %u lock %u",hb->id,from)
@@ -408,16 +282,34 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 slabeffort,ub4 mapeffort)
   return 0;
 }
 
+// returns len if found, zero if not, Nolen if cancelled
+static size_t free_remote_slab(heapdesc *hd,heap *hb,xregion *reg,size_t ip,size_t reqlen,ub4 tag,enum Loc loc)
+{
+  region *creg;
+  ub4 len;
+  ub4 refcnt;
+
+  creg = (region *)reg;
+
+  refcnt = Atomad(creg->refcnt,1,Moacqrel); // prevent trim from recycling
+  if (unlikely(refcnt > Hi20)) return 0; // is recycled and must be empty
+
+  len = slab_free_remote(hd,hb,creg,ip,reqlen,tag,loc);
+  Atomsub(creg->refcnt,1,Moacqrel);
+  return len ? len : Nolen;
+}
+
 /* First, find region. If not found, check remote heaps
    For slab, put in bin.
    For mmap, directly delete
    If reqlen == Nolen, return usaable size only and stores info
    else if reqlen > 0, check with actual size
    returns available i.e. allocated size, typically rounded up from requested or Nolen if not found
+   If hb is not nil, it is locked
   */
 static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,struct ptrinfo *pi,enum Loc loc,ub4 fln,ub4 tag)
 {
-  size_t ulen,alen,rlen,ibase,ip = (size_t)p;
+  size_t ulen,alen,rlen,ip = (size_t)p;
   size_t x8;
   heap *xhb;
   region *creg;
@@ -438,7 +330,7 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,struct p
   if (likely(hb != nil)) {
 //    reg = hb->mrufrereg; // start trying last used region todo reenable ?
 //    if (ip < reg->user || ip >= reg->user + reg->len) {
-      reg = findregion(hb,ip); // need to search page dir
+      reg = findregion(hb,ip,loc); // need to search page dir
 //    }
   } else reg = nil;
   // nil hb
@@ -470,13 +362,13 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,struct p
     if (hd->mhb) {
       mhb = hd->mhb;
       if (ip >= mhb->user && ip < mhb->user + mhb->len) {
-        alen = bump_free(hd,hb,mhb,ip,reqlen,tag,loc);
+        alen = bump_free(hd,nil,mhb,ip,reqlen,tag,loc);
         if (unlikely(reqlen == Nolen)) { // get_usable_size()
-          pi->reg = (xregion *)mhb;
-          pi->len = alen;
+          pi->reg = (xregion *)mhb; // todo pi unused
+          pi->len = alen ? alen : Nolen;
           pi->local = 1;
         }
-        return alen;
+        return alen ? alen : Nolen;
       }
     }
 
@@ -493,10 +385,21 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,struct p
       return Nolen;
     }
 
-    // try twice to lock owner heap
+    typ = reg->typ;
     xhb = reg->hb;
-    if (xhb == nil) didcas = 0; // e.g. mini
-    else {
+    ycheck(Nolen,loc,xhb == hb,"xhb %u == hb for %s region %u",xhb ? xhb->id : 0,regname(reg),reg->id);
+
+    if (xhb == nil || typ == Rbump || typ == Rmini) { // mini or bump
+      alen = bump_free(hd,nil,(bregion *)reg,ip,reqlen,tag,loc);
+      if (unlikely(reqlen == Nolen)) { // get_usable_size()
+        pi->reg = reg;
+        pi->len = alen ? alen : Nolen;;
+        pi->local = 0;
+      }
+      return alen ? alen : Nolen;
+    }
+
+    if (typ == Rslab && reqlen != Nolen) { // try twice to lock owner heap
       xpct = 0;
       didcas = Cas(xhb->lock,xpct,1);
       if (didcas == 0) {
@@ -504,57 +407,44 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,struct p
         Pause
         didcas = Cas(xhb->lock,xpct,1);
       }
-    }
-    if (didcas == 0) { // cannot obtain owner heap, free remote
-      alen = free_remote_region(hd,reg,ip,reqlen,pi,tag,loc | Lremote);
-      if (likely(alen != 0)) return alen;
-      else if (reqlen == Nolen) return 0; // todo check
+      if (didcas == 0) { // cannot obtain owner heap, free remote
+        alen = free_remote_slab(hd,hb,reg,ip,reqlen,tag,loc | Lremote);
 
-      hd->stat.invalid_frees++;
-      xreg = region_near(ip,buf,255);
-      if (xreg) errorctx(fln,loc,"%s region %u.%u %s",regname(xreg),xreg->hid,xreg->id,buf);
-      error2(loc,Fln,"cannot free ptr %zx tag %.01u",ip,tag)
-      return Nolen;
-    }
-    hd->locked = 1;
+        if (likely(alen != 0)) return alen;
 
-    // local free from owner heap
-    if (hb) { // release orig
-      xpct = 1;
-      didcas = Cas(hb->lock,xpct,0);
-      ycheck(Nolen,loc,didcas == 0,"heap %u lock %u",hb->id,xpct)
-    }
-    hd->hb = hb = xhb;
+        hd->stat.invalid_frees++;
+        xreg = region_near(ip,buf,255);
+        if (xreg) errorctx(fln,loc,"%s region %u.%u %s",regname(xreg),xreg->hid,xreg->id,buf);
+        error2(loc,Fln,"cannot free ptr %zx tag %.01u",ip,tag)
+        return Nolen;
+      } // locked remote heap
+
+      // local free from owner heap
+      if (hb && hb != xhb && hd->locked) { // release orig
+        xpct = 1;
+        didcas = Cas(hb->lock,xpct,0);
+        ycheck(Nolen,loc,didcas == 0,"heap %u lock %u",hb->id,xpct)
+      }
+      hb = hd->hb = xhb;
+      hd->locked = 1;
 
 #if Yal_enable_check
-    xreg = findregion(hb,ip);
-    if (xreg != reg) {
-      error(loc,"region %u.%u versus %u.%u for ptr %zx",reg->hid,reg->id,xreg ? xreg->hid : 0,xreg ? xreg->id : 0,ip)
-      return Nolen;
-    }
+      xreg = findregion(hb,ip,loc);
+      if (xreg != reg) {
+        error(loc,"region %u.%u versus %u.%u for ptr %zx",reg->hid,reg->id,xreg ? xreg->hid : 0,xreg ? xreg->id : 0,ip)
+        return Nolen;
+      }
 #endif
+
+    } // slab
 
   } // local reg nil or not
 
-  // -- local --, possibly from remote above
+  // local possibly from remote above, or mmap
 
   typ = reg->typ;
 
   ytrace(loc,"free(%zx) %s tag %.01u",ip,regnames[typ],tag)
-
-  ycheck(Nolen,loc,hb == nil,"nil heap for %u",hd->id)
-
-#if Yal_enable_check
-  ibase = reg->user;
-  rlen = reg->len;
-  if  (ip < ibase) {
-    error(loc,"ptr %zx is %zu` before region %u %zx .. %zx",ip,ibase - ip,reg->id,ibase,ibase + rlen)
-    return Nolen;
-  } else if  (ip >= ibase + rlen) {
-    error(loc,"ptr %zx is %zu` after region %u %zx .. %zx of len %zu`",ip,ip - ibase - rlen,reg->id,ibase,ibase + rlen,rlen)
-    return Nolen;
-  }
-#endif
 
   if (likely(typ == Rslab)) {
     creg = (region *)reg;
@@ -562,26 +452,34 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,struct p
     cellen = creg->cellen;
     celcnt = creg->celcnt;
     if (unlikely(reqlen != 0)) {
-      cel = slab_cel(creg,ip,cellen,celcnt,loc);
-      if (unlikely(cel == Nocel)) return Nolen;
-      ulen = cellen <= Cel_nolen ? cellen : slab_getlen(creg,cel,cellen);
-      ycheck(Nolen,loc,ulen == 0,"region %u cel %u ulen %zu/%u",creg->id,cel,ulen,cellen)
-      ycheck(Nolen,loc,ulen > cellen,"region %u cel %u ulen %zu above %u",creg->id,cel,ulen,cellen)
       if (reqlen == Nolen) { // get_usable_size()
+        cel = slab_cel(creg,ip,cellen,celcnt,loc);
+        if (unlikely(cel == Nocel)) return Nolen;
+        if (unlikely(slab_chkfree(creg,cel) != 1)) {
+          error(loc,"ptr %zx is not allocated",ip);
+          return Nolen;
+        }
+        ulen = cellen <= Cel_nolen ? cellen : slab_getlen(creg,cel,cellen);
+        ycheck(Nolen,loc,ulen == 0,"region %u cel %u ulen %zu/%u",creg->id,cel,ulen,cellen)
+        ycheck(Nolen,loc,ulen > cellen,"region %u cel %u ulen %zu above %u",creg->id,cel,ulen,cellen)
         pi->reg = reg;
         pi->cel = cel;
         pi->len = ulen;
         pi->local = 1;
         return cellen;
       }
-      if (reqlen != ulen && reqlen != cellen) {
-        error(loc,"free(%zx) of size %zu has invalid len %zu",ip,ulen,reqlen)
+      if (reqlen > Hi32) {
+        error(loc,"free_sized(%zx,%zx) has len %u",ip,reqlen,cellen)
         return Nolen;
       }
-    } // reqlen
+      len4 = (ub4)reqlen;
+    } else len4 = 0; // reqlen
+
+    ycheck(Nolen,loc,hb == nil,"nil heap for %u",hd->id)
+
     ytrace(loc,"ptr+%zx len %u %2zu",ip,cellen,creg->stat.frees)
 
-    bincnt = slab_free(hb,creg,ip,cellen,celcnt,tag); // put in recycling bin
+    bincnt = slab_free(hb,creg,ip,len4,cellen,celcnt,tag); // put in recycling bin
     if (unlikely(bincnt == 0)) {
       ytrace(loc,"ptr+%zx len %u %2zu",ip,cellen,creg->stat.frees)
       return 0; // error
@@ -608,7 +506,7 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,struct p
       if (xpct != 1) {
         errorctx(fln,loc,"expected 1, found %u",xpct);
         free2(Fln,loc,reg,ip,rlen,tag,"getsize");
-        return 0;
+        return Nolen;
       }
       pi->reg = reg;
       pi->len = mpreg->ulen;
@@ -617,15 +515,16 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,struct p
     }
 
     // free mmap directly
-    hb->stat.mapfrees++;
-    hb->stat.munmaps++;
-
+    if (hb) {
+      hb->stat.mapfrees++;
+      hb->stat.munmaps++;
+    }
     mpreg->age = 1;
     rv = free_mmap(hd,mpreg,ip,reqlen,loc,Fln);
     if (rv == St_error) {
       ypush(hd,Fln)
-      hd->stat.invalid_frees++;
-      return 0;
+      if (hb) hd->stat.invalid_frees++;
+      return Nolen;
     }
     return rlen;
   } // mmap
@@ -634,7 +533,7 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,struct p
     len4 = bump_free(hd,hb,(bregion *)reg,ip,reqlen,tag,loc);
     if (unlikely(reqlen == Nolen)) {
       pi->reg = reg;
-      pi->len = len4;
+      pi->len = len4 ? len4 : Nolen;
       pi->local = 1;
       return len4;
     }
@@ -735,7 +634,7 @@ static size_t yal_getsize(void *p,ub4 tag)
   size_t len;
 
   if (unlikely(p == nil)) {
-    ytrace(Lfree,"free(nil) tag %.01u",tag)
+    ytrace(Lsize,"size(nil) tag %.01u",tag)
     return 0;
   }
   ypush(hd,Fln)

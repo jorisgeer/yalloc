@@ -26,18 +26,6 @@ static void heap_init(heap *hb)
   hb->mrufrereg = &dummyreg;
 }
 
-static struct remote *newrem(heapdesc *hd)
-{
-  struct remote *rem = bootalloc(Fln,hd->id,Lfree | Lremote,sizeof(struct remote));
-  if (rem == nil) return rem;
-
-  rem->ovfbin = rem->ovfmem;
-  rem->xovfbin = rem->xovfmem;
-  rem->ovflen = Ovflen;
-  rem->xovflen = Ovfxlen;
-  return rem;
-}
-
 static void heap_reset(heap *hb)
 {
   region *reg;
@@ -170,6 +158,48 @@ static heap *heap_new(heapdesc *hd,enum Loc loc,ub4 fln)
   hd->stat.newheaps++;
 
   return ohb; // locked
+}
+
+// get mem from pool for remote bin. len and pos in ub4
+static void *getrbinmem(heap *hb,ub4 len)
+{
+  ub4 *mem = hb->rbinmem;
+  ub4 pos = hb->rbmempos;
+  ub4 end = hb->rbmemlen;
+  ub4 inc,meminc = max(Rmeminc,Pagesize);
+
+  if (pos + len > end) { // won't fit
+    pos = 0;
+    inc = max(meminc,len);
+    inc = doalign4(inc,meminc);
+    mem = hb->rbinmem = osmmap(inc * 4);
+  }
+  hb->rbmempos = pos + len;
+  return mem + pos;
+}
+
+static void putrbinmem(heap *hb,ub4 len)
+{
+  ub4 pos = hb->rbmempos;
+
+   hb->rbmempos -= min(pos,len);
+}
+
+static struct remote *newrem(heapdesc *hd,heap *hb)
+{
+  struct remote *rem;
+  ub4 len = sizeof(struct remote);
+
+  if (hb) rem = getrbinmem(hb,(len + 4) / 4);
+  else rem = bootalloc(Fln,hd->id,Lrfree,len);
+
+  if (rem == nil) return rem;
+
+  rem->ovfbin = rem->ovfmem;
+  rem->xovfbin = rem->xovfmem;
+  rem->ovflen = Ovflen;
+  rem->xovflen = Ovfxlen;
+  return rem;
 }
 
 #if Yal_prep_TLS

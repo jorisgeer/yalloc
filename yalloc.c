@@ -250,7 +250,7 @@ static Printf(5,6) ub4 minidiag(ub4 fln,enum Loc loc,enum Loglvl lvl,ub4 id,char
     fd2 = Yal_Err_fd;
   }
   oswrite(fd,buf,pos,__LINE__);
-  if (fd2 != fd) oswrite(fd,buf,pos,__LINE__);
+  if (fd2 != fd) oswrite(fd2,buf,pos,__LINE__);
   if (loc == Lsig) {
     return pos;
   }
@@ -415,8 +415,6 @@ struct Align(16) st_region { // slab region. allocated as pool from heap
   // bin
   ub4 binpos;
 
-  ub4 segcnt;
-
   ub4 bucket;
 
   ub4 claseq;
@@ -429,9 +427,11 @@ struct Align(16) st_region { // slab region. allocated as pool from heap
   size_t tagorg;
 
   // remote bin
-  size_t rbinorg;
-  _Atomic ub4 refcnt;
-  ub4 rbincnt;
+  ub4 * _Atomic rembin; // allocated on demand by sender from sender's heapmem
+
+  _Atomic ub4 lock;
+  _Atomic ub4 refcnt; // todo ?
+  ub4 rbinpos;
 
   struct regstat stat;
 
@@ -481,8 +481,13 @@ struct Align(16) st_heap {
   ub4 dirmem_pos,ldirmem_pos;
   ub4 dirmem_top,ldirmem_top;
 
+  // region lists
   struct st_region *reglst,*regprv,*regtrim;// todo prv for stats ?
   struct st_mpregion *mpreglst,*mpregprv,*mpregtrim;
+
+  // mempool for rembins
+  ub4 *rbinmem;
+  ub4 rbmempos,rbmemlen;
 
   ub4 trimcnt;
   ub4 filler4;
@@ -530,7 +535,6 @@ struct hdstats {
   size_t xbumpfrees,xbumpfreebytes;
   size_t xfreesum,xfreebin;
   size_t remote_dropped,remote_dropbytes;
-  size_t locks,clocks,spinsum,nolocks;
   size_t delregions,munmaps;
 };
 
@@ -824,11 +828,7 @@ ub4 yal_options(enum Yal_options opt,size_t arg1,size_t arg2)
 
 size_t malloc_usable_size(void * ptr)
 {
-  if (ptr == nil) {
-    ytrace(Lsize,"size(%zx) tag %.01u",(size_t)ptr,Fln)
-    return 0;
-  }
-  return yal_getsize(ptr,0);
+  return yal_getsize(ptr,Fln);
 }
 
 #if Yal_mallopt

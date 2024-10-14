@@ -143,7 +143,7 @@ static void Cold bumpstats(int fd,yalstats *sp,bregion *regs,ub4 regcnt,bool pri
 
   if (print) {
     pos += snprintf_mini(buf,pos,len,"\n  -- yalloc %s region stats for heap %u --\n",regnames[typ],regs->hid);
-    pos += snprintf_mini(buf,pos,len,"\n  %-6s %-6s %-6s\n","alloc","free","used");
+    pos += snprintf_mini(buf,pos,len,"\nr %-6s %-6s %-6s\n","alloc","free","used");
   }
   sp->bumpallocs = 0;
   sp->bumpfrees = 0;
@@ -165,7 +165,7 @@ static void Cold bumpstats(int fd,yalstats *sp,bregion *regs,ub4 regcnt,bool pri
       sp->bumpfrees += frees;
     }
     rpos = reg->pos;
-    if (print) pos += snprintf_mini(buf,pos,len,"  %u %-6u %-6u %-6u\n",r,allocs,frees,rpos);
+    if (print) pos += snprintf_mini(buf,pos,len,"%u %-6u%-6u%-6u\n",r,allocs,frees,rpos);
     if (pos > 3800) { oswrite(fd,buf,pos,Fln); pos = 0; }
   }
   if (pos) { buf[pos++] = '\n'; oswrite(fd,buf,pos,Fln); }
@@ -225,10 +225,10 @@ static Cold void regstats(int fd,heap *hb,bool print,ub4 opts)
   yalstats sp0,*sp;
   struct regstat *rp;
   size_t alloc0s,free0s,af0,freenils;
-  ub4 pos = 0,blen = 4094;
   ub4 cnt = 0;
   region reg0;
   char buf[4096];
+  ub4 pos = 0,blen = 4095;
 
   if (hb) {
     reg = hb->reglst;
@@ -298,7 +298,6 @@ static Cold size_t yal_mstats_heap(int fd,heap *hb,yalstats *ret,bool print,ub4 
   yalstats *sp;
   yalstats dummy;
   size_t errs;
-  double spinavg;
   ub4 hid = 0;
   ub4 pos = 0,tpos;
   ub4 len = 1022;
@@ -306,6 +305,7 @@ static Cold size_t yal_mstats_heap(int fd,heap *hb,yalstats *ret,bool print,ub4 
   ub4 tlen = 510;
   char tbuf[512];
   ub4 issum = opts & 0x80;
+  ub4 detail = opts & Yal_stats_detail;
 
   if (issum) { // for summing over heaps
     sp = ret;
@@ -331,7 +331,6 @@ static Cold size_t yal_mstats_heap(int fd,heap *hb,yalstats *ret,bool print,ub4 
 
   size_t locks = sp->locks;
   size_t clocks = sp->clocks;
-  size_t nolocks = sp->nolocks;
   size_t newheaps = sp->newheaps;
   size_t useheaps = sp->useheaps;
 
@@ -358,7 +357,7 @@ static Cold size_t yal_mstats_heap(int fd,heap *hb,yalstats *ret,bool print,ub4 
 
     regstats(fd,hb,print,opts);
     if (hb) {
-      if ( (opts & Yal_stats_detail) ) {
+      if (detail) {
         mmapstats(fd,hb,print);
         bumpstats(fd,&hb->stat,hb->bumpregs,Bumpregions,print);
       }
@@ -431,7 +430,7 @@ static Cold size_t yal_mstats_heap(int fd,heap *hb,yalstats *ret,bool print,ub4 
       }
       pos += snprintf_mini(buf,pos,len,"  mmap %zu` unmap %zu`\n\n",sp->mmaps,sp->munmaps - sp->delmpregions);
 
-      if (hb) {
+      if (hb && detail) {
         clascnts = hb->clascnts;
         i = 0;
         for (clas = 0; clas < Xclascnt; clas++) {
@@ -457,14 +456,13 @@ static Cold size_t yal_mstats_heap(int fd,heap *hb,yalstats *ret,bool print,ub4 
       tpos = table(tbuf,0,tlen,7,7,"new",sp->newmpregions,"use",sp->usempregions,"del",sp->delmpregions,"used",sp->xregion_cnt,"inuse",sp->inmapuse,nil);
       pos += snprintf_mini(buf,pos,len,"  regions %.*s\n",tpos,tbuf);
     }
-      pos += snprintf_mini(buf,pos,len,"  heaps new %2zu  used %2zu get %4zu noget %4zu,%-4zu\n\n",newheaps,useheaps,sp->getheaps,sp->nogetheaps,sp->nogetheap0s);
+      pos += snprintf_mini(buf,pos,len,"  heaps new %2zu  used %2zu get %4zu` noget %4zu`,%-4zu`\n\n",newheaps,useheaps,sp->getheaps,sp->nogetheaps,sp->nogetheap0s);
     // pos += snprintf_mini(buf,pos,len,"  mmap %zu unmap %zu\n\n",sp->mmaps,sp->munmaps);
 
 #endif
     if (locks) {
-      spinavg = (double)sp->spinsum / (double)locks;
       clockperc = clocks ? (100.0 * (double)clocks / (double)locks) : 0.0;
-      pos += snprintf_mini(buf,pos,len,"  lock %zu` clock %zu` = %.2f%% none %zu spin avg %.2f max %u\n",locks,clocks,clockperc,nolocks,spinavg,sp->maxspin);
+      pos += snprintf_mini(buf,pos,len,"  lock %zu` clock %zu` = %.2f%%\n",locks,clocks,clockperc);
     }
     if (errs) pos += snprintf_mini(buf,pos,len,"  invalid-free %-4zu error %-3zu\n",invalid_frees,sp->errors);
 
@@ -522,7 +520,6 @@ static void sumup(yalstats *sum,yalstats *one)
 
   sum->locks += one->locks;
   sum->clocks += one->clocks;
-  sum->nolocks += one->nolocks;
 
   sum->newheaps += one->newheaps;
   sum->useheaps += one->useheaps;
@@ -557,8 +554,6 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
   heap *hb;
   bregion *mhb;
   size_t errs = 0,invfrees;
-  size_t locks,clocks;
-  double spinavg,clockperc;
   ub4 heapcnt = 0,mheapcnt = 0;
   bool didopen = 0;
   ub4 zero = 0;
@@ -637,11 +632,6 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
     sum.xmaxbin = max(sum.xmaxbin,ds->xmaxbin);
     sum.xmaxovf = max(sum.xmaxovf,ds->xmaxovf);
 
-    locks = ds->locks;
-    clocks = ds->clocks;
-    sum.locks += locks;
-    sum.clocks += clocks;
-    sum.nolocks += ds->nolocks;
     sum.newheaps += ds->newheaps;
     sum.useheaps += ds->useheaps;
 
@@ -649,14 +639,8 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
     sum.nogetheaps += ds->nogetheaps;
     sum.nogetheap0s += ds->nogetheap0s;
 
-    if (print) {
+    if (print && (opts & Yal_stats_detail) ) {
       pos += snprintf_mini(buf,pos,len,"heap base %u new %u  used %u get %zu noget %zu,%zu\n",xhd->id,ds->newheaps,ds->useheaps,ds->getheaps,ds->nogetheaps,ds->nogetheap0s);
-      if (locks) {
-        spinavg = (double)ds->spinsum / (double)locks;
-        clockperc = ds->clocks ? (100.0 * (double)clocks / (double)locks) : 0.0;
-        pos += snprintf_mini(buf,pos,len,"  lock %-4zu` clock %-4zu` = %.2f%% none %-4zu spin avg %.2f max %-2u\n",locks,clocks,clockperc,ds->nolocks,spinavg,ds->maxspin);
-        buf[pos++] = '\n';
-      }
       if (pos > 2048) { oswrite(fd,buf,pos,Fln); pos = 0; }
     }
     if (invfrees) pos += snprintf_mini(buf,pos,len,"  invalid-free %-4zu error %-3zu\n",invfrees,ds->errors);

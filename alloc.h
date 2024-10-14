@@ -292,7 +292,7 @@ static Hot void *alloc_heap(heapdesc *hd,heap *hb,size_t reqlen,size_t ulen,enum
     ycheck(nil,loc,clas != reg->clas,"region %zx %.01llu clas %u len %u vs %u %u pos %u",(size_t)reg,reg->uid,reg->clas,reg->cellen,clas,alen,pos)
     ycheck(nil,loc,reg->cellen < alen,"region %.01llu clas %u cellen %u len %u.%u tag %.01u",reg->uid,clas,reg->cellen,alen,len,tag)
 
-    p = slab_alloc(reg,(ub4)ulen,loc,tag);
+    p = slab_alloc(hb,reg,(ub4)ulen,loc,tag);
 
     if (likely(p != nil)) {
       ytrace(Lalloc,"-malloc(%zu`) = %zx tag %.01u",loc == Lalloc ? ulen : len,(size_t)p,tag)

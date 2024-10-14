@@ -29,7 +29,7 @@ struct yal_stats {
   size_t mmaps,munmaps;
 
   size_t findregions;
-  size_t locks,clocks,nolocks,spinsum;
+  size_t locks,clocks;
   size_t remote_dropped,remote_dropbytes,rbinskip;
   size_t xfreebuf; // unconditional
   size_t xfreesum,xfreebatch;

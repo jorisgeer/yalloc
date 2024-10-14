@@ -125,6 +125,8 @@ static unsigned int Trim_Ages[3] = {3,6,9}; // idem, larger blocks
 #define Regmem_inc 32
 #define Xregmem_inc (64 * 4)
 
+#define Rmeminc 4096
+
 // remote free
 #define Rembatch 32
 #define Rembkt 64
@@ -148,8 +150,6 @@ static unsigned int Trim_Ages[3] = {3,6,9}; // idem, larger blocks
 
 // #define Minheaps 4
 #define Contention 6 // create per-thread heap if contended * 1 << contention exceeds uncontended
-
-#define Segment 4u // freelist shards
 
 // Set to prep TLS with a before-main function. gcc on darwin aka macos call malloc() at TLS init...
 #ifdef __linux__

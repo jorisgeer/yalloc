@@ -109,7 +109,6 @@ static void setgregion(heap *hb,xregion *reg,size_t bas,size_t len,bool add)
       didcas = Casa(dir1 + pos1,(xregion ****)&dir2,ndir2);
       if (unlikely(didcas == 0)) {
         ydbg2(Lnone,"dir 2 nil for reg %u",reg->id)
-        dir2 = (xregion ** _Atomic *)Atomgeta(dir1 + pos1,Moacq);
         if (hb) hb->dirmem_pos -= Dir2len;
       } else dir2 = (xregion ** _Atomic *)ndir2; // our new
     }
@@ -127,7 +126,6 @@ static void setgregion(heap *hb,xregion *reg,size_t bas,size_t len,bool add)
       didcas = Casa(dir2 + pos2,(xregion ***)&dir3,ndir3);
       if (unlikely(didcas == 0)) {
         ydbg2(Lnone,"dir 2 nil for reg %u",reg->id)
-        dir3 = (xregion * _Atomic *)Atomgeta(dir2 + pos2,Moacq);
         if (hb) hb->ldirmem_pos -= Dir3len;
       } else dir3 = (xregion * _Atomic *)ndir3;
     }
@@ -207,7 +205,7 @@ static bool setregion(heap *hb,xregion *reg,size_t bas,size_t len,bool add,enum 
 }
 
 // locate region from pointer. First part of free()
-static Hot xregion *findregion(heap *hb,size_t ip)
+static Hot xregion *findregion(heap *hb,size_t ip,enum Loc loc)
 {
   size_t ip1;
   ub4 pos1,pos2,pos3;
@@ -238,8 +236,13 @@ static Hot xregion *findregion(heap *hb,size_t ip)
 
   if (unlikely(reg == nil)) { ydbg2(0,"pos %u,%u,%u.%x %zx %zx %u",pos1,pos2,pos3,pos3,ip,ip & (Pagesize - 1),Pagesize); return nil; }
 
-  ycheck(nil,Lnone,ip < reg->user,"%s region %u p %zx is %zu`b below base %zx",regname(reg),reg->id,ip,reg->user - ip,reg->user)
-  ycheck(nil,Lnone,ip > reg->user + reg->len,"region %u p %zx above base %zx + %zu",reg->id,ip,reg->user,reg->len)
+#if Yal_enable_check
+  size_t base = reg->user;
+  size_t len = reg->len;
+
+  if (ip < base) { error(loc,"region %u.%u p %zx is %zu` below base %zx",reg->hid,reg->id,ip,base - ip,base); return nil; } // internal error
+  if (ip > base + len) { error(loc,"region %u p %zx above base %zx + %zu",reg->id,ip,base,len); return nil; } // possible user error
+#endif
 
   return reg;
 }

@@ -160,17 +160,17 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
 
   if (Yal_err_fd != Yal_Err_fd && Yal_Err_fd >= 0) oswrite(Yal_Err_fd,buf,pos,Fln);
 
-  if ( (global_check & 2) == 0) return pos;
+  if ( (global_check & 2) == 0) return 0;
 
   if (Cas(exiting,zero,1)) { // let only one thread call exit
     if (global_stats_opt) yal_mstats(nil,global_stats_opt | Yal_stats_print,Fln,"diag-exit");
     minidiag(Fln,loc,Error,tid,"\n--- %.255s exiting ---\n",global_cmdline);
     _Exit(1);
   }
-  return pos;
+  return 0;
 }
 
-#define Diagcode (Yal_diag_count + __COUNTER__ +  32) // reserve 32 for tracing
+#define Diagcode (Yal_diag_count + __COUNTER__ + 32) // reserve 32 for tracing
 
 #define error(loc,fmt,...) do_ylog(Diagcode,loc,Fln,Error,0,fmt,__VA_ARGS__);
 #define error2(loc,fln,fmt,...) do_ylog(Diagcode,loc,fln,Error,1,fmt,__VA_ARGS__);

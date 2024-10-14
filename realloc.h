@@ -83,7 +83,7 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
         flen = slab_frecel(hb,reg,pi->cel,reg->cellen,reg->celcnt,Fln); // put old in recycling bin
         if (unlikely(flen == 0)) return (void *)__LINE__;
       }
-      else if (slab_free_remote(hd,reg,ip,0,Lreal) == 0) return (void *)__LINE__;
+      else if (slab_free_remote(hd,hb,reg,ip,0,tag,Lreal) == 0) return (void *)__LINE__;
       return np;
 
     } else if (typ == Rmmap) {
@@ -117,7 +117,7 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
         ystats(reg->stat.reallocgts)
         flen = slab_frecel(hb,reg,pi->cel,reg->cellen,reg->celcnt,Fln); // put old in recycling bin
         if (unlikely(flen == 0)) return (void *)__LINE__;
-      } else if (slab_free_remote(hd,reg,ip,0,Lreal | Lremote) == 0) return (void *)__LINE__;
+      } else if (slab_free_remote(hd,hb,reg,ip,0,tag,Lreal | Lremote) == 0) return (void *)__LINE__;
       return np;
 
     } else if (typ == Rbump || typ == Rmini) {
@@ -194,6 +194,7 @@ static void *yrealloc(void *p,size_t newlen,ub4 tag)
   if (hb == nil) return oom(Fln,Lreal,newlen,0);
 
   np = real_heap(hd,hb,p,alen,newlen,&pi,tag);
+  //coverity[pass_freed_arg]
   ytrace(Lreal,"- realloc(%zx,%zu) = %zx",(size_t)p,newlen,(size_t)np)
 
   // hb = hd->hb;
