@@ -123,7 +123,7 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
 
   if (fln) pos = diagfln(buf,pos,len,fln);
 
-  pos += snprintf_mini(buf,pos,len,"%-5lu %-4u %-3u ",mypid,tid,did);
+  pos += snprintf_mini(buf,pos,len,"%-5lu %-4u %-3u ",Atomget(mypid,Monone),tid,did);
 
   name = lvlnames[min(lvl,Nolvl)];
   buf[pos++] = *name;

@@ -177,10 +177,12 @@ static int newlogfile(cchar *name[],cchar *suffix,ub4 id)
 
 static void init_env(void)
 {
+  unsigned long zero,pid = ospid();
+
   if (Yal_log_fd == -1) Yal_log_fd = newlogfile(Yal_log_file,"",1);
   if (Yal_err_fd == -1) Yal_err_fd = newlogfile(Yal_err_file,"",1);
 
-  mypid = ospid();
+  Cas(mypid,zero,pid);
 
   // minidiag(Fln,Lnone,Info,0,"init %u",Yal_log_fd);
 

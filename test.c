@@ -127,6 +127,18 @@ static void tlog(int line,enum Loglvl lvl,cchar *fmt,va_list ap)
   oswrite(lvl > Error ? Log_fd : Error_fd,buf,pos,__LINE__);
 }
 
+extern Noret void exit(int status);
+
+static Printf(2,3) Noret void fatal(int line,cchar *fmt,...)
+{
+  va_list ap;
+
+  va_start(ap,fmt);
+  tlog(line,Fatal,fmt,ap);
+  va_end(ap);
+  exit(1);
+}
+
 static Printf(2,3) int error(int line,cchar *fmt,...)
 {
   va_list ap;
@@ -230,13 +242,13 @@ static int slabs(cchar *cmd,size_t from,size_t to,size_t cnt,size_t iter)
 struct xinfo {
   _Atomic ub4 lock;
   ub4 tid;
-  ub4 cmd;
+  _Atomic ub4 cmd;
   ub4 mode;
-  size_t len;
-  size_t cnt;
+  _Atomic size_t len;
+  _Atomic size_t cnt;
   size_t pos;
   size_t iter;
-  void *ps[Pointers];
+  void * _Atomic ps[Pointers];
 };
 
 static void waitus(ub8 usec)
@@ -258,11 +270,12 @@ static void *xfree_thread(void *arg)
 {
   struct xinfo *ap = (struct xinfo *)arg;
   void *p;
-  size_t iter = 256;
-  ub4 exp;
+  size_t len,cnt,iter = 256;
+  ub4 exp,cascnt;
   ub4 c,cmd;
   ub4 tid = ap->tid;
   ssize_t rv;
+  void * _Atomic * ps;
 
   info(L,"tid %u start",tid);
 
@@ -278,29 +291,41 @@ static void *xfree_thread(void *arg)
       waitus(100ul);
       continue;
     }
-    cmd = ap->cmd;
+    cmd = Atomget(ap->cmd,Moacq);
     info(L,"tid %u cmd %u",tid,cmd);
+    ps = ap->ps;
 
     // alloc
     if (cmd == 1) {
-      for (c = 0; c < ap->cnt; c++) {
-        p = malloc(ap->len);
-        // info(L,"alloc %zu = %p",ap->len,p);
-        if (c < Pointers) ap->ps[c] = p;
+      cnt = Atomget(ap->cnt,Moacq);
+      len = Atomget(ap->len,Monone);
+      for (c = 0; c < cnt; c++) {
+        p = malloc(len);
+        // info(L,"alloc %zu = %p",len,p);
+        if (c >= Pointers) continue;
+        Atomseta(ps + c,p,Morel);
       }
 
     // free
     } else if (cmd == 2) {
-      for (c = 0; c < ap->cnt; c++) {
-        p = ap->ps[ap->len + c];
+      len = Atomget(ap->len,Moacq);
+      cnt = Atomget(ap->cnt,Moacq);
+      for (c = 0; c < cnt; c++) {
+        if (len + c >= Pointers) break;
+        p = Atomgeta(ps + len + c,Moacq);
         // info(L,"tid %u free %zx at %u",tid,(size_t)p,c);
         free(p);
       }
     } else if (cmd == 3) { // realloc todo
     }
 
-    ap->cmd = 0;
-    Atomset(ap->lock,4,Morel);
+    // ap->cmd = 0;
+
+    exp = 3; cascnt = Hi16;
+    while (--cascnt && Cas(ap->lock,exp,4) == 0) {
+      waitus(1000ul * 10);
+    }
+    if (cascnt == 0) fatal(L,"timeout %u",exp);
     info(L,"tid %u 4",tid);
   } while (--iter);
 
@@ -317,18 +342,27 @@ static void *xfree_thread(void *arg)
 static int xfalloc(struct xinfo *a1,struct xinfo *a2,size_t len,size_t cnt)
 {
   ub4 exp,iter;
-  size_t pos = a2->pos;
+  size_t c,pos = a2->pos;
+  void *p;
+  void * _Atomic * ps1;
+  void * _Atomic * ps2;
 
-  // T1 allocs a few bloks
+  // T1 allocs a few blocks
   exp = 0; iter = Hi16;
   while (--iter && Cas(a1->lock,exp,1) == 0) {
     waitus(1000ul * 10);
   }
   if (iter == 0) return L;
-  a1->len = len;
-  a1->cnt = cnt;
-  a1->cmd = 1;
-  Atomset(a1->lock,2,Morel);
+
+  Atomset(a1->len,len,Morel);
+  Atomset(a1->cnt,cnt,Morel);
+  Atomset(a1->cmd,1,Morel);
+
+  exp = 1; iter = Hi16;
+  while (--iter && Cas(a1->lock,exp,2) == 0) {
+    waitus(1000ul * 10);
+  }
+  if (iter == 0) return L;
 
   exp = 4; iter = Hi16;
   while (--iter && Cas(a1->lock,exp,0) == 0) {
@@ -337,8 +371,14 @@ static int xfalloc(struct xinfo *a1,struct xinfo *a2,size_t len,size_t cnt)
   if (iter == 0) return L;
 
   cnt = min(cnt,Pointers);
-  memcpy(a2->ps + pos,a1->ps,cnt * sizeof(size_t));
-  a2->pos = min(pos + cnt,Pointers);
+  ps1 = a1->ps;
+  ps2 = a2->ps;
+  for (c = 0; c < cnt; c++) {
+    if (c + pos>= Pointers) break;
+    p = Atomgeta(ps1 + pos + c,Moacq);
+    Atomseta(ps2 + pos + c,p,Morel);
+  }
+  a2->pos = pos + cnt;
   info(L,"tid %u pos %zu",a2->tid,a2->pos);
   return 0;
 }
@@ -353,10 +393,14 @@ static int xffree(struct xinfo *a1,size_t len,size_t cnt)
     waitus(1000ul * 10);
   }
   if (iter == 0) return L;
-  a1->len = len;
-  a1->cnt = cnt;
-  a1->cmd = 2;
-  Atomset(a1->lock,2,Morel);
+  Atomset(a1->len,len,Morel);
+  Atomset(a1->cnt,cnt,Morel);
+  Atomset(a1->cmd,2,Morel);
+
+  exp = 1; iter = Hi16;
+  while (--iter && Cas(a1->lock,exp,2) == 0) {
+    waitus(1000ul * 10);
+  }
 
   exp = 4; iter = Hi16;
   while (--iter && Cas(a1->lock,exp,0) == 0) {
@@ -384,6 +428,8 @@ static int xfree(cchar *cmd,size_t tidcnt,int argc,char *argv[])
   static struct xinfo infos[64]; // todo stack vg
   void *retval;
   void *p;
+  void * _Atomic * ps1;
+  void * _Atomic * ps2;
   ub4 exp;
   ub4 iter;
 
@@ -410,12 +456,14 @@ static int xfree(cchar *cmd,size_t tidcnt,int argc,char *argv[])
 
     if (*arg == 'a') {
       a2 = infos + xid;
+      ps2 = a2->ps;
       pos = a2->pos;
       if (tid == 0) { // on main heap
         info(L,"alloc %zu blocks of len %zu on main heap",cnt,len);
         for (c = 0; c < cnt; c++) {
           p = malloc(len);
-          if (c < Pointers) a2->ps[c + pos] = p;
+          if (c + pos >= Pointers) continue;
+          Atomseta(ps2 + c + pos,p,Morel);
         }
         continue;
       }
@@ -427,10 +475,12 @@ static int xfree(cchar *cmd,size_t tidcnt,int argc,char *argv[])
     }
     if (*arg == 'f') {
       a1 = infos + tid;
+      ps1 = a1->ps;
       if (tid == 0) { // on main heap
         info(L,"free %zu bloks in main",cnt);
         for (c = 0; c < cnt; c++) {
-           p = a1->ps[len + c];
+           if (c + len >= Pointers) break;
+           p = Atomgeta(ps1 + len + c,Moacq);
            free(p);
         }
         continue;
@@ -482,6 +532,7 @@ static void *mt_alfre_thread(void *arg)
   size_t cnt,len,iter,l,c,cc,pos,pp,pe;
   ub4 mode,alfre;
   void *p;
+  void * _Atomic * ps;
   ssize_t rv = 0;
   ub8 state[18];
 
@@ -489,9 +540,11 @@ static void *mt_alfre_thread(void *arg)
   for (l = 0; l < 16; l++) state[l] = xorshift64star();
 
   iter = ap->iter;
-  cnt = max(ap->cnt,1);
-  len = ap->len;
+  cnt = Atomget(ap->cnt,Moacq);
+  cnt = max(cnt,1);
+  len = Atomget(ap->len,Monone);
   mode = ap->mode;
+  ps = ap->ps;
 
   info(L,"+thread %u cnt %zu len %zu iter %zu mode %u",tid,cnt,len,iter,mode);
 
@@ -505,24 +558,26 @@ static void *mt_alfre_thread(void *arg)
       l = rnd(len,state);
       for (c = 0; c < cc; c++) {
         p = malloc(l);
-        if (pos < Pointers) ap->ps[pos++] = p;
+        if (pos >= Pointers) continue;
+        Atomseta(ps + pos,p,Morel);
+        pos++;
       }
     } else {
       pp = rnd(max(pos,1),state);
       pe = min(pos,rnd(cnt,state));
       while (pp < min(pe,Pointers)) {
-        p = ap->ps[pp];
+        p = Atomgeta(ps + pp,Moacq);
         free(p);
-        ap->ps[pp] = nil;
+        // ap->ps[pp] = nil;
         pp++;
       }
     }
     if (pick(0x3f,state)) {
       for (pp = 0; pp < pos; pp++) {
-        p = ap->ps[pp];
+        p = Atomgeta(ps + pp,Moacq);
         free(p);
       }
-      memset(ap->ps,0,pos * sizeof(void *));
+      // memset(ap->ps,0,pos * sizeof(void *));
       pos = 0;
     }
   } // iter
@@ -560,8 +615,8 @@ static int mt_alfre(cchar *cmd,size_t tidcnt,size_t iter2,int argc,char *argv[])
     cnt = max(cnt,1);
     info(L,"+thread %u cnt %zu len %zu iter %zu mode %u",tid,cnt,len,iter,mode);
     a1 = infos + tid;
-    a1->cnt = cnt;
-    a1->len = len;
+    Atomset(a1->cnt,cnt,Morel);
+    Atomset(a1->len,len,Morel);
     a1->iter = iter;
     a1->mode = mode;
   }
@@ -958,7 +1013,7 @@ static int manual(int argc,char *argv[])
 
 static int usage(void)
 {
-  oswrite(1,usagemsg,sizeof(usagemsg),__LINE__);
+  oswrite(1,usagemsg,sizeof(usagemsg) - 1,__LINE__);
   showstats(L,1,"test");
   return 1;
 }

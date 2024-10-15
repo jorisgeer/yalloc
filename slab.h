@@ -8,7 +8,7 @@
   Meetadata is stored separate from the user blocks - aka cells - and layed out as consecutive arrays of one word per cell.
 
   binset            - one atomic byte for bin allocation. 0 init 1 alloc 2 free. Used for alloced / freed admin and invalid free detect
-  bin                 - one 16/32 bits word dependent on cell count. List of binpos cells, max celcnt. starts at binorg
+  bin                 - one 32 bits word dependent on cell count. List of binpos cells, max celcnt. starts at binorg
   userlen          - one 16/32 bits word. requested aka net length. Absent for small cells
   tags                - optional one 16/32 bits word with callsite info.
 */

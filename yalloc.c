@@ -198,7 +198,8 @@ static cchar * const locnames[Lmask + 1] = { " ","realloc","free","size","malloc
 static _Atomic ub4 g_errcnt;
 static _Atomic ub4 g_msgcnt;
 
-static unsigned long mypid;
+static _Atomic unsigned long mypid;
+
 static char global_cmdline[256];
 
 static Cold ub4 diagfln(char *buf,ub4 pos,ub4 len,ub4 fln)
@@ -233,7 +234,7 @@ static Printf(5,6) ub4 minidiag(ub4 fln,enum Loc loc,enum Loglvl lvl,ub4 id,char
   if (*fmt == '\n')  buf[pos++] = *fmt++;
   pos = diagfln(buf,pos,len,fln);
 
-  pos += snprintf_mini(buf,pos,len,"%-5lu %-4u %-3u %c %-8s ",mypid,id,0,*lvlnam,locnam);
+  pos += snprintf_mini(buf,pos,len,"%-5lu %-4u %-3u %c %-8s ",Atomget(mypid,Monone),id,0,*lvlnam,locnam);
 
   va_start(ap,fmt);
   pos += mini_vsnprintf(buf,pos,len,fmt,ap);
