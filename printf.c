@@ -1293,11 +1293,11 @@ static bool Printf(3,4) check(ub4 line,char *exp,cchar *fmt,...)
  #pragma clang diagnostic ignored "-Wformat-nonliteral"
 #endif
 
-static int test(ub4 u4,double f8,const char *s,char *fmt)
+static int test(unsigned long u8,double f8,const char *s,char *fmt)
 {
   bool rv = 0;
   char buf[1024];
-  ub4 len = 1022;
+  ub4 u4,len = 1022;
   ub4 pos = 0;
 
   if (*fmt == '`') {
@@ -1309,7 +1309,7 @@ static int test(ub4 u4,double f8,const char *s,char *fmt)
     buf[pos++] = '\n';
   }
 
-  pos += snprintf_mini(buf,pos,len,fmt,s,u4,f8);
+  pos += snprintf_mini(buf,pos,len,fmt,s,u8,f8);
   buf[pos++] = '\n';
   write(1,buf,pos);
 
@@ -1344,16 +1344,16 @@ static int test(ub4 u4,double f8,const char *s,char *fmt)
 
 int main(int argc,char *argv[])
 {
-  ub4 u4 = 0;
+  unsigned long u8 = 0;
   double f8 = 0.0;
   char *fmt = "";
   const char *str = "test";
 
   if (argc > 1) fmt = argv[1];
   if (argc > 2) str = argv[2];
-  if (argc > 3) u4 = (ub4)strtoul(argv[3],nil,0);
+  if (argc > 3) u8 = strtoul(argv[3],nil,0);
   if (argc > 4) f8 = strtod(argv[4],nil);
 
-  return test(u4,f8,str,fmt);
+  return test(u8,f8,str,fmt);
 }
 #endif // Test

@@ -19,7 +19,7 @@ static ub4 slabstats(region *reg,yalstats *sp,char *buf,ub4 pos,ub4 len,bool pri
   ub4 inipos;
   ub4 rid = reg->id;
   char status;
-  ub4 alpos,hdpos;
+  ub4 hdpos;
   char albuf[256];
   ub4 dostate = opts & Yal_stats_state;
   struct regstat *rp = &reg->stat;
@@ -42,10 +42,10 @@ static ub4 slabstats(region *reg,yalstats *sp,char *buf,ub4 pos,ub4 len,bool pri
   size_t frees = rp->frees;
   size_t rfrees = rp->rfrees;
 
-  size_t allocs = iniallocs + binallocs + callocs + xallocs;
+  size_t allocs = iniallocs + binallocs + callocs + xallocs + Allocs;
 
   ycheck(pos,Lstats,allocs < callocs,"region %.01llu alloc %zu calloc %zu",reg->uid,allocs,callocs)
-  allocs -= callocs + Allocs;
+  allocs -= callocs;
 
   // add to per-heap
 
@@ -94,19 +94,15 @@ static ub4 slabstats(region *reg,yalstats *sp,char *buf,ub4 pos,ub4 len,bool pri
   if ( (cnt & 0x1f) == 0) {
 
     hdpos = snprintf_mini(albuf,0,255,
-      "\n  %-6s %-3s %-7s %-7s %-7s %-7s %-21s %-7s %-7s %-7s %-7s %-7s",
+      "\n  %-6s %-3s %-7s %-7s %-7s %-7s %-22s %-7s %-7s %-7s %-7s %-7s",
       "region","seq","len","cellen","alloc ","calloc","","free","rfree","Alloc","realloc","Realloc");
      if (dostate) hdpos += snprintf_mini(albuf,hdpos,255," %-7s %-7s %-7s %-7s %-4s","cnt","free","ini","bin","rbin");
      albuf[hdpos++] = '\n';
      pos += underline(buf + pos,len - pos,albuf,hdpos);
   }
-  alpos = 0;
+  snprintf_mini(albuf,0,256,"%-7zu` %-7zu` %-7zu`",iniallocs,binallocs,xallocs);
 
-  if (iniallocs) alpos += snprintf_mini(albuf,alpos,256,"i.%zu` ",iniallocs);
-  if (binallocs) alpos += snprintf_mini(albuf,alpos,256,"b.%zu` ",binallocs);
-  if (xallocs) alpos += snprintf_mini(albuf,alpos,256,"x.%zu` ",xallocs);
-  if (alpos && buf[alpos-1] == ' ') alpos--;
-  pos += snprintf_mini(buf,pos,len,"%c %-6u %-3u %-7zu` %-7u` %-7zu` %-7zu` %-21s %-7zu` %-7zu`",status,rid,claseq,rlen,reg->cellen,allocs,callocs,albuf,frees,rfrees);
+  pos += snprintf_mini(buf,pos,len,"%c %-6u %-3u %-7zu` %-7u` %-7zu` %-7zu` %-22s %-7zu` %-7zu`",status,rid,claseq,rlen,reg->cellen,allocs,callocs,albuf,frees,rfrees);
   if (dostate || (Allocs | reallocles | reallocgts)) pos += snprintf_mini(buf,pos,len," %-7zu` %-7zu` %-7zu`",Allocs,reallocles,reallocgts);
   if (dostate) {
     pos += snprintf_mini(buf,pos,len," %-7u %-7u %-7u %-7u %-7u",celcnt,frecnt,inipos,bincnt,rbincnt);
