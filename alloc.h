@@ -61,7 +61,7 @@ static mpregion *yal_mmap(heapdesc *hd,heap *hb,size_t len,size_t align,enum Loc
   aip = align ? doalign8(ip,align) : ip;
 
   vg_mem_noaccess(p,alen)
-  vg_mem_undef((vid *)aip,len - align)
+  vg_mem_undef((void *)aip,len - align)
 
 #if 0 // todo see above
   zero = 0;
@@ -434,7 +434,7 @@ static Hot void *yal_heapdesc(heapdesc *hd,size_t len,size_t ulen,enum Loc loc,u
 
 static void *yalloc(size_t len,size_t ulen,enum Loc loc,ub4 tag)
 {
-  heapdesc *hd = getheapdesc(Lalloc);
+  heapdesc *hd = getheapdesc(loc);
 
   return yal_heapdesc(hd,len,ulen,loc,tag);
 }

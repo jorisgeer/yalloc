@@ -14,7 +14,9 @@ void *malloc(size_t len)
 
 #if Yal_prep_TLS
   if (unlikely(yal_tls_inited == 0)) {
-    return __je_bootstrap_malloc(len);
+    p = __je_bootstrap_malloc(len);
+    minidiag(Fln,Lalloc,Debug,0,"TLS init %zu = %zx",len,(size_t)p);
+    return p;
   }
 #endif
 
@@ -34,7 +36,8 @@ void *calloc (size_t count, size_t size)
 
 #if Yal_prep_TLS
   if (unlikely(yal_tls_inited == 0)) {
-    return __je_bootstrap_calloc(count,size);
+    p = __je_bootstrap_calloc(count,size);
+    minidiag(Fln,Lcalloc,Debug,0,"TLS init %zu * %zu = %zx",count,size,(size_t)p);
   }
 #endif
 

@@ -49,7 +49,7 @@ static region *newslab(heap *hb,ub4 cellen,ub4 clas,ub4 claseq)
 
   do {
     reglen = 1ul << order;
-  
+
     if ( (cellen & (cellen - 1)) == 0) { // pwr2
       celord = ctz(cellen);
       cnt = (ub4)(reglen >> celord);
@@ -211,7 +211,7 @@ static Hot bool slab_markused(region *reg,ub4 cel,celset_t from,ub4 fln)
   didcas = Casa(binset + cel,&expect,to);
 
   if (likely(didcas != 0)) {
-    vg_mem_noaccess((char *)reg->user + cel * reg->cellen,cellen)
+    vg_mem_noaccess((char *)reg->user + cel * reg->cellen,reg->cellen)
     return 0;
   }
 
@@ -373,7 +373,7 @@ static ub4 slab_remalloc(heap *hb,region *reg)
 static ub4 add2rbin(heap *hb,struct remote *rem,region *reg,ub4 bkt,ub4 cnt)
 {
   ub4 cel,c,celcnt;
-  ub4 pos;
+  ub4 pos,rpos;
   ub4 *bin,*from;
   ub4 *remp;
   celset_t set;
@@ -407,10 +407,11 @@ static ub4 add2rbin(heap *hb,struct remote *rem,region *reg,ub4 bkt,ub4 cnt)
 
   remp = rem->remcels + bkt * Rembatch;
 
-  pos = reg->rbinpos;
-  if (unlikely(pos + cnt > celcnt)) { // overfull, should never occur
+  pos = reg->binpos;
+  rpos = reg->rbinpos;
+  if (unlikely(pos + rpos + cnt > celcnt)) { // overfull, should never occur
     Atomset(reg->lock,0,Morel);
-    error(Lfree,"region %.01llu bin cel %u to remote bkt %u pos %u + %u above %u",reg->uid,*remp,bkt,pos,cnt,celcnt)
+    error(Lfree,"region %.01llu bin cel %u to remote bkt %u pos %u + %u + %u above %u",reg->uid,*remp,bkt,pos,rpos,cnt,celcnt)
     return cnt;
   }
 
@@ -421,13 +422,13 @@ static ub4 add2rbin(heap *hb,struct remote *rem,region *reg,ub4 bkt,ub4 cnt)
     cel = remp[c];
     set = slab_chkused(reg,cel);
     if (set != 2) error(Lalloc,"bkt %u pos %u/%u region %.01llu cel %u is not free %u",bkt,c,cnt,reg->uid,cel,set);
-    bin[pos++] = cel;
+    bin[rpos++] = cel;
   }
 #else
-  memcpy(bin + pos,remp,cnt * sizeof(ub4));
+  memcpy(bin + rpos,remp,cnt * sizeof(ub4));
 #endif
 
-  reg->rbinpos = pos;
+  reg->rbinpos = rpos;
 
   Atomset(reg->lock,0,Morel);
 
@@ -440,7 +441,6 @@ static ub4 add2rbin(heap *hb,struct remote *rem,region *reg,ub4 bkt,ub4 cnt)
 static ub4 slab_free_remote(heapdesc *hd,heap *hb,region *reg,size_t ip,size_t len,ub4 tag,enum Loc loc)
 {
   struct remote *rem;
-  ub4 hid;
   ub8 uid,ouid,ruid;
   ub4 pos,xpos;
   ub4 cel,ocel,cellen,celcnt,cnt,rcnt;
@@ -782,9 +782,9 @@ static Hot void *slab_alloc(heap *hb,region *reg,ub4 ulen,enum Loc loc,ub4 tag)
       ystats(reg->stat.callocs)
     } else if (loc == Lallocal) {
 
+      ystats(reg->stat.Allocs)
 #if Yal_enable_stats >= 2
       ub4 abit = ctz(ulen);
-      reg->stat.Allocs++;
       sat_inc(reg->stat.aligns + abit);
 #endif
       ip = slab_newalcel(reg,ulen,cellen Tagarg(tag) );
@@ -833,9 +833,9 @@ static Hot void *slab_alloc(heap *hb,region *reg,ub4 ulen,enum Loc loc,ub4 tag)
 
   if (likely(loc != Lcalloc)) return p;
 
+  vg_mem_def(p,ulen)
   if (inipos != reg->inipos && reg->clr == 0) return p; // is already 0
 
-  vg_mem_def(p,ulen)
   memset(p,0,ulen);   // calloc()
   return p;
 }
@@ -874,7 +874,7 @@ static Hot ub4 slab_frecel(heap *hb,region *reg,ub4 cel,ub4 cellen,ub4 celcnt,ub
   rv = slab_markfree(reg,cel,cellen,Fln,tag);
 
   if (unlikely(rv != 0)) {
-    ydbg1(Lfree,"reg %.01llu cel %u",reg->uid,cel);
+    ydbg1(Fln,Lfree,"reg %.01llu cel %u",reg->uid,cel);
     hb->stat.invalid_frees++; // error
     return 0;
   }
@@ -903,7 +903,7 @@ static Hot ub4 slab_free(heap *hb,region *reg,size_t ip,ub4 reqlen,ub4 cellen,ub
   cel = slab_cel(reg,ip,cellen,celcnt,Lfree);
 
   if (unlikely(cel == Nocel)) {
-    ydbg1(Lfree,"reg %.01llu ptr %zx no cel",reg->uid,ip);
+    ydbg1(Fln,Lfree,"reg %.01llu ptr %zx no cel",reg->uid,ip);
     hb->stat.invalid_frees++; // error
     return 0;
   }

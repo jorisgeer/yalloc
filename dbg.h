@@ -35,6 +35,8 @@ static void callstack(heapdesc *hd)
     fln = stack[i];
     if (fln || i == 0) minidiag(fln,Lnone,Info,hd->id,"pos %u/%u",i,pos);
   }
+#else
+  minidiag(0,Lnone,Info,hd->id,"no callstack");
 #endif
 }
 

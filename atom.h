@@ -10,8 +10,9 @@
  #include <stdatomic.h>
 
 #define Cas(cmp,exp,des) atomic_compare_exchange_strong_explicit(&(cmp),&(exp),(des),memory_order_acq_rel,memory_order_acquire)
-#define cas(cmp,exp,des) atomic_compare_exchange_weak_explicit(&(cmp),&(exp),(des),memory_order_acq_rel,memory_order_acquire)
 #define Casa(cmp,exp,des) atomic_compare_exchange_strong_explicit(cmp,exp,des,memory_order_acq_rel,memory_order_acquire)
+
+#define cas(cmp,exp,des) atomic_compare_exchange_weak_explicit(&(cmp),&(exp),(des),memory_order_acq_rel,memory_order_acquire)
 #define casa(cmp,exp,des) atomic_compare_exchange_weak_explicit(cmp,exp,des,memory_order_acq_rel,memory_order_acquire)
 
 #define Atomad(a,b,o) atomic_fetch_add_explicit(&(a),(b),o)

@@ -71,8 +71,8 @@ static heap *newheap(heapdesc *hd,enum Loc loc,ub4 fln)
   len = doalign4(len,16u);
 
   if (id < 3) { // first heaps
-    ydbg1(Lnone,"page %u clas %u ",Page,Clascnt)
-    ydbg1(Lnone,"sizes: region %u clasregs %u rootdir %u",rsiz,(ub4)sizeof(hb->clasregs),(ub4)sizeof(hb->rootdir))
+    ydbg1(fln,Lnone,"page %u clas %u ",Page,Clascnt)
+    ydbg1(Fln,Lnone,"sizes: region %u clasregs %u rootdir %u",rsiz,(ub4)sizeof(hb->clasregs),(ub4)sizeof(hb->rootdir))
   }
   ydbg2(0,Lnone,fln,Info,0,"new heap %u for %u base %u regs %u+%u dir %up + %up = %u` tag %.01u",hid,id,hlen,rlen,rxlen,dlen,llen,len,fln);
 

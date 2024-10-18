@@ -142,7 +142,8 @@ static void Cold bumpstats(int fd,yalstats *sp,bregion *regs,ub4 regcnt,bool pri
   if (afs == 0) print = 0;
 
   if (print) {
-    pos += snprintf_mini(buf,pos,len,"\n  -- yalloc %s region stats for heap %u --\n",regnames[typ],regs->hid);
+    if (typ == Rmini) pos += snprintf_mini(buf,pos,len,"\n  -- yalloc mini region stats for heap base %u --\n",regs->hid);
+    else pos += snprintf_mini(buf,pos,len,"\n  -- yalloc bump region stats for heap %u --\n",regs->hid);
     pos += snprintf_mini(buf,pos,len,"\nr %-6s %-6s %-6s\n","alloc","free","used");
   }
   sp->bumpallocs = 0;
