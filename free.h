@@ -324,7 +324,7 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,struct p
   char buf[256];
   enum Status rv;
   ub4 xpct;
-  bool didcas;
+  bool didcas,reglocked;
 
   // common: regular local heap
   if (likely(hb != nil)) {
@@ -361,14 +361,20 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,struct p
     // mini
     if (hd->mhb) {
       mhb = hd->mhb;
-      if (ip >= mhb->user && ip < mhb->user + mhb->len) {
-        alen = bump_free(hd,nil,mhb,ip,reqlen,tag,loc);
-        if (unlikely(reqlen == Nolen)) { // get_usable_size()
-          pi->reg = (xregion *)mhb; // todo pi unused
-          pi->len = alen ? alen : Nolen;
-          pi->local = 1;
+      xpct = 0; didcas = Cas(mhb->lock,xpct,1);
+      if (likely(didcas != 0)) {
+        vg_drd_wlock_acq(reg);
+        if (ip >= mhb->user && ip < mhb->user + mhb->len) {
+          alen = bump_free(hd,nil,mhb,ip,reqlen,tag,loc);
+          xpct = 1; Cas(mhb->lock,xpct,0); vg_drd_wlock_rel(reg);
+
+          if (unlikely(reqlen == Nolen)) { // get_usable_size()
+            pi->reg = (xregion *)mhb; // todo pi unused
+            pi->len = alen ? alen : Nolen;
+            pi->local = 1;
+          }
+          return alen ? alen : Nolen;
         }
-        return alen ? alen : Nolen;
       }
     }
 
@@ -385,9 +391,11 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,struct p
       return Nolen;
     }
 
+    xpct = 0; reglocked = Cas(reg->lock,xpct,1); vg_drd_wlock_acq(reg);
+
     typ = reg->typ;
     xhb = reg->hb;
-    ycheck(Nolen,loc,xhb == hb,"xhb %u == hb for %s region %u",xhb ? xhb->id : 0,regname(reg),reg->id);
+    ycheck(Nolen,loc,hb && xhb == hb,"xhb %u == hb for %s region %u",xhb ? xhb->id : 0,regnames[typ],reg->id);
 
     if (xhb == nil || typ == Rbump || typ == Rmini) { // mini or bump
       alen = bump_free(hd,nil,(bregion *)reg,ip,reqlen,tag,loc);
@@ -396,6 +404,7 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,struct p
         pi->len = alen ? alen : Nolen;;
         pi->local = 0;
       }
+      xpct = 1; Cas(reg->lock,xpct,0); vg_drd_wlock_rel(reg);
       return alen ? alen : Nolen;
     }
 
@@ -408,6 +417,9 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,struct p
         didcas = Cas(xhb->lock,xpct,1);
       }
       if (didcas == 0) { // cannot obtain owner heap, free remote
+        if (reglocked) {
+          xpct = 1; Cas(reg->lock,xpct,0);
+        }
         alen = free_remote_slab(hd,hb,reg,ip,reqlen,tag,loc | Lremote);
 
         if (likely(alen != 0)) return alen;
@@ -418,6 +430,7 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,struct p
         error2(loc,Fln,"cannot free ptr %zx tag %.01u",ip,tag)
         return Nolen;
       } // locked remote heap
+      xpct = 1; Cas(reg->lock,xpct,0);
 
       // local free from owner heap
       if (hb && hb != xhb && hd->locked) { // release orig
@@ -552,32 +565,23 @@ static Hot size_t yfree_heap(heapdesc *hd,void *p,size_t reqlen,struct ptrinfo *
   size_t retlen;
   heap *hb = hd->hb;
   ub4 from;
-  bool didcas;
+  bool didcas = 0;
   bool totrim;
   ub4 seffort,meffort;
   size_t frees;
 
-  hd->locked = 0;
-
   // common: regular local heap
   if (likely(hb != nil)) {
-    from = 0;
-    if (Atomget(hb->lock,Monone) == from) didcas = Cas(hb->lock,from,1);
-    else didcas = 0;
-    if (unlikely(didcas == 0)) { // can happen if empty
-      hb = nil;
-    } else hd->locked = 1;
-  } else {
-    Atomfence(Moacqrel);
-  }
-  // nil hb
+    from = 0; didcas = Cas(hb->lock,from,1);
+    if (unlikely(didcas == 0)) hb = nil;
+  } // nil hb
+  hd->locked = didcas;
 
   // ytrace(loc,"free(%zx) tag %.01u",(size_t)p,tag)
   retlen = free_heap(hd,hb,p,reqlen,pi,loc,Fln,tag);
 
   hb = hd->hb; // note: may have changed
   if (hb == nil || hd->locked == 0) {
-    Atomfence(Moacqrel);
     return retlen;
   }
 
@@ -620,10 +624,7 @@ static Hot inline void yfree(void *p,size_t len,ub4 tag)
     return;
   }
   ypush(hd,Fln)
-  Atomfence(Moacqrel);
   yfree_heap(hd,p,len,nil,Lfree,tag); // note hb may be nil
-  Atomfence(Moacqrel);
-
   ypopall(hd)
 }
 
@@ -639,9 +640,7 @@ static size_t yal_getsize(void *p,ub4 tag)
   }
   ypush(hd,Fln)
   memset(&pi,0,sizeof(pi));
-  Atomfence(Moacqrel);
   len = yfree_heap(hd,p,Nolen,&pi,Lsize,tag);
-  Atomfence(Moacqrel);
   ypopall(hd)
   return len;
 }

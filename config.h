@@ -22,12 +22,12 @@
   #define Yal_log_utf8 1 // allow unicode in logs in utf-8
 
   /* control error handling - as bit mask
-   0 - detect, count and ignore. Format diagnostic for yal_stats()
-   1 - In addition to above print diagnostic
-   2 - exit via _Exit(1)
+   1 - detect, count and ignore. Format diagnostic for yal_stats()
+   2 - In addition to above print diagnostic
+   4 - exit via _Exit(1)
   */
   #define Yal_check_envvar "Yalloc_check"
-  #define Yal_check_default 3
+  #define Yal_check_default 7
 
   /* Enable statistics:
   0 - disabled. Yal_stats() is not defined
@@ -66,13 +66,14 @@
   // Enables various internal checks aka assertions. Adds minor overhead. Advised to enable for alpha and beta versions.
   #define Yal_enable_check 1
 
-  // enable detailed debug logging
-  #define Yal_enable_dbg 0
-
   // enable semi stack trace
   #define Yal_enable_stack 0
 
-  // Uses valgrind's client requests to set memory blocks as memcheck would have done. See ./vg.sh
+  #define Yal_log_level 7 // 1 assert 2 error 3 warn 4 info 5 trace 6 vrb 7 dbg
+
+  #define Yal_dbg_level 0 // enable detailed debug logging. Levels 1..3
+
+  // Uses valgrind's client requests to set memory blocks as memcheck would have done. See ./vg_mc.sh and vg_drd.h
   // Useful when not using vg_replace_malloc(). Adds minimal overhead.
   #define Yal_enable_valgrind 0
 
@@ -148,7 +149,6 @@ static unsigned int Trim_Ages[3] = {3,6,9}; // idem, larger blocks
 // Install thread exit handler - nonportable
 #define Yal_thread_exit 0
 
-// #define Minheaps 4
 #define Contention 6 // create per-thread heap if contended * 1 << contention exceeds uncontended
 
 // Set to prep TLS with a before-main function. gcc on darwin aka macos call malloc() at TLS init...
@@ -167,10 +167,6 @@ static unsigned int Trim_Ages[3] = {3,6,9}; // idem, larger blocks
 // --- align ---
 #define Basealign2 3
 #define Stdalign 16u
-
-// --- diag ---
-#define Yal_log_level 5 // 1 assert 2 error 3 warn 4 info 5 trace 6 vrb 7 dbg
-#define Yal_dbg_level 1
 
 // --- extensions / compatibility ---
 #define Yal_enable_extensions 1

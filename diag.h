@@ -69,6 +69,7 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
   ub4 tid = 0;
   enum Diactl ctl;
   ub4 n,pos = 0,upos;
+  ub4 check;
   ub4 len = Diag_buf - 2;
   char buf[Diag_buf];
   char headbuf[256];
@@ -77,6 +78,9 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
   ub4 zero = 0;
   ub4 errcnt,msgcnt;
   char *xbuf = nil;
+
+  check = Atomget(global_check,Moacq);
+  if ( (check & 1) == 0) return pos; // ignore
 
   heapdesc *hd = thread_heap;
 
@@ -101,7 +105,7 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
     fd = Yal_log_fd;
     msgcnt = Atomad(g_msgcnt,1,Moacqrel);
     if (msgcnt == 0) {
-      upos = snprintf_mini(headbuf,0,255,"\n%17s %-5s %-4s %-3s %-1s %-8s msg\n","file/line","pid","tid","dia","","api");
+      upos = snprintf_mini(headbuf,0,255,"\n%17s %-5s %-4s %-3s %-1s %-7s msg\n","file/line","pid","tid","dia","","api");
       pos = underline(buf,len,headbuf,upos);
     }
   } else {
@@ -148,7 +152,9 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
     if (xbuf) { memcpy(xbuf,buf,n); xbuf[n] = 0; } // keep latest error or provide context
     if (lvl <= Error) hd->stat.errors++;
   }
-  if (lvl <= Error && (global_check & 3) == 0) return pos; // ignore
+
+  check = Atomget(global_check,Moacq);
+  if ( (check & 2) == 0) return pos; // ignore
 
   if (lvl == Nolvl) return pos;
 
@@ -160,7 +166,7 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
 
   if (Yal_err_fd != Yal_Err_fd && Yal_Err_fd >= 0) oswrite(Yal_Err_fd,buf,pos,Fln);
 
-  if ( (global_check & 2) == 0) return 0;
+  if ( (check & 4) == 0) return 0;
 
   if (Cas(exiting,zero,1)) { // let only one thread call exit
     if (global_stats_opt) yal_mstats(nil,global_stats_opt | Yal_stats_print,Fln,"diag-exit");
@@ -186,9 +192,9 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
 #endif
 
 #if Yal_dbg_level > 0
-  #define ydbg1(loc,fmt,...) do_ylog(Diagcode,loc,Fln,Debug,0,fmt,__VA_ARGS__);
+  #define ydbg1(fln,loc,fmt,...) do_ylog(Diagcode,loc,fln,Debug,0,fmt,__VA_ARGS__);
 #else
-  #define ydbg1(loc,fmt,...)
+  #define ydbg1(fln,loc,fmt,...)
 #endif
 #if Yal_dbg_level > 1
   #define ydbg2(loc,fmt,...) do_ylog(Diagcode,loc,Fln,Debug,0,fmt,__VA_ARGS__);
@@ -288,7 +294,7 @@ static Cold void diag_initrace(void)
       default: v = 0;
     }
     if (y == 0) y = x;
-    minidiag(Fln,Lnone,Debug,0,"diag %u-%u = %u",x,y,v);
+    if (Yal_dbg_level > 1) minidiag(Fln,Lnone,Debug,0,"diag %u-%u = %u",x,y,v);
     do diagctls[x++] = v; while(x <= y);
     while (n < len && c && c != '\n') c = buf[n++];
   }

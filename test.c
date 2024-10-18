@@ -120,7 +120,7 @@ static void tlog(int line,enum Loglvl lvl,cchar *fmt,va_list ap)
   ub4 pos = 0,len = 1022;
 
   pos = snprintf_mini(buf,0,len,"   yal/test.c:%3d ",line);
-  pos += snprintf_mini(buf,pos,len,"%-5lu %-4u %-3u %c test    ",mypid,0,0,*lvlnames[lvl]);
+  pos += snprintf_mini(buf,pos,len,"%-5lu %-4u %-3u %c test      ",mypid,0,0,*lvlnames[lvl]);
 
   pos += mini_vsnprintf(buf,pos,len,fmt,ap);
   buf[pos++] = '\n';
@@ -237,15 +237,19 @@ static int slabs(cchar *cmd,size_t from,size_t to,size_t cnt,size_t iter)
   return 0;
 }
 
-#define Pointers 4096
+#define Pointers 65536
+#define Tids 64
 
 struct xinfo {
   _Atomic ub4 lock;
   ub4 tid;
   _Atomic ub4 cmd;
-  ub4 mode;
   _Atomic size_t len;
   _Atomic size_t cnt;
+//  ub4 cmd;
+//  size_t len;
+//  size_t cnt;
+  ub4 mode;
   size_t pos;
   size_t iter;
   void * _Atomic ps[Pointers];
@@ -265,13 +269,23 @@ static void waitus(ub8 usec)
   }
 }
 
+static int getlock(int ln,struct xinfo *ap,ub4 from,ub4 to)
+{
+  ub4 iter = Hi16;
+  ub4 f = from;
+
+  info(ln,"tid %u %u -> %u = %u",ap->tid,from,to,Atomget(ap->lock,Moacq));
+  while (--iter && Cas(ap->lock,from,to) == 0) { waitus(1000ul ); from = f; }
+  info(ln,"tid %u %u -> %u = %u in %u it",ap->tid,from,to,Atomget(ap->lock,Moacq),Hi16 - iter);
+  return iter ? 0 : L;
+}
+
 //coverity[-alloc]
 static void *xfree_thread(void *arg)
 {
   struct xinfo *ap = (struct xinfo *)arg;
   void *p;
-  size_t len,cnt,iter = 256;
-  ub4 exp,cascnt;
+  size_t len,ofs,cnt,iter = 256;
   ub4 c,cmd;
   ub4 tid = ap->tid;
   ssize_t rv;
@@ -280,25 +294,22 @@ static void *xfree_thread(void *arg)
   info(L,"tid %u start",tid);
 
   do {
-    exp = 2;
-    if (Cas(ap->lock,exp,3) == 0) {
-      // info(L,"tid %u exp %u %d",tid,exp,L);
-      if (exp == 9) {
-        info(L,"tid %u exit",tid);
-        waitus(100ul * (tid + 1));
-        break;
-      }
-      waitus(100ul);
-      continue;
-    }
+    rv = getlock(L,ap,2,3);
+    if (rv) break;
+
     cmd = Atomget(ap->cmd,Moacq);
     info(L,"tid %u cmd %u",tid,cmd);
     ps = ap->ps;
 
+    // nop
+    if (cmd == 0) {
+      waitus(1000ul * (tid + 1));
+
     // alloc
-    if (cmd == 1) {
+    } else if (cmd == 1) {
       cnt = Atomget(ap->cnt,Moacq);
       len = Atomget(ap->len,Monone);
+      info(L,"alloc %zu * %zu",cnt,len);
       for (c = 0; c < cnt; c++) {
         p = malloc(len);
         // info(L,"alloc %zu = %p",len,p);
@@ -308,107 +319,33 @@ static void *xfree_thread(void *arg)
 
     // free
     } else if (cmd == 2) {
-      len = Atomget(ap->len,Moacq);
+      ofs = Atomget(ap->len,Moacq);
       cnt = Atomget(ap->cnt,Moacq);
       for (c = 0; c < cnt; c++) {
-        if (len + c >= Pointers) break;
-        p = Atomgeta(ps + len + c,Moacq);
+        if (ofs + c >= Pointers) break;
+        p = Atomgeta(ps + ofs + c,Moacq);
         // info(L,"tid %u free %zx at %u",tid,(size_t)p,c);
         free(p);
       }
     } else if (cmd == 3) { // realloc todo
+
+    } else if (cmd == 9) { // exit
+      rv = 0;
+      if (dotstat) showstats(L,0,"xfree");
+      rv = getlock(L,ap,3,4);
+      if (rv) break;
+      pthread_exit( (void *)rv);
     }
 
-    // ap->cmd = 0;
-
-    exp = 3; cascnt = Hi16;
-    while (--cascnt && Cas(ap->lock,exp,4) == 0) {
-      waitus(1000ul * 10);
-    }
-    if (cascnt == 0) fatal(L,"timeout %u",exp);
+    rv = getlock(L,ap,3,4);
+    if (rv) break;
     info(L,"tid %u 4",tid);
+
   } while (--iter);
 
-  if (iter == 0) {
-    error(L,"tid %u timeout",tid);
-    rv = L;
-  } else rv = 0;
-
-  if (dotstat) showstats(L,0,"xfree");
-
-  pthread_exit( (void *)rv);
-}
-
-static int xfalloc(struct xinfo *a1,struct xinfo *a2,size_t len,size_t cnt)
-{
-  ub4 exp,iter;
-  size_t c,pos = a2->pos;
-  void *p;
-  void * _Atomic * ps1;
-  void * _Atomic * ps2;
-
-  // T1 allocs a few blocks
-  exp = 0; iter = Hi16;
-  while (--iter && Cas(a1->lock,exp,1) == 0) {
-    waitus(1000ul * 10);
-  }
-  if (iter == 0) return L;
-
-  Atomset(a1->len,len,Morel);
-  Atomset(a1->cnt,cnt,Morel);
-  Atomset(a1->cmd,1,Morel);
-
-  exp = 1; iter = Hi16;
-  while (--iter && Cas(a1->lock,exp,2) == 0) {
-    waitus(1000ul * 10);
-  }
-  if (iter == 0) return L;
-
-  exp = 4; iter = Hi16;
-  while (--iter && Cas(a1->lock,exp,0) == 0) {
-    waitus(1000ul * 10);
-  }
-  if (iter == 0) return L;
-
-  cnt = min(cnt,Pointers);
-  ps1 = a1->ps;
-  ps2 = a2->ps;
-  for (c = 0; c < cnt; c++) {
-    if (c + pos>= Pointers) break;
-    p = Atomgeta(ps1 + pos + c,Moacq);
-    Atomseta(ps2 + pos + c,p,Morel);
-  }
-  a2->pos = pos + cnt;
-  info(L,"tid %u pos %zu",a2->tid,a2->pos);
-  return 0;
-}
-
-//coverity[-alloc]
-static int xffree(struct xinfo *a1,size_t len,size_t cnt)
-{
-  ub4 exp,iter;
-
-  exp = 0; iter = Hi16;
-  while (--iter && Cas(a1->lock,exp,1) == 0) {
-    waitus(1000ul * 10);
-  }
-  if (iter == 0) return L;
-  Atomset(a1->len,len,Morel);
-  Atomset(a1->cnt,cnt,Morel);
-  Atomset(a1->cmd,2,Morel);
-
-  exp = 1; iter = Hi16;
-  while (--iter && Cas(a1->lock,exp,2) == 0) {
-    waitus(1000ul * 10);
-  }
-
-  exp = 4; iter = Hi16;
-  while (--iter && Cas(a1->lock,exp,0) == 0) {
-    waitus(1000ul * 10);
-  }
-  if (iter == 0) return L;
-
-  return 0;
+  error(L,"tid %u timeout",tid);
+  rv = L;
+  return (void *)rv;
 }
 
 /* manual remote free tester
@@ -420,41 +357,54 @@ static int xffree(struct xinfo *a1,size_t len,size_t cnt)
 static int xfree(cchar *cmd,size_t tidcnt,int argc,char *argv[])
 {
   char *arg;
-  size_t cnt,len,c,pos;
+  size_t cnt=0,len=0,c,pos;
   int rv;
-  ub4 tid,xid;
-  pthread_t tids[64];
+  ub4 tid,xid=0;
+  ub4 loc;
+  pthread_t tids[Tids];
   struct xinfo *a1,*a2;
-  static struct xinfo infos[64]; // todo stack vg
+  static struct xinfo infos[Tids];
   void *retval;
   void *p;
   void * _Atomic * ps1;
   void * _Atomic * ps2;
-  ub4 exp;
-  ub4 iter;
 
   if (tidcnt ==  0) return L;
 
-  tidcnt = min(tidcnt,63);
+  tidcnt = min(tidcnt,Tids);
 
   info(L,"xfree tidcnt %zu cmd %s",tidcnt,cmd);
   memset(infos,0,sizeof(infos));
 
   for (tid = 1; tid <= tidcnt; tid++) {
-    infos[tid].tid = tid;
+    a1 = infos + tid;
+    a1->tid = tid;
+    Atomset(a1->lock,0,Morel);
     rv = pthread_create(tids + tid,nil,xfree_thread,(void *)(infos + tid));
     if (rv) return L;
   }
 
-  while (argc > 4) {
-    arg = *argv++;
-    tid = atou(*argv++);
-    xid = atou(*argv++);
-    len = atoul(*argv++);
-    cnt = atoul(*argv++);
-    argc -= 5;
+  do {
+    if  (argc > 4) {
+      arg = *argv++;
+      tid = atou(*argv++);
+      xid = atou(*argv++);
+      len = atoul(*argv++);
+      cnt = atoul(*argv++);
+      argc -= 5;
+    } else {
+      arg = "z";
+      tid = 1;
+      argc = 0;
+    }
+    a1 = infos + tid;
+    rv = getlock(L,a1,0,1);
+    if (rv) return rv;
 
-    if (*arg == 'a') {
+    Atomset(a1->len,len,Morel);
+    Atomset(a1->cnt,cnt,Morel);
+
+    if (*arg == 'a') { // alloc
       a2 = infos + xid;
       ps2 = a2->ps;
       pos = a2->pos;
@@ -467,14 +417,10 @@ static int xfree(cchar *cmd,size_t tidcnt,int argc,char *argv[])
         }
         continue;
       }
-      a1 = infos + tid;
       info(L,"alloc %zu blocks of len %zu on heap %u for %u",cnt,len,tid,xid);
-      rv = xfalloc(a1,a2,len,cnt);
-      if (rv) return rv;
-      continue;
-    }
-    if (*arg == 'f') {
-      a1 = infos + tid;
+      Atomset(a1->cmd,1,Morel);
+
+    } else if (*arg == 'f') { // free
       ps1 = a1->ps;
       if (tid == 0) { // on main heap
         info(L,"free %zu bloks in main",cnt);
@@ -486,22 +432,53 @@ static int xfree(cchar *cmd,size_t tidcnt,int argc,char *argv[])
         continue;
       }
       info(L,"free %zu blocks in heap %un",cnt,tid);
-      rv = xffree(a1,len,cnt);
-      if (rv) return rv;
-      continue;
+      Atomset(a1->cmd,2,Morel);
+
+    } else if (*arg == 'z') {
+      Atomset(a1->cmd,9,Morel);
+
+    } else return L;
+
+    rv = getlock(L,a1,1,2);
+    if (rv) return rv;
+
+    rv = getlock(L,a1,4,0);
+    if (rv) return rv;
+
+    if (*arg == 'a') { // alloc, copy ptrs
+      cnt = min(cnt,Pointers);
+      a2 = infos + xid;
+      pos = a2->pos;
+      ps1 = a1->ps;
+      ps2 = a2->ps;
+      for (c = 0; c < cnt; c++) {
+        if (c + pos>= Pointers) break;
+        p = Atomgeta(ps1 + c,Moacq);
+        Atomseta(ps2 + pos + c,p,Morel);
+      }
+      a2->pos = pos + cnt;
     }
-  }
+
+  } while (argc);
 
   // wait for threads to end
   for (tid = 1; tid <= tidcnt; tid++) {
     info(L,"wait for tid %u",tid);
-    waitus(1000ul * 1);
-    exp = 0; iter = Hi16;
     a1 = infos + tid;
-    while (--iter && Cas(a1->lock,exp,9) == 0) {
-      waitus(1000ul * 1);
+    if (Atomget(a1->cmd,Moacq) == 9) continue;
+    loc = Atomget(a1->lock,Moacq);
+    if (loc !=0 && loc != 4) {
+      rv = getlock(L,a1,4,0);
+      if (rv) return rv;
+      loc = 0;
     }
-    if (iter == 0) return L;
+    rv = getlock(L,a1,loc,1);
+    if (rv) return rv;
+    Atomset(a1->cmd,9,Morel);
+    rv = getlock(L,a1,1,2);
+    if (rv) return rv;
+    rv = getlock(L,a1,4,0);
+    if (rv) return rv;
   }
 
   for (tid = 1; tid <= tidcnt; tid++) {

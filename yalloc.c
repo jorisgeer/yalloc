@@ -93,9 +93,17 @@ extern char *getenv(const char *name); // no <stdlib.h> as its malloc() defines 
 #if Yal_enable_valgrind
  #include <valgrind/valgrind.h>
  #include <valgrind/memcheck.h>
+ #include <valgrind/drd.h>
  #define vg_mem_noaccess(p,n) VALGRIND_MAKE_MEM_NOACCESS((p),(n));
  #define vg_mem_undef(p,n) VALGRIND_MAKE_MEM_UNDEFINED((p),(n));
  #define vg_mem_def(p,n) VALGRIND_MAKE_MEM_DEFINED((p),(n));
+
+ #define vg_atom_before(adr) ANNOTATE_HAPPENS_BEFORE((adr));
+ #define vg_atom_after(adr) ANNOTATE_HAPPENS_AFTER((adr));
+
+ #define vg_drd_rwlock_init(p) ANNOTATE_RWLOCK_CREATE((p));
+ #define vg_drd_wlock_acq(p) ANNOTATE_WRITERLOCK_ACQUIRED((p));
+ #define vg_drd_wlock_rel(p) ANNOTATE_WRITERLOCK_RELEASED((p));
 
 static int vg_mem_isaccess(void *p,size_t n) // accessible when not expected
 {
@@ -109,6 +117,14 @@ static int vg_mem_isaccess(void *p,size_t n) // accessible when not expected
  #define vg_mem_undef(p,n)
  #define vg_mem_def(p,n)
  #define vg_mem_isaccess(p,n) 0
+
+ #define vg_atom_before(adr)
+ #define vg_atom_after(adr)
+
+ #define vg_drd_rwlock_init(p)
+ #define vg_drd_wlock_acq(p)
+ #define vg_drd_wlock_rel(p)
+
 #endif
 
 #include "base.h"
@@ -293,6 +309,7 @@ struct Align(16) st_xregion { // base, only type
 
   struct st_heap *hb;
 
+  _Atomic ub4 lock;
   enum Rtype typ;
 
   ub4 hid;
@@ -315,6 +332,7 @@ struct Align(16) st_mpregion { // mmap region. allocated as pool from heap
 
   struct st_heap *hb;
 
+  _Atomic ub4 lock;
   enum Rtype typ;
 
   ub4 hid;
@@ -347,6 +365,7 @@ struct Align(16) st_bregion { // bump region. statically present in heap
 
   struct st_heap *hb;
 
+  _Atomic ub4 lock;
   enum Rtype typ;
 
   ub4 hid;
@@ -373,7 +392,6 @@ struct Align(16) st_bregion { // bump region. statically present in heap
   ub4 allocs;
   _Atomic ub4 frees;
   ub4 albytes,frebytes;
-  ub8 filler;
 };
 typedef struct st_bregion bregion;
 
@@ -385,6 +403,7 @@ struct Align(16) st_region { // slab region. allocated as pool from heap
 
   struct st_heap *hb;
 
+  _Atomic ub4 lock;
   enum Rtype typ;
 
   ub4 hid;
@@ -430,7 +449,6 @@ struct Align(16) st_region { // slab region. allocated as pool from heap
   // remote bin
   ub4 * _Atomic rembin; // allocated on demand by sender from sender's heapmem
 
-  _Atomic ub4 lock;
   _Atomic ub4 refcnt; // todo ?
   ub4 rbinpos;
 
@@ -561,6 +579,7 @@ struct st_heapdesc {
   ub4 id;
 
   enum Status status;
+  _Atomic ub4 lock;
   ub4 locked;
 
   size_t getheaps,nogetheaps;
@@ -582,7 +601,7 @@ typedef struct st_heapdesc heapdesc;
 
 static ub4 global_stats_opt; // set from Yal_stats_envvar
 static ub4 global_trace = Yal_trace_default;
-static ub4 global_check = Yal_check_default;
+static _Atomic ub4 global_check = Yal_check_default;
 
 static heapdesc * _Atomic global_freehds;
 
@@ -606,6 +625,9 @@ static heapdesc * _Atomic global_freehds;
 #else
   static void thread_setclean(heapdesc *hd) { hd->thread_clean_info = 0; }
 #endif
+
+static size_t zeroarea[8];
+static size_t *zeroblock = zeroarea + 4; // malloc(0)
 
 #include "boot.h"
 
@@ -699,9 +721,6 @@ static ub1 mapshifts[24] = { // progressively increase region sizes the more we 
   2,2,3,4, // 16
   5,6,7,8,
   10,12,14,14 };
-
-static size_t zeroarea[8];
-static size_t *zeroblock = zeroarea + 4; // malloc(0)
 
 #include "heap.h"
 
@@ -870,7 +889,7 @@ void malloc_stats(void)
 #if Yal_glibc_mtrace
 void mtrace(void)
 {
-  ydbg1(Lnone,"region %zu` heap %zu`",sizeof(struct st_region),sizeof(struct st_heap))
+  ydbg1(Fln,Lnone,"region %zu` heap %zu`",sizeof(struct st_region),sizeof(struct st_heap))
   global_trace = 1;
 }
 

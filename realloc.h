@@ -23,26 +23,32 @@ static void real_copy(void *p,void *np,size_t oldlen)
 
 static void *real_mmap(heap *hb,bool local,mpregion *reg,void *p,size_t orglen,size_t newlen,size_t newulen)
 {
-  void *np = osmremap(p,orglen,newlen);
-  size_t aip = reg->user + reg->align;
+  void *np;
+  size_t ip = reg->user;
+  size_t aip = ip + reg->align;
+
+  // remove old
+  if (local) {
+    if (aip != ip) setregion(hb,(xregion *)reg,aip,Pagesize,0,Lreal,Fln);
+    setregion(hb,(xregion *)reg,ip,Pagesize,0,Lreal,Fln);
+  } else {
+    if (aip != ip) setregion(hb,(xregion *)reg,aip,Pagesize,0,Lreal,Fln);
+    setgregion(hb,(xregion *)reg,ip,Pagesize,0,Lreal,Fln);
+  }
+
+  np = osmremap(p,orglen,newlen);
 
   if (np == nil) {
     return nil;
   }
 
-  if (np != p) {
-    if (local) {
-      setregion(hb,(xregion *)reg,aip,Pagesize,0,Lreal,Fln); // remove old
-    } else {
-      setgregion(hb,(xregion *)reg,aip,Pagesize,0);
-     }
-  }
   if (np != p || newlen < orglen) { vg_mem_noaccess(p,orglen) }
 
   reg->len = newlen;
   reg->ulen = newulen;
   reg->user = (size_t)np;
-  if (local) setregion(hb,(xregion *)reg,(size_t)np,Pagesize,1,Lreal,Fln);
+  if (local) setregion(hb,(xregion *)reg,(size_t)np,Pagesize,1,Lreal,Fln); // add new
+  else setgregion(hb,(xregion *)reg,(size_t)np,Pagesize,1,Lreal,Fln);
   vg_mem_undef(np,newlen)
   vg_mem_def(np,orglen)
 

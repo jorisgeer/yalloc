@@ -38,7 +38,7 @@ static bool newbump(heap *hb,ub4 hid,bregion *reg,ub4 len,ub4 regpos,enum Rtype 
   ycheck(1,loc,celcnt > Hi16,"bump reg %u cels %u",hid,celcnt)
 
   if (hid < 10) {
-    ydbg1(loc,"new %s region %u heap %u len %u meta %u at %zx",regnames[typ],regpos + 1,hid,len,metalen,(size_t)reg);
+    ydbg1(Fln,loc,"new %s region %u heap %u len %u meta %u at %zx",regnames[typ],regpos + 1,hid,len,metalen,(size_t)reg);
   }
 
   user = osmem(Fln,hid,len,"bumpalloc");
@@ -58,6 +58,8 @@ static bool newbump(heap *hb,ub4 hid,bregion *reg,ub4 len,ub4 regpos,enum Rtype 
   reg->tagorg = Yal_enable_tag ? tagorg : 0;
   reg->len = len;
   reg->typ = typ;
+
+  Atomset(reg->lock,0,Morel);
 
   return 0;
 }
@@ -94,6 +96,7 @@ static void *bumpalloc(heap *hb,ub4 hid,bregion *regs,ub4 regcnt,ub4 len,ub4 ule
       reg = regs + regpos;
       if (unlikely(reg->len == 0)) {
         if (newbump(hb,hid,reg,Bumplen,regpos,typ,loc)) return nil;
+        vg_drd_rwlock_init(reg);
         if (hb) setregion(hb,(xregion *)reg,reg->user,reg->len,1,loc,Fln);
       }
       pos = reg->pos;
@@ -227,9 +230,11 @@ static ub4 bump_free(heapdesc *hd,heap *hb,bregion *reg,size_t ip,size_t reqlen,
 
   allocs = reg->allocs;
   if (unlikely(frees + 1 == allocs)) { // empty, reset
-    ydbg1(loc,"bumpfree region %u.%u reset at ptr %zx len %u cel %u",reg->hid,reg->id,ip,len,cel);
-    reg->pos = 0;
+    ydbg1(Fln,loc,"bumpfree region %u.%u reset at ptr %zx len %u cel %u",reg->hid,reg->id,ip,len,cel);
+#if 0
+    reg->pos = 0; todo rptest above
     memset(meta + reg->freorg,0,reg->len / Stdalign); // clear state todo sync with remote
+#endif
     reg->aged++;
   }
   return len;

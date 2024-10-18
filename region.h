@@ -72,10 +72,10 @@ static xregion ***newdir(heap *hb)
 
 // add region in global directory
 // memory for dirs is allocated from local heap as in local dir
-static void setgregion(heap *hb,xregion *reg,size_t bas,size_t len,bool add)
+static void setgregion(heap *hb,xregion *reg,size_t bas,size_t len,bool add,enum Loc loc,ub4 fln)
 {
 #if Yal_inter_thread_free
-  xregion *xreg;
+  xregion *xreg,*from;
   size_t org,end; // in pages
   ub4 pos1,pos2,pos3,posend;
   ub4 shift1,shift2;
@@ -83,6 +83,8 @@ static void setgregion(heap *hb,xregion *reg,size_t bas,size_t len,bool add)
   xregion ***ndir2,**ndir3;
   // ub4 dirver;
   bool didcas;
+
+  ydbg1(fln,loc,"set global %s region %u @ %zx p %zx len %zu` %u",regname(reg),reg->id,(size_t)reg,bas,len,add);
 
   if (add) {
     xreg = reg;
@@ -130,7 +132,14 @@ static void setgregion(heap *hb,xregion *reg,size_t bas,size_t len,bool add)
       } else dir3 = (xregion * _Atomic *)ndir3;
     }
     do {
-      Atomseta(dir3 + pos3,xreg,Monone);
+      from = add ? nil : reg;
+      didcas = Casa(dir3 + pos3,&from,xreg);
+#if Yal_enable_check
+      if (unlikely(didcas == 0)) {
+        errorctx(fln,loc,"reg %zx base %lx len %lu`",(size_t)reg,bas,len);
+        error2(loc,Fln,"heap %u %s region %u cas %zx for %u",hb ? hb->id : 0,regname(reg),reg->id,(size_t)from,add);
+      }
+#endif
     } while (++pos3 < posend);
   } while (org < end); // -V776 PVS inf loop false positive ?
 
@@ -149,7 +158,7 @@ static bool setregion(heap *hb,xregion *reg,size_t bas,size_t len,bool add,enum 
   xregion ****dir1,***dir2,**dir3;
   ub4 hid = hb->id;
 
-  ydbg3(0,loc,fln,Info,0,"set %s region %u p %zx len %zu` %u",regname(reg),reg->id,bas,len,add);
+  ydbg2(loc,"set %s region %u p %zx len %zu` %u",regname(reg),reg->id,bas,len,add);
 
 #if Yal_enable_check
 
@@ -199,7 +208,7 @@ static bool setregion(heap *hb,xregion *reg,size_t bas,size_t len,bool add,enum 
   } while (org < end);
 
 #if Yal_inter_thread_free
-  if (add || reg->typ == Rslab) setgregion(hb,reg,bas,len,add);
+  if (reg->typ != Rmini) setgregion(hb,reg,bas,len,add,loc,fln);
 #endif
   return 0;
 }
@@ -309,7 +318,7 @@ static xregion *findgregion(enum Loc loc,size_t ip)
 static void *region_near(size_t ip,char *buf,ub4 len)
 {
   size_t basea = Size_max,baseb = 0,bas,lena,lenb,ip1;
-  ub4 b,pos;
+  ub4 b;
   xregion *rega = nil,*regb = nil;
   mpregion *mpreg;
   bregion *breg;
@@ -361,7 +370,7 @@ static void *region_near(size_t ip,char *buf,ub4 len)
   lenb = regb->len; // -V522 PVS nil ptr deref
 
   if (ip > baseb && ip < baseb + lenb) {
-    pos = snprintf_mini(buf,0,len,"ptr %zx is %zu`b inside %s region %u.%u len %zu` age %u.%u",ip,ip - baseb,regname(regb),regb->hid,regb->id,lenb,regb->age,regb->aged);
+    snprintf_mini(buf,0,len,"ptr %zx is %zu`b inside %s region %u.%u len %zu` age %u.%u",ip,ip - baseb,regname(regb),regb->hid,regb->id,lenb,regb->age,regb->aged);
     return regb;
   }
   if (ip > baseb && ip - baseb - lenb < basea - ip) {
@@ -459,9 +468,8 @@ static region *newregion(heap *hb,ub4 order,size_t len,size_t metaulen,ub4 celle
     olen = reg->len;
     ouser = (void *)reg->user;
 
-    if (olen) {
-      if (olen == ulen) setgregion(hb,(xregion *)reg,(size_t)ouser,olen,0); // remains identical
-      else setregion(hb,(xregion *)reg,(size_t)ouser,olen,0,Lalloc,Fln); // unmap old one
+    if (olen && reg->aged < 2) {
+      setregion(hb,(xregion *)reg,(size_t)ouser,olen,0,Lalloc,Fln); // unmap old one
     }
     reg->typ = Rnone;
 
@@ -482,7 +490,7 @@ static region *newregion(heap *hb,ub4 order,size_t len,size_t metaulen,ub4 celle
 
     slabstats(reg,&hb->stat,nil,0,0,0,0,0); // accumulate stats from previous user
 
-    ydbg2(Lnone,"use region %.01lu len %zu` cel %u for %zu`,%u",uid,olen,reg->cellen,len,cellen);
+    ydbg2(Lnone,"reuse region %.01llu -> %.01llu len %zu` cel %u for %zu`,%u",reg->uid,uid,olen,reg->cellen,len,cellen);
 
     memset(reg,0,sizeof(region));
 
@@ -520,8 +528,8 @@ static region *newregion(heap *hb,ub4 order,size_t len,size_t metaulen,ub4 celle
 
   reg->typ = typ;
 
-  uid |= (ub8)hid << 32;
   bkt = bucket(uid);
+  uid |= (ub8)hid << 32;
 
   reg->hid = ohid;
   reg->id = rid;
@@ -636,16 +644,12 @@ static mpregion *newmpregion(heap *hb,size_t len)
   // reuse
   ycheck(nil,0,reg->hb != hb,"mpregion %u heap %zx vs %zx",rid,(size_t)reg->hb,(size_t)hb);
   sp->usempregions++;
-  reg->age = reg->aged = 0;
   olen = reg->len;
   ouser = reg->user;
   ydbg2(Lnone,"use xregion %zx %u.%u for size %zu from %zu",(size_t)reg,hid,reg->id,len,olen);
 
-  if (olen) {
-    if (olen == len) setgregion(hb,(xregion *)reg,(size_t)ouser,olen,0); // remains identical
-    else {
-      setregion(hb,(xregion *)reg,(size_t)ouser,olen,0,Lalloc,Fln); // unmap old one
-    }
+  if (olen && reg->age < 2) {
+    setregion(hb,(xregion *)reg,(size_t)ouser,olen,0,Lalloc,Fln); // unmap old one
   } else {
     Atomad(global_mapadd,1,Monone);
     p = osmmap(len);
@@ -656,6 +660,7 @@ static mpregion *newmpregion(heap *hb,size_t len)
     reg->order = order;
     Atomset(reg->set,2,Morel); // give it freed
   }
+  reg->age = reg->aged = 0;
   reg->typ = Rnone;
 
   // remove from free reg list

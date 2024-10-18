@@ -148,18 +148,18 @@ static void init_trace(void)
 static void init_check(void)
 {
   cchar *envs = nil;
-  ub4 val = Yal_check_default;
+  ub4 z,val = Yal_check_default;
   ub4 page;
 
 #ifdef Yal_check_envvar
   envs = getenv(Yal_check_envvar);
 #endif
   if (envs) val = atou(envs);
-  global_check = val;
+  z = 0; Cas(global_check,z,val);
 
 #if Yal_enable_check
   page = ospagesize();
-  if (page !=   Pagesize) minidiag(Fln,Lnone,Assert,0,"os page size %u, configured %u",page,Pagesize);
+  if (page != Pagesize) minidiag(Fln,Lnone,Assert,0,"os page size %u, configured %u",page,Pagesize);
 #endif
 }
 
@@ -188,7 +188,7 @@ static void init_env(void)
 
 #ifdef __LINUX__
   int fd = osopen("/proc/self/cmdline",nil);
-  
+
   if (fd) {
     osread(fd,global_cmdline,255);
     osclose(fd);

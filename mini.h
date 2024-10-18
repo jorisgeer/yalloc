@@ -17,6 +17,7 @@ static void *mini_alloc(heapdesc *hd,ub4 len,ub4 ulen,enum Loc loc,ub4 tag)
   bregion *reg;
   ub4 ord,cnt;
   ub4 id = hd->id;
+  ub4 from;
 
   ord = 32 - clz(len);
   ycheck(nil,loc,ord >= 16 + 4,"mini len %u above %u",len,1u<< 20);
@@ -32,8 +33,13 @@ static void *mini_alloc(heapdesc *hd,ub4 len,ub4 ulen,enum Loc loc,ub4 tag)
   if (unlikely(reg == nil)) {
     reg = bootalloc(Fln,id,loc,sizeof(struct st_bregion));
     if (reg == nil) return nil;
+    vg_drd_rwlock_init(reg);
+
+    from = 0; Cas(reg->lock,from,1); vg_drd_wlock_acq(reg);
     if (newbump(nil,id,reg,Minilen,0,Rmini,loc)) return nil;
-    setgregion(nil,(xregion *)reg,reg->user,reg->len,1); // mini has no heap yet
+    from = 1; Cas(reg->lock,from,0); vg_drd_wlock_rel(reg);
+
+    setgregion(nil,(xregion *)reg,reg->user,reg->len,1,loc,Fln); // mini has no heap yet
     hd->mhb = reg;
   }
 
