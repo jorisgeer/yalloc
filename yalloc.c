@@ -666,7 +666,7 @@ static Hot heapdesc *getheapdesc(enum Loc loc)
   id = Atomad(global_tid,1,Moacqrel);
 
   fln = Fyalloc << 16;
-  if (id < 3) minidiag(fln|__LINE__,loc,Info,id,"new base heap size %u.%u",len,(ub4)sizeof(struct hdstats));
+  minidiag(fln|__LINE__,loc,Debug,id,"new base heap size %u.%u",len,(ub4)sizeof(struct hdstats));
   len = doalign4(len,L1line);
 
   // reuse ?

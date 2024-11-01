@@ -69,7 +69,7 @@
   // enable semi stack trace. Adds minor overhead
   #define Yal_enable_stack 1
 
-  #define Yal_log_level 7 // 1 assert 2 error 3 warn 4 info 5 trace 6 vrb 7 dbg
+  #define Yal_log_level 6 // 1 assert 2 error 3 warn 4 info 5 trace 6 vrb 7 dbg
 
   #define Yal_dbg_level 0 // enable detailed debug logging. Levels 1..3
 
