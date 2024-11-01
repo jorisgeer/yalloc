@@ -4,6 +4,7 @@
 
    SPDX-FileCopyrightText: © 2024 Joris van der Geer
    SPDX-License-Identifier: GPL-3.0-or-later
+
 */
 
 #include <stddef.h>
@@ -25,16 +26,34 @@ void yal_free(void *p,unsigned int tag)
   free(p);
 }
 
-void * yal_realloc(void *p,size_t newsize,unsigned int tag)
+void * yal_realloc(void *p,size_t oldsize,size_t newsize,unsigned int tag)
 {
   return  realloc(p,newsize);
 }
 
-#if defined __APPLE__ && defined __MACH__
-#include <malloc/malloc.h>
-size_t malloc_usable_size(void * ptr)
+void * yal_calloc(size_t size,unsigned int tag)
 {
-  if (ptr == (void *)0) return 0;
-  return malloc_size(ptr);
+  return calloc(size,1);
 }
+
+void *yal_aligned_alloc(size_t align, size_t len,unsigned int tag)
+{
+  return aligned_alloc(align,len);
+}
+
+#if defined __APPLE__ && defined __MACH__
+
+  #include <malloc/malloc.h>
+
+  size_t malloc_usable_size(void * ptr)
+  {
+    if (ptr == (void *)0) return 0;
+    return malloc_size(ptr);
+  }
+
 #endif
+
+size_t yal_getsize(void *p,unsigned int tag)
+{
+  return malloc_usable_size(p);
+}

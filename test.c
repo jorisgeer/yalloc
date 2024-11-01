@@ -6,6 +6,8 @@
    SPDX-License-Identifier: GPL-3.0-or-later
 
    Semi-portable, unix-like systems only with pthreads
+   Work in progress
+   Includes a manual commandline tester
 */
 
 
@@ -37,8 +39,12 @@
 static const char usagemsg[] = "\nusage: test  [opts] cmds args\n\n\
 -s   show total stats at end\n\
 -S   as above plus per thread end\n\n\
+-t   disable tracing if enabled\n\
+-T   enable tracing if enabled\n\
+\n\
 s - slabs lolen hilen count iter\n\
 a = all\n\
+A = align lolen hilen align\n\
 2 = double free\n\
 x - xfree #threads list of 'a' tid1 tid2 len count or 'f' tid1 tid2 len count\n\
 m - manual list of  'a' len count or 'f' from to\n\
@@ -49,12 +55,14 @@ static bool dostat,dotstat;
 static const int Error_fd = 1;
 static const int Log_fd = 1;
 
+#define Basealign 8
+
 static unsigned long mypid;
 
-#if Yal_enable_tag
- #define malloc(len) yal_alloc( (len), L) // include tag
- #define free(p) yal_free( (p), L)
- #define realloc(p,len) yal_realloc( (p), (len), L)
+#if Yal_enable_tag // include tag
+ #define malloc(len) yal_alloc( (len), L) // -V1059 PVS override-reserved
+ #define free(p) yal_free( (p), L) // -V1059
+ #define realloc(p,len) yal_realloc( (p),(size_t)-1,(len), L) // -V1059
 #endif
 
 #include "atom.h"
@@ -118,9 +126,10 @@ static void tlog(int line,enum Loglvl lvl,cchar *fmt,va_list ap)
 {
   char buf[1024];
   ub4 pos = 0,len = 1022;
+  static ub4 msgcnt;
 
-  pos = snprintf_mini(buf,0,len,"   yal/test.c:%3d ",line);
-  pos += snprintf_mini(buf,pos,len,"%-5lu %-4u %-3u %c test      ",mypid,0,0,*lvlnames[lvl]);
+  pos = snprintf_mini(buf,0,len,"   yal/test.c:%4d ",line);
+  pos += snprintf_mini(buf,pos,len,"%-4u %-5lu %-4u %-3u %c test     ",msgcnt++,mypid,0,0,*lvlnames[lvl]);
 
   pos += mini_vsnprintf(buf,pos,len,fmt,ap);
   buf[pos++] = '\n';
@@ -172,7 +181,7 @@ static Printf(2,3) ub4 info(int line,cchar *fmt,...)
 static void showstats(int line,bool all,cchar *desc)
 {
   struct yal_stats stats;
-  ub4 opts = Yal_stats_detail | Yal_stats_state | Yal_stats_print; // | Yal_stats_cfg;
+  ub4 opts = Yal_stats_sum | Yal_stats_detail | Yal_stats_state | Yal_stats_print; // | Yal_stats_cfg;
 
   if (dostat == 0) return;
   if (all) opts |= Yal_stats_totals;
@@ -237,6 +246,59 @@ static int slabs(cchar *cmd,size_t from,size_t to,size_t cnt,size_t iter)
   return 0;
 }
 
+static int testalign(cchar *cmd,size_t from,size_t to,size_t align)
+{
+  size_t len,alen,cnt;
+  void *p,*r,*q;
+  size_t ip,iq,ir,a;
+
+  if (to == 0) to = from + 1;
+
+  alen = 0;
+  for (len = from; len < to; len++) alen += 3 * len;
+  cnt = (to - from) * 3;
+
+  info(L,"malloc(%zu` .. %zu`) %zu blocks sum %zu` for %s",from,to,cnt,alen,cmd);
+  for (len = from; len < to; len++) {
+    if (align) {
+      p = aligned_alloc(align,len);
+      q = aligned_alloc(align,len);
+      r = aligned_alloc(align,len);
+    } else {
+      p = malloc(len);
+      q = malloc(len);
+      r = malloc(len);
+    }
+    if (len && p && q == p) return error(L,"len %zu p %p q %p",len,p,q);
+    if (len == 0 && q != p) return error(L,"len 0 p %p q %p",p,q);
+    iq = (size_t)q;
+    ip =(size_t)p;
+    ir =(size_t)r;
+    if (ip > iq && ip < iq + len) return L;
+    if (ip < iq && ip > iq - len) return L;
+    alen = malloc_usable_size(p);
+    if (alen < len) return L;
+    else if (len >= 16 && alen > len * 2 + align) return error(L,"block %zx len %zu has allocated %zu",ip,len,alen);
+
+    switch (len) {
+    case 0: case 1: a = 1; break;
+    case 2: a = 2; break;
+    case 3: case 4: a = 4; break;
+    case 5: case 6: case 7: a = 8; break;
+    default: a = 8;
+    }
+    if (align) a = align;
+    if (ip & (a - 1)) return error(L,"block %zx len %zu not %zu aligned",ip,len,a);
+    if (iq & (a - 1)) return error(L,"block %zx len %zu not %zu aligned",ip,len,a);
+    if (ir & (a - 1)) return error(L,"block %zx len %zu not %zu aligned",ip,len,a);
+    if (chkalign(p,len)) return error(L,"block %zx len %zu not %zu aligned",ip,len,a);
+
+    free(r); free(q); free(p);
+
+  } // len
+  return 0;
+}
+
 #define Pointers 65536
 #define Tids 64
 
@@ -246,9 +308,6 @@ struct xinfo {
   _Atomic ub4 cmd;
   _Atomic size_t len;
   _Atomic size_t cnt;
-//  ub4 cmd;
-//  size_t len;
-//  size_t cnt;
   ub4 mode;
   size_t pos;
   size_t iter;
@@ -274,10 +333,10 @@ static int getlock(int ln,struct xinfo *ap,ub4 from,ub4 to)
   ub4 iter = Hi16;
   ub4 f = from;
 
-  info(ln,"tid %u %u -> %u = %u",ap->tid,from,to,Atomget(ap->lock,Moacq));
+  // info(ln,"tid %u %u -> %u = %u",ap->tid,from,to,Atomget(ap->lock,Moacq));
   while (--iter && Cas(ap->lock,from,to) == 0) { waitus(1000ul ); from = f; }
-  info(ln,"tid %u %u -> %u = %u in %u it",ap->tid,from,to,Atomget(ap->lock,Moacq),Hi16 - iter);
-  return iter ? 0 : L;
+  // info(ln,"tid %u %u -> %u = %u in %u it",ap->tid,from,to,Atomget(ap->lock,Moacq),Hi16 - iter);
+  return iter ? 0 : ln;
 }
 
 //coverity[-alloc]
@@ -350,8 +409,8 @@ static void *xfree_thread(void *arg)
 
 /* manual remote free tester
  list of commands:
- - a .tid1. .tid2. .len. .count. -> allocate .count. blocks of .len. in .tid1., export to '.id2.
- - f .tid1. .tid2. .pos. .count.  -> free .count. blocks from .pos. as allocated
+ - a .tid1. .tid2. .len. .count. -> allocate .count. blocks of .len. in .tid1. and export to .tid2.
+ - f .tid1. .tid2. .pos. .count.  -> free .count. blocks from .pos. as allocated by .tid1.
  */
 //coverity[-alloc]
 static int xfree(cchar *cmd,size_t tidcnt,int argc,char *argv[])
@@ -371,7 +430,7 @@ static int xfree(cchar *cmd,size_t tidcnt,int argc,char *argv[])
 
   if (tidcnt ==  0) return L;
 
-  tidcnt = min(tidcnt,Tids);
+  tidcnt = min(tidcnt,Tids - 1);
 
   info(L,"xfree tidcnt %zu cmd %s",tidcnt,cmd);
   memset(infos,0,sizeof(infos));
@@ -639,8 +698,10 @@ static int fre2(size_t small,size_t large,size_t noerr)
 
   s = malloc(small);
   l = malloc(large);
+
   free(s);
-  if (noerr) diadis(Yal_diag_dblfree);
+  if (noerr) diadis(Yal_diag_dblfree); // disable error
+
   //coverity[double_free]
   free(s);
 
@@ -755,6 +816,7 @@ static int do_test(cchar *cmd,size_t arg1,size_t arg2,size_t arg3,size_t arg4)
   ub4 tstcnt = 0;
 
   if (haschr(cmd,'s')) { tstcnt++; rv = slabs(cmd,arg1,arg2,arg3,arg4); if (rv) return rv; }
+  if (haschr(cmd,'A')) { tstcnt++; rv = testalign(cmd,arg1,arg2,arg3); if (rv) return rv; }
 //  if (haschr(cmd,'b')) { rv = blocks(arg1,arg2); if (rv) return rv; }
   if (haschr(cmd,'a')) { tstcnt++; rv = allfre(cmd,arg1,arg2,arg3,arg4); if (rv) return rv; }
   if (haschr(cmd,'2')) { tstcnt++; rv = fre2(arg1,arg2,arg3); if (rv) return rv; }
@@ -809,7 +871,7 @@ static int doclose(int fd,int line) {
    f .from. .to.   - free block no .from. to .to.   f- skips check
    r .from. .newlen.  realloc
    s .from. .len.  assert .from. has .size.
-   A .align. .count. .size. - allocate aligned
+   A .len. .count. .align. - allocate aligned
    @ .file. redirect args from file
  */
 //coverity[-alloc]
@@ -873,7 +935,7 @@ static int manual(int argc,char *argv[])
     else if (cmd == 'a') {
       len = v1;
       cnt = v2;
-      info(L,"alloc %zu` * %zu` = %zu`b at %u",cnt,len,cnt * len,pos);
+      info(L,"alloc %zu` * %zu`b = %zu`b at %u",cnt,len,cnt * len,pos);
       for (c = 0; c < cnt; c++) {
         p  = malloc(len);
         if (p == nil) return L;
@@ -892,8 +954,10 @@ static int manual(int argc,char *argv[])
       for (c = 0; c < cnt; c++) {
         p  = calloc(len,1);
         if (p == nil) return L;
-        if (chkcel(p,len,0,0x55,0xaa)) return L;
-        if (len) memset(p,0x55,len);
+        if (arg[1] != '-') {
+          if (chkcel(p,len,0,0,0)) return L;
+          if (len) memset(p,0x55,len);
+        }
         if (pos < Maxptr) ps[pos++] = p;
       }
 
@@ -1016,9 +1080,9 @@ int main(int argc,char *argv[])
     switch (opt) {
       case 'h': case '?':  return usage();
       case 'S': dotstat = 1; Fallthrough
-      case 's': dostat = 1; break;
+      case 's': dostat = 1; yal_mstats(nil,0,L,"init"); break;
       case 't': yal_options(Yal_trace_enable,0,0); break;
-      case 'T': yal_options(Yal_trace_enable,0,2); break;
+      case 'T': yal_options(Yal_trace_enable,arg[2] == 'T' ? 2 : 1,0); break;
       case 'R': tstrnd = 1; break;
       default: warning(L,"ignoring unknown option '%c'",opt);
     }

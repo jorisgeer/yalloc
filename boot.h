@@ -1,10 +1,13 @@
-/* boot.h - boot memory
+/* boot.h - boot memory and overall init
 
    This file is part of yalloc, yet another memory allocator providing affordable safety in a compact package.
 
    SPDX-FileCopyrightText: © 2024 Joris van der Geer
    SPDX-License-Identifier: GPL-3.0-or-later
-  */
+
+   Provide memory used to initiate heap structures, saving on syscalls.
+   Also one-time init. This is triggered by the first API call of the first thread
+*/
 
 #define Fln (Fboot << 16) |  __LINE__
 
@@ -19,7 +22,7 @@ static void assert_fail(ub4 fln,cchar *msg)
 
 #define Bootcnt 4
 
-struct Align(L1line) bootmem {
+struct bootmem {
   ub1 inimem[Bootmem];
   _Atomic size_t pos;
   _Atomic size_t mem;
@@ -46,7 +49,7 @@ static void *bootalloc(ub4 fln,ub4 id,enum Loc loc,ub4 ulen)
 
   // minidiag(fln,loc,Info,id,"boot alloc %u",ulen);
 
-  bootp = bootmems + (id & 3);
+  bootp = bootmems + (id & 3); // limit contention
 
   if (ulen == 0) {
     minidiag(fln,loc,Warn,id,"(file coords)");
@@ -56,7 +59,7 @@ static void *bootalloc(ub4 fln,ub4 id,enum Loc loc,ub4 ulen)
 
   len = doalign4(ulen,Stdalign);
 
-  if (len > Bootmem) {
+  if (len >= Bootmem) {
     Atomad(bootp->mmaps,1,Monone);
     return osmmap(len);
   }
@@ -70,6 +73,7 @@ static void *bootalloc(ub4 fln,ub4 id,enum Loc loc,ub4 ulen)
     Atomad(bootp->nolocks,1,Monone);
     return osmmap(len); // fallback
   }
+  vg_drd_wlock_acq(bootp)
 
   imp = Atomget(bootp->mem,Moacq);
   if (imp == 0) {
@@ -81,6 +85,7 @@ static void *bootalloc(ub4 fln,ub4 id,enum Loc loc,ub4 ulen)
   if (pos + len <= Bootmem) { // enough space
     Atomset(bootp->pos,pos + len,Morel);
     Atomset(bootp->lock,0,Morel);
+    vg_drd_wlock_rel(bootp)
     return (void *)(imp + pos);
   }
   Atomad(bootp->mmaps,1,Monone);
@@ -93,6 +98,7 @@ static void *bootalloc(ub4 fln,ub4 id,enum Loc loc,ub4 ulen)
     Atomset(bootp->pos,len,Morel);
   }
   Atomset(bootp->lock,0,Morel);
+  vg_drd_wlock_rel(bootp)
   return np;
 }
 
@@ -119,6 +125,7 @@ static void init_stats(void)
 
   val = atou(envs);
   if (val) {
+    minidiag(Fln,Lnone,Vrb,0,"stats %u",val);
     setsigs(); // also an exit point
     atexit(at_exit);
   }
@@ -137,25 +144,25 @@ static void init_trace(void)
     envs = getenv(Yal_trace_envvar);
     if (envs == nil) return;
     val = atou(envs);
-    minidiag(Fln,Lnone,Vrb,0,"diag %u",val);
+    minidiag(Fln,Lnone,Vrb,0,"trace %u",val);
   }
-  global_trace = val;
+  global_trace = val & 3;
 
-  if (val) { diag_initrace(); }
+  if (val & 4) { diag_initrace(); }
 #endif
 }
 
 static void init_check(void)
 {
   cchar *envs = nil;
-  ub4 z,val = Yal_check_default;
+  ub4 val = Yal_check_default;
   ub4 page;
 
 #ifdef Yal_check_envvar
   envs = getenv(Yal_check_envvar);
 #endif
   if (envs) val = atou(envs);
-  z = 0; Cas(global_check,z,val);
+  Atomset(global_check,val,Monone);
 
 #if Yal_enable_check
   page = ospagesize();
@@ -177,14 +184,12 @@ static int newlogfile(cchar *name[],cchar *suffix,ub4 id)
 
 static void init_env(void)
 {
-  unsigned long zero,pid = ospid();
+  unsigned long pid = ospid();
 
   if (Yal_log_fd == -1) Yal_log_fd = newlogfile(Yal_log_file,"",1);
   if (Yal_err_fd == -1) Yal_err_fd = newlogfile(Yal_err_file,"",1);
 
-  Cas(mypid,zero,pid);
-
-  // minidiag(Fln,Lnone,Info,0,"init %u",Yal_log_fd);
+  Atomset(global_pid,pid,Monone);
 
 #ifdef __LINUX__
   int fd = osopen("/proc/self/cmdline",nil);

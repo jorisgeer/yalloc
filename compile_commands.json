@@ -1,0 +1,23 @@
+
+[
+  { "directory": ".",
+    "arguments": ["/usr/bin/clang", "-fno-builtin", "-std=c11", "-c", "-o", "os.o", "os.c"],
+    "file": "os.c"
+   },
+  { "directory": ".",
+    "arguments": ["/usr/bin/clang", "-fno-builtin", "-std=c11", "-c", "-o", "printf.o", "printf.c"],
+    "file": "printf.c"
+   },
+  { "directory": ".",
+    "arguments": ["/usr/bin/clang", "-fno-builtin", "-std=c11", "-c", "-o", "configure.o", "configure.c"],
+    "file": "configure.c"
+   },
+  { "directory": ".",
+    "arguments": ["/usr/bin/clang", "-fno-builtin", "-std=c11", "-c", "-o", "yalloc.o", "yalloc.c"],
+    "file": "yalloc.c"
+   },
+  { "directory": ".",
+    "arguments": ["/usr/bin/clang", "-fno-builtin", "-std=c11", "-c", "-o", "test.o", "test.c"],
+    "file": "test.c"
+   }
+]

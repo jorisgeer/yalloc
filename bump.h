@@ -6,7 +6,7 @@
    SPDX-License-Identifier: GPL-3.0-or-later
 
    Store initial blocks of not (yet) popular sizes in a bump allocator.
-   Metadata is arranged a s a list of 16-byte 'cells' similar to slabs, except that the length is stored.
+   Metadata is arranged as a list of 16-byte 'cells' similar to slabs, except that the length is stored.
    State is managed with atomics, like slabs, to detect double free.
 
    metadata:
@@ -43,7 +43,7 @@ static bool newbump(heap *hb,ub4 hid,bregion *reg,ub4 len,ub4 regpos,enum Rtype 
 
   user = osmem(Fln,hid,len,"bumpalloc");
   if (user == nil) return 1;
-
+  vg_mem_noaccess(user,len)
   meta = bootalloc(Fln,hid,loc,metalen);
   if (meta == nil) return 1;
 
@@ -64,14 +64,13 @@ static bool newbump(heap *hb,ub4 hid,bregion *reg,ub4 len,ub4 regpos,enum Rtype 
   return 0;
 }
 
-// for allocal, ulen = alignment
-static void *bumpalloc(heap *hb,ub4 hid,bregion *regs,ub4 regcnt,ub4 len,ub4 ulen,enum Loc loc,ub4 tag)
+static void *bumpalloc(heap *hb,ub4 hid,bregion *regs,ub4 regcnt,ub4 len,ub4 ulen,ub4 align,enum Loc loc,ub4 tag)
 {
   ub4 *meta;
   _Atomic ub2 *lens;
   ub4 *tags;
   size_t ip,base;
-  ub4 align,pos = 0,cel;
+  ub4 pos = 0,cel;
   _Atomic ub1 *fres;
   ub4 regpos;
   ub1 zero;
@@ -79,10 +78,9 @@ static void *bumpalloc(heap *hb,ub4 hid,bregion *regs,ub4 regcnt,ub4 len,ub4 ule
   bregion *reg = nil;
   enum Rtype typ = hb ? Rbump : Rmini;
 
-  if (unlikely(loc == Lallocal)) {
-    if (ulen >= 256) return nil;
-    len += ulen;
-    align = ulen;
+  if (unlikely(align > Stdalign)) {
+    if (align >= 512) return nil;
+    len += align;
   } else align = Stdalign;
 
   len = doalign4(len,Stdalign);
@@ -100,12 +98,12 @@ static void *bumpalloc(heap *hb,ub4 hid,bregion *regs,ub4 regcnt,ub4 len,ub4 ule
         if (hb) setregion(hb,(xregion *)reg,reg->user,reg->len,1,loc,Fln);
       }
       pos = reg->pos;
-      if (pos + len > reg->len) continue;
+      if (pos + len + align > reg->len) continue;
 
       break;
     }
     if (regpos == regcnt) {
-      ydbg2(loc,"bump regions full at regpos %u/%u",regpos,regcnt);
+      ydbg2(Fln,loc,"bump regions full at regpos %u/%u",regpos,regcnt);
       return nil;
     }
   }
@@ -114,9 +112,9 @@ static void *bumpalloc(heap *hb,ub4 hid,bregion *regs,ub4 regcnt,ub4 len,ub4 ule
 
   reg->pos = pos + len;
 
-  if (unlikely(loc == Lallocal && pos != 0)) pos = doalign4(pos,ulen);
+  if (unlikely(loc == Lallocal && pos != 0)) pos = doalign4(pos,align);
 
-  ycheck(nil,loc,pos & (align - 1),"pos %u",pos)
+  ycheck(nil,loc,pos & (align - 1),"pos %u align %u",pos,align)
   ycheck(nil,loc,pos + len > reg->len,"pos %u + %u > %zu",pos,len,reg->len)
   cel = pos / Stdalign;
   lens = (_Atomic ub2 *)meta;
@@ -127,7 +125,7 @@ static void *bumpalloc(heap *hb,ub4 hid,bregion *regs,ub4 regcnt,ub4 len,ub4 ule
   didcas = Casa(fres + cel,&zero,1);
   ip = base + pos;
   if (unlikely(didcas == 0)) {
-    error(loc,"%s region %.01llu ptr %zx len %u cel %u is not free %.01u state %u",regnames[reg->typ],reg->uid,ip,len,cel,tag,zero)
+    error(loc,"%s region %.01llu ptr %zx len %u cel %u is not free %.01u state %u",regnames[reg->typ],reg->uid,ip,ulen,cel,tag,zero)
     return nil;
   }
 
@@ -138,15 +136,19 @@ static void *bumpalloc(heap *hb,ub4 hid,bregion *regs,ub4 regcnt,ub4 len,ub4 ule
   }
   ystats(reg->allocs);
   ydbg3(loc,"bumpregion %.01lu ptr %zx len %u cel %u tag %.01u state %u",reg->uid,ip,len,cel,tag,zero)
+
+  if (loc == Lcalloc) { vg_mem_def(ip,ulen) }
+  else { vg_mem_undef(ip,ulen) }
+
   return (void *)ip;
 }
 
-static void *bump_alloc(heap *hb,ub4 len,ub4 ulen,enum Loc loc,ub4 tag)
+static void *bump_alloc(heap *hb,ub4 len,ub4 ulen,ub4 align,enum Loc loc,ub4 tag)
 {
-  return bumpalloc(hb,hb->id,hb->bumpregs,Bumpregions,len,ulen,loc,tag);
+  return bumpalloc(hb,hb->id,hb->bumpregs,Bumpregions,len,ulen,align,loc,tag);
 }
 
-// returns len. hb may be nil
+// returns len. hb may be nil. Region not locked
 static ub4 bump_free(heapdesc *hd,heap *hb,bregion *reg,size_t ip,size_t reqlen,ub4 fretag,enum Loc loc)
 {
   size_t base = reg->user;
@@ -156,7 +158,7 @@ static ub4 bump_free(heapdesc *hd,heap *hb,bregion *reg,size_t ip,size_t reqlen,
   _Atomic ub1 *fres;
   ub1 one;
   ub4 cel,len,ofs,cnt;
-  ub4 frees,allocs;
+  ub4 frees;
   ub4 altag;
   bool didcas;
   enum Rtype typ = reg->typ;
@@ -165,10 +167,16 @@ static ub4 bump_free(heapdesc *hd,heap *hb,bregion *reg,size_t ip,size_t reqlen,
 
 #if Yal_enable_check
   if (hb && typ != Rmini) {
-    p = region_near(ip,buf,255);
-    errorctx(Fln,loc,"near %s %p",buf,p);
-    if (reg < hb->bumpregs) return error2(loc,Fln,"%s region %.01llu (%zx) not in heap %u (%zx)",regnames[typ],reg->uid,(size_t)reg,hb->id,(size_t)hb->bumpregs);
-    if (reg > hb->bumpregs + Bumpregions) return error2(loc,Fln,"%s region %.01llu not in heap %u",regnames[typ],reg->uid,hb->id);
+    if (unlikely(reg < hb->bumpregs)) {
+      p = region_near(ip,buf,255);
+      errorctx(Fln,loc,"near %s %p",buf,p);
+      return error2(loc,Fln,"%s region %.01llu (%zx) not in heap %u (%zx)",regnames[typ],reg->uid,(size_t)reg,hb->id,(size_t)hb->bumpregs)
+    }
+    if (unlikely(reg > hb->bumpregs + Bumpregions)) {
+      p = region_near(ip,buf,255);
+      errorctx(Fln,loc,"near %s %p",buf,p);
+      return error2(loc,Fln,"%s region %.01llu not in heap %u",regnames[typ],reg->uid,hb->id)
+    }
   }
 #endif
 
@@ -192,14 +200,14 @@ static ub4 bump_free(heapdesc *hd,heap *hb,bregion *reg,size_t ip,size_t reqlen,
   meta = reg->meta;
   lens = (_Atomic ub2 *)meta;
   len = Atomget(lens[cel],Moacq) * Stdalign;
+  frees = Atomget(reg->frees,Moacq);
+  ytrace(1,hd,loc,"ptr-%zx len %u bump %u",ip,len,frees)
+
   fres = (_Atomic ub1 *)(meta + reg->freorg);
-  if (unlikely(reqlen != 0)) {
+  if (unlikely(reqlen == Nolen)) {
     one = Atomgeta(fres + cel,Moacq);
     if (one == 1) {
-      if (reqlen == Nolen) {
-        ytrace(loc,"ptr-%zx len %u bump",ip,len)
-        return len;
-      }
+      return len;
     }
     ypush(hd,Fln)
     if (one == 0) return error(loc,"bumpregion %.01llu ptr %zx len %u never allocated tag %.01u",reg->uid,ip,len,fretag)
@@ -225,18 +233,19 @@ static ub4 bump_free(heapdesc *hd,heap *hb,bregion *reg,size_t ip,size_t reqlen,
   }
 
   ydbg3(loc,"bumpregion %.01llu ptr %zx len %u cel %u tag %.01u state %u",reg->uid,ip,len,cel,fretag,Atomgeta(fres + cel,Moacq))
-  frees = Atomad(reg->frees,1,Moacqrel);
+  Atomset(reg->frees,frees + 1,Morel);
+
+#if 0 // recycle todo requires sync
   if (loc & Lremote) return len;
 
   allocs = reg->allocs;
   if (unlikely(frees + 1 == allocs)) { // empty, reset
-    ydbg1(Fln,loc,"bumpfree region %u.%u reset at ptr %zx len %u cel %u",reg->hid,reg->id,ip,len,cel);
-#if 0
-    reg->pos = 0; todo rptest above
+    ydbg2(Fln,loc,"bumpfree region %u.%u reset at ptr %zx len %u cel %u",reg->hid,reg->id,ip,len,cel);
+    reg->pos = 0;
     memset(meta + reg->freorg,0,reg->len / Stdalign); // clear state todo sync with remote
-#endif
-    reg->aged++;
+    reg->gen++;
   }
+#endif
   return len;
 }
 #undef Logfile

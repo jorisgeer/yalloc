@@ -4,6 +4,8 @@
 
    SPDX-FileCopyrightText: © 2024 Joris van der Geer
    SPDX-License-Identifier: GPL-3.0-or-later
+
+   Complete for unix-like systems, work in progress for windows.
 */
 
 #ifdef __unix__
@@ -81,7 +83,7 @@ static void writeint(int fd,unsigned int x,int sign)
   write(fd,p,(size_t)( buf + 30 - p));
 }
 
-Vis void oswrite(int fd,const char *buf,size_t len,unsigned int fln)
+Vis unsigned int oswrite(int fd,const char *buf,size_t len,unsigned int fln)
 {
   size_t nn;
   ssize_t nw;
@@ -90,12 +92,6 @@ Vis void oswrite(int fd,const char *buf,size_t len,unsigned int fln)
 
   if (buf == NULL) { buf = "\noswrite: nil buf\n"; len = 17; }
   else if (len == 0) { buf = "\noswrite: nil lenf\n"; len = 17; }
-  if (fd < 0) {
-    writeint(2,(unsigned int)-fd,1);
-    fd = 2;
-    buf = "oswrite: fd < 0\n";
-    len = 15;
-  }
 
   if (chkzeros) {
     p = buf;
@@ -115,17 +111,16 @@ Vis void oswrite(int fd,const char *buf,size_t len,unsigned int fln)
     if (nw < 0) {
       ec = errno;
       write(2,"\ncannot write to fd ",20);
-      write(2," : ",3);
+      writeint(2,(unsigned int)fd,0);
       writeint(2,(unsigned int)ec,0);
-      write(2,buf,len < 64 ? len : 64); // snippet
-      return;
+      return 0;
     }
     nn = (size_t)nw;
     if (len < nn) nn = len;
     len -= nn;
     buf += nn;
     if (len) write(fd,"\n (partial write)\n",18);
-    else break;
+    else return (unsigned int)nn;
   } while (1);
 }
 
@@ -173,10 +168,11 @@ Vis void *osmmap(size_t len)
  #include <string.h> // memcpy
 #endif
 
-Vis void *osmremap(void *p,size_t orglen,size_t newlen)
+Vis void *osmremap(void *p,size_t orglen,size_t ulen,size_t newlen)
 {
   void *np;
 #ifdef __linux__
+  if (ulen == 0) return NULL; // won't occur
   np = mremap(p,orglen,newlen,MREMAP_MAYMOVE);
   if (np == MAP_FAILED) {
     return NULL;
@@ -184,7 +180,7 @@ Vis void *osmremap(void *p,size_t orglen,size_t newlen)
 #else // :-(
   if (newlen) {
     np = osmmap(newlen);
-    if (np) memcpy(np,p,orglen < newlen ? orglen : newlen);
+    if (np) memcpy(np,p,ulen < newlen ? ulen : newlen);
   } else np = NULL;
   munmap(p,orglen);
 #endif

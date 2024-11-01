@@ -704,7 +704,7 @@ ub4 Cold mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
   ub1 cnvbuf[Maxfmt];
   ub1 pluralbuf[Pluralbuf];
   ub1 cnvbuf2[Maxfmt];
-  ub1 *end2,*end = cnvbuf + Maxfmt;
+  ub1 *end2,*end = cnvbuf + Maxfmt - 1;
 
   // misc
   int local_err = 0;
@@ -766,11 +766,10 @@ ub4 Cold mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
      u4 = fx - Dig0;
      if (dotseen) {
        dotseen++;
-       //coverity[INTEGER_OVERFLOW]
-       prec = prec * 10 + u4;
+       if (prec < 65534 / 10) prec = prec * 10 + u4;
      } else {
        if (wid == Hi32) wid = u4;
-       else wid = wid * 10 + u4;
+       else if (wid < 65534 / 10) wid = wid * 10 + u4;
      }
      flgdon = 1; // no more flags
      break;
@@ -1112,7 +1111,7 @@ ub4 Cold mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
      p8 = (const char *)vp;
      if ( (flags & Flghr) && prvone != 1) { // plural
        sndx = 0;
-       while (sndx < Pluralbuf - 3 && sndx < prec + 1 && p8[sndx]) { // -V557
+       while (sndx < Pluralbuf - 3 && sndx < prec + 1 && p8[sndx]) { // -V557 PVS-array-overrun
          pluralbuf[sndx] = (ub1)p8[sndx]; sndx++; // -V557
        }
        pluralbuf[sndx++] = 's';
@@ -1157,7 +1156,7 @@ ub4 Cold mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
     if (lzprec == 1 && rdx != Radixdec) flags |= Flgsep;
     if  (flags & Flgsep) {
       org2 = org; end2 = end;
-      end = org = cnvbuf2 + Maxfmt;
+      end = org = cnvbuf2 + Maxfmt - 1;
       dig = 0;
       if (rdx == Radixdec) { grp = 3; d = '.'; }
       else { grp = 4; d = '_'; }

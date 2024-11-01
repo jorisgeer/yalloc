@@ -54,9 +54,8 @@ static ub4 slabstats(region *reg,yalstats *sp,char *buf,ub4 pos,ub4 len,bool pri
   sp->callocs += callocs;
   sp->reallocles += reallocles;
   sp->reallocgts += reallocgts;
-  sp->rbinskip += rp->rbinskip;
-  sp->slabfrees += frees;
   sp->slabxfrees += rfrees;
+  sp->slabfrees += frees;
 
   sp->minlen = min(sp->minlen,cellen);
   sp->maxlen = max(sp->maxlen,cellen);
@@ -78,7 +77,7 @@ static ub4 slabstats(region *reg,yalstats *sp,char *buf,ub4 pos,ub4 len,bool pri
   inipos = reg->inipos;
   inicnt = celcnt - inipos;
   bincnt = reg->binpos;
-  rbincnt = reg->aged < 3 ? slab_rbincnt(reg) : 0;
+  rbincnt = reg->rbinpos;
   frecnt = bincnt + rbincnt + inicnt;
   fresiz = frecnt * cellen;
   inusecnt = celcnt - frecnt;
@@ -94,15 +93,15 @@ static ub4 slabstats(region *reg,yalstats *sp,char *buf,ub4 pos,ub4 len,bool pri
   if ( (cnt & 0x1f) == 0) {
 
     hdpos = snprintf_mini(albuf,0,255,
-      "\n  %-6s %-3s %-7s %-7s %-7s %-7s %-22s %-7s %-7s %-7s %-7s %-7s",
-      "region","seq","len","cellen","alloc ","calloc","","free","rfree","Alloc","realloc","Realloc");
+      "\n  %-5s %-3s %-4s %-7s %-7s %-7s %-7s %-23s %-7s %-7s %-7s %-7s %-7s",
+      "id","seq","gen","len","cellen","alloc ","calloc","","free","rfree","Alloc","realloc","Realloc");
      if (dostate) hdpos += snprintf_mini(albuf,hdpos,255," %-7s %-7s %-7s %-7s %-4s","cnt","free","ini","bin","rbin");
      albuf[hdpos++] = '\n';
      pos += underline(buf + pos,len - pos,albuf,hdpos);
   }
   snprintf_mini(albuf,0,256,"%-7zu` %-7zu` %-7zu`",iniallocs,binallocs,xallocs);
 
-  pos += snprintf_mini(buf,pos,len,"%c %-6u %-3u %-7zu` %-7u` %-7zu` %-7zu` %-22s %-7zu` %-7zu`",status,rid,claseq,rlen,reg->cellen,allocs,callocs,albuf,frees,rfrees);
+  pos += snprintf_mini(buf,pos,len,"%c %-5u %-3u %-4u %-7zu` %-7u` %-7zu` %-7zu` %-23s %-7zu` %-7zu`",status,rid,claseq,reg->gen,rlen,reg->cellen,allocs,callocs,albuf,frees,rfrees);
   if (dostate || (Allocs | reallocles | reallocgts)) pos += snprintf_mini(buf,pos,len," %-7zu` %-7zu` %-7zu`",Allocs,reallocles,reallocgts);
   if (dostate) {
     pos += snprintf_mini(buf,pos,len," %-7u %-7u %-7u %-7u %-7u",celcnt,frecnt,inipos,bincnt,rbincnt);
@@ -162,7 +161,7 @@ static void Cold bumpstats(int fd,yalstats *sp,bregion *regs,ub4 regcnt,bool pri
       sp->bumpfrees += frees;
     }
     rpos = reg->pos;
-    if (print) pos += snprintf_mini(buf,pos,len,"%u %-6u%-6u%-6u\n",r,allocs,frees,rpos);
+    if (print) pos += snprintf_mini(buf,pos,len,"%u %-6u %-6u %-6u\n",r,allocs,frees,rpos);
     if (pos > 3800) { oswrite(fd,buf,pos,Fln); pos = 0; }
   }
   if (pos) { buf[pos++] = '\n'; oswrite(fd,buf,pos,Fln); }
@@ -205,9 +204,9 @@ static void Cold mmapstats(int fd,heap *hb,bool print)
     ip = (size_t)reg->user;
 
     if (print) {
-      if ( (rid & 0x1f) == 1) pos += snprintf_mini(buf,pos,blen,"\n  %-6s %-9s %-9s\n","region","adr","len");
+      if ( (rid & 0x1f) == 1) pos += snprintf_mini(buf,pos,blen,"\n  %-4s %-4s %-9s %-9s\n","id","gen","adr","len");
 
-      pos += snprintf_mini(buf,pos,blen,"%c %-6u %-9zx %-9zu`\n",status,reg->id,ip,len);
+      pos += snprintf_mini(buf,pos,blen,"%c %-4u %-4u %-9zx %-9zu`\n",status,reg->id,reg->gen,ip,len);
       if (pos > 3800) { oswrite(fd,buf,pos,Fln); pos = 0; }
     }
   } while ((reg = reg->nxt));
@@ -226,6 +225,7 @@ static Cold void regstats(int fd,heap *hb,bool print,ub4 opts)
   region reg0;
   char buf[4096];
   ub4 pos = 0,blen = 4095;
+  ub4 iter = 2000;
 
   if (hb) {
     reg = hb->reglst;
@@ -249,7 +249,7 @@ static Cold void regstats(int fd,heap *hb,bool print,ub4 opts)
   if (reg == nil && af0 == 0) return;
   if (af0) pos = slabstats(&reg0,sp,buf,pos,blen,print,opts,cnt++);
 
-  while (reg) {
+  while (reg && --iter) {
     nxt = reg->nxt;
     typ = reg->typ;
     if (typ != Rslab) { sp->noregion_cnt++; reg = nxt; continue; }
@@ -280,9 +280,9 @@ static ub4 table(char *buf,ub4 pos,ub4 len,ub4 nwid,ub4 vwid,...)
     n = snprintf_mini(buf,pos,len,"%*s %zu` ",-nwid,nam,val);
     pos += n;
     while (n++ < nwid + vwid && pos + 2 < len) buf[pos++] = ' ';
-    buf[pos] = 0;
 
   } while (1);
+  buf[pos] = 0;
 
   va_end(ap);
 
@@ -290,7 +290,7 @@ static ub4 table(char *buf,ub4 pos,ub4 len,ub4 nwid,ub4 vwid,...)
 }
 
 // returns errorcnt
-static Cold size_t yal_mstats_heap(int fd,heap *hb,yalstats *ret,bool print,ub4 opts,ub4 tag,cchar *desc)
+static Cold size_t yal_mstats_heap(int fd,heap *hb,yalstats *ret,bool print,ub4 opts,ub4 tag,cchar *desc,ub4 fln)
 {
   yalstats *sp;
   yalstats dummy;
@@ -317,14 +317,13 @@ static Cold size_t yal_mstats_heap(int fd,heap *hb,yalstats *ret,bool print,ub4 
 
   // tallied outside of heap
   size_t xmapfrees = sp->xmapfrees;
-  size_t xslabfrees = sp->xslabfrees;
+  // size_t xslabfrees = sp->xslabfrees;
   size_t xfreebuf = sp->xfreebuf;
-  size_t xfreesum = sp->xfreesum;
   size_t xfreebatch = sp->xfreebatch;
+  size_t xfreebatch1 = sp->xfreebatch1;
 
   size_t invalid_frees = sp->invalid_frees;
-  ub4 xmaxbin = sp->xmaxbin;
-  ub4 xmaxovf = sp->xmaxovf;
+  size_t xmaxbin = sp->xmaxbin;
 
   size_t locks = sp->locks;
   size_t clocks = sp->clocks;
@@ -336,13 +335,13 @@ static Cold size_t yal_mstats_heap(int fd,heap *hb,yalstats *ret,bool print,ub4 
       buf[pos++] = '\n';
       pos = diagfln(buf,pos,len,Fln);
       pos += snprintf_mini(buf,pos,len,"0 3    stats   --- yalloc %s stats for %s heap %u --- %s tag %.01u\n",yal_version,hb ? "" : "base ",hid,desc,tag);
-      oswrite(fd,buf,pos,Fln);// detail above
+      oswrite(fd,buf,pos,fln);// detail above
     }
   }
 
   if (issum == 0) {
-    sp->callocs = sp->reallocles = sp->reallocgts = 0;
-    sp->rbinskip = sp->slabxfrees = 0;
+    // sp->callocs = sp->reallocles = sp->reallocgts = 0;
+    // sp->slaballocs = sp->slabxfrees = 0;
 
     sp->minlen = Hi32;
     sp->mapminlen = Size_max;
@@ -386,12 +385,9 @@ static Cold size_t yal_mstats_heap(int fd,heap *hb,yalstats *ret,bool print,ub4 
   size_t mapmaxlen = sp->mapmaxlen;
   size_t mapminlen = mapmaxlen ? sp->mapminlen : 0;
   size_t newregs = sp->newregions;
-  ub2 minclass = sp->maxclass ? sp->minclass : 0;
+  ub4 minclass = sp->maxclass ? sp->minclass : 0;
 
-  size_t remdrop = sp->remote_dropped;
-  size_t remskip = sp->rbinskip;
-
-  size_t xfreeavg = xfreesum / max(xfreebatch,1);
+  // size_t xfreeavg = xfreebuf / max(xfreebatch,1);
 
   double clockperc;
 
@@ -417,14 +413,13 @@ static Cold size_t yal_mstats_heap(int fd,heap *hb,yalstats *ret,bool print,ub4 
 
       tpos = table(tbuf,0,tlen,7,8,"new",sp->newregions,"reuse",sp->useregions,"del",sp->delregions,"inuse",
         sp->region_cnt,"free",sp->freeregion_cnt,"del",sp->delregion_cnt,"no",sp->noregion_cnt,"mem",sp->slabmem,nil);
-      pos += snprintf_mini(buf,pos,len,"  regions %.*s\n",tpos,tbuf);
+      pos += snprintf_mini(buf,pos,len,"  regions %.*s\n ",tpos,tbuf);
+
+      tpos = table(tbuf,0,tlen,6,7,"mark",sp->trimregions[0],"unlist",sp->trimregions[1],"undir",sp->trimregions[2],"unmap",sp->trimregions[3],nil);
+      if (tpos) pos += snprintf_mini(buf,pos,len,"  trim %.*s\n ",tpos,tbuf);
 
       pos += snprintf_mini(buf,pos,len,"  clas %3u-%-3u len %3u-%-3u",minclass,sp->maxclass,minlen,sp->maxlen);
-      pos += snprintf_mini(buf,pos,len,"  avail %zu` inuse %zu` in %'zu blocks adr %zx .. %zx\n",fresiz,sp->inuse,sp->inusecnt,sp->loadr,sp->hiadr);
-      if (xmaxbin) {
-        pos += snprintf_mini(buf,pos,len,"  remote freed %-7zu` sum %zu avg %zu\n",xslabfrees,xfreesum,xfreeavg);
-        if (remdrop | remskip) pos += snprintf_mini(buf,pos,len,"  dropped %zu = %zu` skipped %zu\n",remdrop,sp->remote_dropbytes,remskip);
-      }
+      pos += snprintf_mini(buf,pos,len,"  avail %zu` inuse %zu` in %'zu %s` adr %zx .. %zx\n",fresiz,sp->inuse,sp->inusecnt,"block",sp->loadr,sp->hiadr);
       pos += snprintf_mini(buf,pos,len,"  mmap %zu` unmap %zu`\n\n",sp->mmaps,sp->munmaps - sp->delmpregions);
 
       if (hb && detail) {
@@ -441,8 +436,9 @@ static Cold size_t yal_mstats_heap(int fd,heap *hb,yalstats *ret,bool print,ub4 
         buf[pos++] = '\n';
       }
     }
-    if (xfreebuf | xmapfrees) {
-      pos += snprintf_mini(buf,pos,len,"  inter-thread free slab %-7zu`,%-7zu` map %-7zu max buffer %u + %u\n",xfreebuf,xslabfrees,xmapfrees,xmaxbin,xmaxovf);
+    if (xfreebuf | xfreebatch | xfreebatch1 | xmapfrees) {
+      pos += snprintf_mini(buf,pos,len,"  inter-thread free slab %-7zu` map %-7zu` buffer %zu` max %zu` batch %zu` + %zu` - %zu mmap %zu\n",
+        xfreebuf + xfreebatch1,xmapfrees,xfreebuf,xmaxbin,xfreebatch,xfreebatch1,sp->xfreedropped,sp->rbinallocs);
     }
     if (bumpallocs | bumpfrees) pos += snprintf_mini(buf,pos,len,"  bump alloc %-3zu free %-3zu\n",bumpallocs,bumpfrees);
     if (miniallocs | minifrees) pos += snprintf_mini(buf,pos,len,"  mini alloc %-3zu free %-3zu\n",miniallocs,minifrees);
@@ -452,8 +448,10 @@ static Cold size_t yal_mstats_heap(int fd,heap *hb,yalstats *ret,bool print,ub4 
       pos += snprintf_mini(buf,pos,len,"\n-- mmap summary --\n  counts  %.*s\n",tpos,tbuf);
       tpos = table(tbuf,0,tlen,7,7,"new",sp->newmpregions,"use",sp->usempregions,"del",sp->delmpregions,"used",sp->xregion_cnt,"inuse",sp->inmapuse,nil);
       pos += snprintf_mini(buf,pos,len,"  regions %.*s\n",tpos,tbuf);
+      tpos = table(tbuf,0,tlen,6,7,"mark",sp->trimregions[4],"unlist",sp->trimregions[5],"undir",sp->trimregions[6],"unmap",sp->trimregions[7],nil);
+      if (tpos) pos += snprintf_mini(buf,pos,len,"  trim %.*s\n ",tpos,tbuf);
     }
-      pos += snprintf_mini(buf,pos,len,"  heaps new %2zu  used %2zu get %4zu` noget %4zu`,%-4zu`\n\n",newheaps,useheaps,sp->getheaps,sp->nogetheaps,sp->nogetheap0s);
+      if (issum) pos += snprintf_mini(buf,pos,len,"  heaps new %2zu  used %2zu get %4zu` noget %4zu`,%-4zu`\n\n",newheaps,useheaps,sp->getheaps,sp->nogetheaps,sp->nogetheap0s);
     // pos += snprintf_mini(buf,pos,len,"  mmap %zu unmap %zu\n\n",sp->mmaps,sp->munmaps);
 
 #endif
@@ -472,6 +470,8 @@ static Cold size_t yal_mstats_heap(int fd,heap *hb,yalstats *ret,bool print,ub4 
 
 static void sumup(yalstats *sum,yalstats *one)
 {
+  ub4 i;
+
   sum->slaballocs += one->slaballocs;
   sum->mapallocs += one->mapallocs;
   sum->allocs += one->allocs;
@@ -497,7 +497,6 @@ static void sumup(yalstats *sum,yalstats *one)
   sum->inusecnt += one->inusecnt;
   sum->inmapuse += one->inmapuse;
   sum->mmaps += one->mmaps;
-  sum->munmaps += one->munmaps;
   sum->fremapsiz += one->fremapsiz;
 
   sum->newregions += one->newregions;
@@ -511,16 +510,21 @@ static void sumup(yalstats *sum,yalstats *one)
   sum->usempregions += one->usempregions;
   sum->delmpregions += one->delmpregions;
 
+  for (i = 0; i < 8; i++) sum->trimregions[i] += one->trimregions[i];
+
   sum->xslabfrees += one->xslabfrees;
   sum->xmapfrees += one->xmapfrees;
   sum->xfreebuf += one->xfreebuf;
+  sum->xfreebatch += one->xfreebatch;
+  sum->xfreebatch1 += one->xfreebatch1;
+  sum->xfreedropped += one->xfreedropped;
+  sum->rbinallocs += one->rbinallocs;
 
   sum->locks += one->locks;
   sum->clocks += one->clocks;
 
   sum->newheaps += one->newheaps;
   sum->useheaps += one->useheaps;
-  sum->getheaps += one->getheaps;
   sum->nogetheaps += one->nogetheaps;
   sum->nogetheap0s += one->nogetheap0s;
 
@@ -534,8 +538,6 @@ static void sumup(yalstats *sum,yalstats *one)
   sum->maxclass = max(sum->maxclass, one->maxclass);
 
   sum->xmaxbin = max(sum->xmaxbin,one->xmaxbin);
-  sum->xmaxovf = max(sum->xmaxovf,one->xmaxovf);
-  sum->remote_dropped += one->remote_dropped;
   sum->invalid_frees += one->invalid_frees;
   sum->errors += one->errors;
 }
@@ -544,13 +546,15 @@ static void sumup(yalstats *sum,yalstats *one)
 // only one thread will print them
 size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
 {
+  size_t errs;
+  heapdesc *hd = thread_heap;
 #if Yal_enable_stats
   bool allthreads = (opts & Yal_stats_totals);
-  bool print = (opts & Yal_stats_print);
+  ub4 print = opts & Yal_stats_print;
 
   heap *hb;
   bregion *mhb;
-  size_t errs = 0,invfrees;
+  size_t invfrees;
   ub4 heapcnt = 0,mheapcnt = 0;
   bool didopen = 0;
   ub4 zero = 0;
@@ -558,13 +562,16 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
   yalstats sum,one;
   struct hdstats *ds;
   ub4 b;
-  heapdesc dummyhd,*xhd,*hd = thread_heap;
+  heapdesc dummyhd,*xhd;
   int fd = -1;
   ub4 pos = 0;
   char buf[4096];
   ub4 len = 4094;
+  ub4 iter;
 
   static _Atomic ub4 oneprint; // Let only one thread print all heaps
+
+  errs = 0;
 
   if (ret) {
     memset(ret,0,sizeof(yalstats));
@@ -585,7 +592,7 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
     }
   }
   if (allthreads == 0) {
-    errs = yal_mstats_heap(fd,hd->hb,ret,print,opts,tag,desc);
+    errs = yal_mstats_heap(fd,hd->hb,ret,print != 0,opts,tag,desc,Fln);
     if (didopen) osclose(fd);
     if (didcas) Atomset(oneprint,0,Morel);
     return errs;
@@ -613,11 +620,7 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
   // tallied outside of heap
     sum.munmaps += ds->munmaps;
     sum.xmapfrees += ds->xmapfrees;
-    sum.xslabfrees += ds->xslabfrees;
-    sum.xfreebuf += ds->xfreebuf;
-    sum.xfreesum += ds->xfreesum;
-    sum.xfreebatch += ds->xfreebatch;
-    sum.remote_dropped += ds->remote_dropped;
+    sum.xfreebatch1 += ds->xfreebatch;
 
     sum.alloc0s += ds->alloc0s;
     sum.free0s += ds->free0s;
@@ -625,9 +628,6 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
 
     invfrees = ds->invalid_frees;
     sum.invalid_frees += invfrees;
-
-    sum.xmaxbin = max(sum.xmaxbin,ds->xmaxbin);
-    sum.xmaxovf = max(sum.xmaxovf,ds->xmaxovf);
 
     sum.newheaps += ds->newheaps;
     sum.useheaps += ds->useheaps;
@@ -659,11 +659,12 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
   }
 
   // full heaps
+  iter = 1000;
   hb = Atomget(global_heaps,Monone);
-  while (hb) {
+  while (hb && --iter) {
     heapcnt++;
 
-    errs += yal_mstats_heap(fd,hb,&one,print,opts,tag,desc); // print and sum over regions
+    errs += yal_mstats_heap(fd,hb,&one,(print) && (opts & Yal_stats_sum),opts,tag,desc,Fln); // print and sum over regions
 
     sumup(&sum,&one); // sum over heaps
 
@@ -684,7 +685,7 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
 
   if (print) minidiag(Fln,Lstats,Info,hd->id,"\n--- yalloc %s stats totals over %u %s` and %u %s` --- %s tag %.01u\n",yal_version,heapcnt,"heap",mheapcnt,"miniheap",desc,tag);
 
-  yal_mstats_heap(fd,nil,&sum,print,opts | 0x80,tag,desc); // totals
+  yal_mstats_heap(fd,nil,&sum,print != 0,opts | 0x80,tag,desc,Fln); // totals
 
   if (slabfrees + slabxfrees > slaballocs) {
     error2(Lnone,Fln,"allocs %zu frees %zu + %zu",slaballocs,slabfrees,slabxfrees)
@@ -699,6 +700,9 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
     mmaps = Atomget(global_mapadd,Monone);
     munmaps = Atomget(global_mapdel,Monone);
 
+    mmaps += sum.mmaps;
+    munmaps += sum.munmaps;
+
     pos += snprintf_mini(buf,pos,len,"  boot allocs  ");
     for (b = 0; b < Bootcnt; b++) {
       bootp = bootmems + b;
@@ -709,6 +713,8 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
     }
 
     mmaps += Atomget(global_hid,Monone);
+
+    mmaps += sum.rbinallocs;
 
     pos += snprintf_mini(buf,pos,len,"  mmap %zu munmap %zu\n\n",mmaps,munmaps);
 
@@ -730,7 +736,7 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
     memset(&usg,0,sizeof(usg));
     osrusage(&usg);
 
-    tpos = table(tbuf,0,256,7,8,"utime",usg.utime,"stime",usg.stime,"maxrss",usg.maxrss,"minflt",usg.minflt,"maxflt",usg.maxflt,"volctx",usg.volctx,"ivolctx",usg.ivolctx,nil);
+    tpos = table(tbuf,0,256,7,8,"user msec",usg.utime,"sys msec",usg.stime,"max rss",usg.maxrss,"soft page",usg.minflt,"hard page",usg.maxflt,"vol ctx",usg.volctx,"ctx",usg.ivolctx,nil);
     pos += snprintf_mini(buf,pos,len,"\n  %.*s\n",tpos,tbuf);
 
     pos += snprintf_mini(buf,pos,len,"\n  -- end of yalloc stats -- \n\n");
@@ -739,9 +745,6 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
     if (opts & Yal_stats_cfg) oswrite(fd,global_cfgtxt,sizeof(global_cfgtxt) - 1,Fln);
   }
 
-  // aminf = slaballocs - slabfrees - xslabfrees;
-  // if (frecnt != aminf) error2(nil,Lnone,Fln,"heap %u allocs %zu - frees %zu = %zu, avail %zu",hid,slaballocs,slabfrees + xslabfrees,aminf,frecnt);
-
   if (didopen) osclose(fd);
   if (didcas) Atomset(oneprint,0,Morel);
 
@@ -749,8 +752,10 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
     memcpy(ret,&sum,sizeof(sum));
     ret->version = yal_version;
   }
-  return errs;
+#else
+  errs = hd ? hd->stat.invalid_frees : 0;
 #endif
+  return errs;
 }
 
 static void yal_trigger_stats(size_t size)

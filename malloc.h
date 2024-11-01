@@ -4,6 +4,9 @@
 
    SPDX-FileCopyrightText: © 2024 Joris van der Geer
    SPDX-License-Identifier: GPL-3.0-or-later
+
+   Export a set of functions and defines that are typically prtovided in a header with this name, e.g  glibc.
+   In addition, our own extensions are here.
 */
 
 #ifdef __cplusplus
@@ -30,17 +33,18 @@ struct yal_stats {
 
   size_t findregions;
   size_t locks,clocks;
-  size_t remote_dropped,remote_dropbytes,rbinskip;
   size_t xfreebuf; // unconditional
-  size_t xfreesum,xfreebatch;
+  size_t xfreesum,xfreebatch,xfreebatch1,xfreedropped,rbinallocs;
 
   size_t invalid_frees;
   size_t invalid_reallocs;
   size_t errors;
 
-  size_t newregions,useregions; // unconditional
+  size_t newregions,useregions,noregions,curnoregions; // unconditional
   size_t delregions,region_cnt,freeregion_cnt,delregion_cnt,noregion_cnt;
-  size_t newmpregions,usempregions,delmpregions,xregion_cnt,slab_cnt,mmap_cnt;
+  size_t newmpregions,usempregions,delmpregions,nompregions,curnompregions;
+  size_t xregion_cnt,slab_cnt,mmap_cnt;
+  size_t trimregions[8];
 
   unsigned int newheaps,useheaps;
   size_t getheaps,nogetheaps,nogetheap0s;
@@ -52,12 +56,9 @@ struct yal_stats {
 
   size_t  frecnt,fresiz,fremapsiz,inuse,inusecnt,inmapuse,inmapusecnt;
   size_t slabmem,mapmem;
+  size_t xmaxbin;
 
-  unsigned short minclass,maxclass;
-
-  unsigned int maxspin;
-  unsigned int xmaxbin,xmaxovf;
-//  unsigned int filler;
+  unsigned int minclass,maxclass;
 };
 
 // print and/or return statistics
@@ -65,16 +66,18 @@ enum Yal_stats_opts { Yal_stats_sum = 1, Yal_stats_detail = 2, Yal_stats_totals 
 
 extern size_t yal_mstats(struct yal_stats *sp,unsigned int opts,unsigned int tag,const char *desc);
 
-extern void malloc_stats(void);
-
 // diags and control
 enum Yal_diags { Yal_diag_none, Yal_diag_dblfree, Yal_diag_oom,Yal_diag_ill,Yal_diag_count };
 enum Yal_options { Yal_logmask, Yal_diag_enable, Yal_trace_enable };
 extern unsigned int yal_options(enum Yal_options opt,size_t arg1,size_t arg2);
 
+// provide callsite info
 extern void * yal_alloc(size_t size,unsigned int tag);
+extern void * yal_calloc(size_t size,unsigned int tag);
 extern void yal_free(void *p,unsigned int tag);
-extern void * yal_realloc(void *p,size_t newsize,unsigned int tag);
+extern void * yal_realloc(void *p,size_t oldsize,size_t newsize,unsigned int tag);
+extern void *yal_aligned_alloc(size_t align, size_t len,unsigned int tag);
+extern size_t yal_getsize(void *p,unsigned int tag);
 
 #define Yal_sftag(file) (((file) << 16) | (__LINE__ & 0xffff)) // basic callsite identification
 
@@ -85,6 +88,7 @@ extern void __je_bootstrap_free(void *p);
 
 
 // Following for compatibility with glibc nonstandard extensions. Most are dummies.
+extern void malloc_stats(void);
 extern int mallopt (int param, int value);
 
 enum Ymallopt { M_MMAP_MAX = 1, M_MMAP_THRESHOLD, M_PERTURB, M_TOP_PAD, M_TRIM_THRESHOLD, M_ARENA_TEST, M_ARENA_MAX };

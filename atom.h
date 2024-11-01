@@ -60,13 +60,13 @@
 #endif
 
 #ifndef Have_atomics
- #warning "multithreading support requires C11 atomics"
- #define _Atomic
+  // #warning "multithreading support requires atomics"
+ #define _Atomic // -V1059 PVS override-reserved
 
- #define Cas(cmp,exp,des) (cmp) == (exp) ? ((cmp) = (des)) && 1 :  0
- #define cas(cmp,exp,des) (cmp) == (exp) ? ((cmp) = (des)) && 1 :  0
- #define Casa(cmp,exp,des) *(cmp) == (exp) ? (*(cmp) = (des)) && 1 :  0
- #define casa(cmp,exp,des) *(cmp) == (exp) ? (*(cmp) = (des)) && 1 :  0
+ #define Cas(cmp,exp,des) (cmp) == (exp) ? ((cmp) = (des)) && 1 : 0
+ #define cas(cmp,exp,des) (cmp) == (exp) ? ((cmp) = (des)) && 1 : 0
+ #define Casa(cmp,exp,des) *(cmp) == (exp) ? (*(cmp) = (des)) && 1 : 0
+ #define casa(cmp,exp,des) *(cmp) == (exp) ? (*(cmp) = (des)) && 1 : 0
 
  #define Atomad(a,b,o) (a) += (b)
  #define Atomsub(a,b,o) (a) -= (b)
@@ -79,9 +79,9 @@
 
  #define Atomfence(o) __atomic_thread_fence(o)
 
-#define Monone
-#define Morel
-#define Moacq
-#define Moacqrel
+ #define Monone
+ #define Morel
+ #define Moacq
+ #define Moacqrel
 
 #endif

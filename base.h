@@ -23,7 +23,7 @@
 
   #if defined __GNUC__ && __GNUC__ > 7
   #else
-   #define _Thread_local
+   #define _Thread_local // -V1059 PVS override-reserved
   #endif
 
 #else // c11+
@@ -137,7 +137,7 @@ typedef const char cchar;
 
  #if __STDC_VERSION__ < 201112L // c99
    #define Noret
-   #define _Thread_local
+   #define _Thread_local // -V1059 PVS override-reserved
  #endif
 #endif
 

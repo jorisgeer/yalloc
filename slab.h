@@ -32,6 +32,7 @@ static region *newslab(heap *hb,ub4 cellen,ub4 clas,ub4 claseq)
   size_t binorg;
   size_t lenorg,lenlen;
   size_t tagorg,taglen;
+  size_t flnorg,flnlen;
 
   addord = claseq > 17 ? claseq - 6 : addords[claseq];
 
@@ -70,7 +71,7 @@ static region *newslab(heap *hb,ub4 cellen,ub4 clas,ub4 claseq)
 
   ycheck(nil,Lalloc,cnt == 0,"cel cnt 0 for len %u",cellen)
 
-  ydbg2(Lnone,"new slab clas %u order %u seq %u",clas,order,claseq)
+  ydbg2(Fln,Lnone,"new slab clas %u order %u len %zu` seq %u",clas,order,reglen,claseq)
 
   // cell status is at start
   acnt = doalign8(cnt,4);
@@ -84,7 +85,11 @@ static region *newslab(heap *hb,ub4 cellen,ub4 clas,ub4 claseq)
 
   tagorg = lenorg + lenlen;
   taglen = Yal_enable_tag ? acnt : 0;
-  metacnt = tagorg + taglen;
+
+  flnorg = tagorg + taglen;
+  flnlen = Yal_enable_check > 1 ? acnt : 0;
+
+  metacnt = flnorg + flnlen;
   ycheck(nil,Lalloc,metacnt >= Hi30,"len %zu` metacnt %zu`",reglen,metacnt)
 
   metalen = metacnt * sizeof(ub4); // bytes
@@ -94,12 +99,10 @@ static region *newslab(heap *hb,ub4 cellen,ub4 clas,ub4 claseq)
   rid = reg->id;
   xlen = reg->len;
 
-  ycheck(nil,Lalloc,xlen < reglen,"region %u len %zu vs %zu",rid,xlen,reglen)
+  ycheck(nil,Lalloc,xlen < reglen,"region %u len %zu` vs %zu`",rid,xlen,reglen)
   ycheck(nil,Lalloc,reg->metalen < metalen,"region %u metalen %zu vs %zu",rid,reg->metalen,metalen)
 
   ycheck(nil,Lalloc,xlen / cellen < cnt,"region %u cnt %zu vs %zu",rid,xlen / cellen,cnt)
-
-  cnt = (ub4)(xlen / cellen);
 
   reg->cellen = cellen; // gross, as allocated
   reg->celcnt = (ub4)cnt;
@@ -109,7 +112,9 @@ static region *newslab(heap *hb,ub4 cellen,ub4 clas,ub4 claseq)
 
   reg->binorg = binorg;
   reg->lenorg = lenorg;
-  reg->tagorg = Yal_enable_tag ? tagorg : 0;
+  reg->tagorg = taglen ? tagorg : 0; //coverity[DEADCODE]
+  reg->flnorg = flnlen ? flnorg : 0; //coverity[DEADCODE]
+
   // reg->metacnt = metacnt;
 
   setregion(hb,(xregion *)reg,reg->user,xlen,1,Lalloc,Fln);
@@ -129,36 +134,65 @@ static ub4 slab_gettag(region *reg,ub4 cel)
   return tag;
 }
 
+#if Yal_enable_check > 1
+static void slab_putfln(region *reg,ub4 cel,ub4 fln)
+{
+  ub4 *meta = reg->meta;
+  ub4 *flns = meta + reg->flnorg;
+
+  if (reg->flnorg == 0) return;
+  flns[cel] = fln;
+}
+
+static ub4 slab_getfln(region *reg,ub4 cel)
+{
+  ub4 *meta = reg->meta;
+  ub4 *flns = meta + reg->flnorg;
+
+  if (reg->flnorg == 0) return 0;
+  return flns[cel];
+  return 0;
+}
+
+  #define Getfln(reg,cel) slab_getfln(reg,cel)
+  #define Putfln(reg,cel,fln) slab_putfln(reg,cel,fln);
+
+#else
+  #define Getfln(r,c) 0
+  #define Putfln(r,c,f)
+#endif
+
 /* mark cel as freed. Possibly called from remote.
    returns 1 on error
  */
-static Hot bool slab_markfree(region *reg,ub4 cel,ub4 cellen,ub4 fln,ub4 fretag)
+static Hot bool markfree(region *reg,ub4 cel,ub4 cellen,celset_t to,ub4 fln,ub4 fretag)
 {
   size_t ip;
   ub4 inipos;
-  ub4 *meta;
+  ub4 *meta = reg->meta;
   ub4 altag;
   _Atomic celset_t *binset;
-  celset_t from,to;
+  celset_t from;
   bool didcas;
+  ub4 cfln;
 
-  meta = reg->meta;
   binset = (_Atomic celset_t *)meta;
 
 // check and mark bin
   from = 1;
-  to = 2;
   didcas = Casa(binset + cel,&from,to);
 
   if (likely(didcas != 0)) {
-    vg_mem_noaccess((char *)reg->user + cel * cellen,cellen)
+    vg_mem_noaccess(reg->user + (size_t)cel * cellen,cellen)
+    Putfln(reg,cel,fln)
     return 0;
   }
 
-  ydbg3(Lfree,"reg %.01llu cel %u",reg->uid,cel);
+  cfln = Getfln(reg,cel);
+  do_ylog(0,Lfree,cfln,Info,0,"reg %.01llu cel %u",reg->uid,cel);
 
    // double free (user error) or never allocated (user or yalloc error)
-  ip = reg->user + cel * cellen;
+  ip = reg->user + (size_t)cel * cellen;
   inipos = reg->inipos;
   altag = slab_gettag(reg,cel);
   if (unlikely(cel >= inipos)) {
@@ -166,11 +200,12 @@ static Hot bool slab_markfree(region *reg,ub4 cel,ub4 cellen,ub4 fln,ub4 fretag)
     error2(Lfree,Fln,"region %.01llu invalid free(%zx) of size %u - never allocated - cel %u above %u altag %.01u",reg->uid,ip,cellen,cel,inipos,altag)
     return 1;
   }
-  if (from == 2) {
+  if (from == 2 || from == 3) {
     errorctx(fln,Lfree,"region %.01llu ptr %zx cel %u is already binned - 1 -> 2 = %u altag %.01u",reg->uid,ip,cel,from,altag)
     free2(Fln,Lfree,(xregion *)reg,ip,cellen,fretag,"slab-bin");
   } else {
-    error(Lfree,"region %.01llu invalid free(%zx) of size %u tag %.01u - expected status 1, found %u",reg->uid,ip,cellen,fretag,from)
+    errorctx(fln,Lfree,"gen %u.%u.%u age %u.%u",reg->gen,reg->hid,reg->id,reg->age,reg->aged)
+    error2(Lfree,Fln,"region %.01llu cel %u invalid free(%zx) of size %u tag %.01u - expected status 1, found %u",reg->uid,cel,ip,cellen,fretag,from)
   }
   return 1;
 }
@@ -178,11 +213,10 @@ static Hot bool slab_markfree(region *reg,ub4 cel,ub4 cellen,ub4 fln,ub4 fretag)
 // as above, just check
 static Hot celset_t slab_chkfree(region *reg,ub4 cel)
 {
-  ub4 *meta;
+  ub4 *meta = reg->meta;
   _Atomic celset_t *binset;
   celset_t from;
 
-  meta = reg->meta;
   binset = (_Atomic celset_t *)meta;
 
 // check bin
@@ -197,13 +231,13 @@ static Hot bool slab_markused(region *reg,ub4 cel,celset_t from,ub4 fln)
 {
   size_t ip;
   ub4 inipos,cellen;
-  ub4 *meta;
+  ub4 *meta = reg->meta;
   celset_t expect = from;
   _Atomic celset_t *binset;
   celset_t to;
   bool didcas;
+  ub4 cfln;
 
-  meta = reg->meta;
   binset = (_Atomic celset_t *)meta;
 
 // check and mark bin
@@ -211,35 +245,25 @@ static Hot bool slab_markused(region *reg,ub4 cel,celset_t from,ub4 fln)
   didcas = Casa(binset + cel,&expect,to);
 
   if (likely(didcas != 0)) {
-    vg_mem_noaccess((char *)reg->user + cel * reg->cellen,reg->cellen)
+    Putfln(reg,cel,fln)
     return 0;
   }
 
+  cfln = Getfln(reg,cel);
+  do_ylog(0,Lfree,cfln,Info,0,"reg %.01llu cel %u",reg->uid,cel);
+
   // still allocated (yalloc internal error)
   cellen = reg->cellen;
-  ip = reg->user + cel * cellen;
+  ip = reg->user + (size_t)cel * cellen;
   inipos = reg->inipos;
   if (cel >= inipos) {
-    errorctx(fln,Lalloc,"region %.01llu ptr %zx cel %u is not freed earlier %u -> %u = %u",reg->uid,ip,cel,from,to,expect)
-    error2(Lfree,Fln,"region %.01llu invalid alloc(%zx) of size %u - cel %u above %u",reg->uid,ip,cellen,cel,inipos)
+    errorctx(fln,Lalloc,"region %.01llu gen %u.%u ptr %zx cel %u is not freed earlier %u -> %u = %u",reg->uid,reg->gen,reg->id,ip,cel,from,to,expect)
+    error2(Lfree,Fln,"region %.01llu invalid alloc(%zx) of size %u - cel %u >= ini %u",reg->uid,ip,cellen,cel,inipos)
     return 1;
   }
-  errorctx(fln,Lalloc,"region %.01llu ptr %zx cel %u is not freed earlier %u -> %u = %u",reg->uid,ip,cel,from,to,expect)
-  error2(Lfree,Fln,"region %.01llu invalid alloc(%zx) of size %u - cel %u/%u is not free",reg->uid,ip,cellen,cel,reg->celcnt)
+  errorctx(fln,Lalloc,"region %u gen %u cel %u/%u is not freed earlier %u -> %u = %u",reg->id,reg->gen,cel,reg->celcnt,from,to,expect)
+  error2(Lfree,Fln,"region %.01llu invalid alloc(%zx) of size %u - cel %u/%u bin %u is not free %u",reg->uid,ip,cellen,cel,reg->celcnt,reg->binpos,reg->prvcel)
   return 1;
-}
-
-static celset_t slab_chkused(region *reg,ub4 cel)
-{
-  ub4 *meta;
-  _Atomic celset_t *binset;
-  celset_t set;
-
-  meta = reg->meta;
-  binset = (_Atomic celset_t *)meta;
-
-  set = Atomgeta(binset + cel,Moacq);
-  return set;
 }
 
 static ub4 slab_getlen(region *reg,ub4 cel,ub4 cellen)
@@ -280,115 +304,98 @@ static Hot ub4 slab_cel(region *reg,size_t ip,ub4 cellen,ub4 celcnt,enum Loc loc
     return Nocel;
   }
 
-  if (unlikely(cel * cellen != ofs8)) { // possible user error: inside block
+  if (unlikely( (size_t)cel * cellen != ofs8)) { // possible user error: inside block
     ub4 ulen = cellen <= Cel_nolen ? cellen : slab_getlen(reg,cel,cellen);
     if (cel * cellen < ofs8) {
-      error(loc,"ptr %zx of size %u/%u is %zu` b inside block %u/%u` region %u %u",ip,cellen,ulen,(ip - base)  - (size_t)cel * cellen,cel,celcnt,reg->id,ord)
+      errorctx(Fln,loc,"ofs8 %zx vs %zx in %zu`/%zu`",ofs8,(size_t)cel * cellen,reg->len,reg->metalen)
+      error2(loc,Fln,"ptr %zx of size %u/%u is %zu` b inside block %u/%u` region %.01llu %u",ip,cellen,ulen,(ip - base)  - (size_t)cel * cellen,cel,celcnt,reg->uid,ord)
     } else {
-      error(loc,"ptr %zx of size %u/%u is %zu` b inside block %u/%u` region %u %u",ip,cellen,ulen,((size_t)cel * cellen) - (ip - base) ,cel,celcnt,reg->id,ord)
+      error(loc,"ptr %zx of size %u/%u is %zu` b inside block %u/%u` region %.01llu %u",ip,cellen,ulen,((size_t)cel * cellen) - (ip - base) ,cel,celcnt,reg->uid,ord)
     }
     return Nocel;
   }
 
-#if Yal_enable_tag
-  ytrace(loc,"slab_free(%zx) seq %zu tag %.01u",ip,reg->stat.frees,slab_gettag(reg,cel))
-#endif
-
   return cel;
 }
 
-#if Yal_inter_thread_free
 // alloc from remote bin
-static ub4 slab_remalloc(heap *hb,region *reg)
+static ub4 slab_remalloc(region *reg)
 {
   ub4 pos,rpos;
   ub4 *bin,*rbin;
   ub4 c,cel,celcnt;
-  bool didcas,rv;
-  ub4 zero;
+  ub4 cfln;
+  bool didcas;
 
   ub4 *meta;
-  celset_t set;
-
-  zero = 0;
-  didcas = Cas(reg->lock,zero,1);
-  if (unlikely(didcas == 0)) {
-    hb->stat.clocks++;
-    return Nocel;
-  }
-  hb->stat.locks++;
+  _Atomic celset_t *binset;
+  celset_t from;
 
   rbin = Atomget(reg->rembin,Moacq);
-  if (unlikely(rbin == nil || reg->rbinpos == 0)) {
-    Atomset(reg->lock,0,Morel);
-    return Nocel;
-  }
+  if (rbin == nil) return Nocel;
+
+  rpos = reg->rbinpos;
+  if (rpos == 0) return Nocel;
+  reg->rbinpos = 0; // empty remote bin
 
   meta = reg->meta;
 
   bin = meta + reg->binorg;
   pos  = reg->binpos;
-  rpos = reg->rbinpos;
   celcnt = reg->celcnt;
 
   ycheck(Nocel,Lalloc,pos + rpos > celcnt,"bin pos %u + %u above %u",pos,rpos,celcnt)
 
   // copy all to local bin
+  binset = (_Atomic celset_t *)meta;
 
-#if Yal_enable_check
   for (c = 0; c < rpos; c++) {
     cel = rbin[c];
 
     ycheck(Nocel,Lalloc,cel >= celcnt,"bin pos %u + %u above %u",pos,rpos,celcnt)
-    set = slab_chkused(reg,cel);
-    if (set != 2) error(Lalloc,"reg %.01llu cel %u is not free %u",reg->uid,cel,set);
+    ycheck(Nocel,Lalloc,cel >= reg->inipos,"cel %u above ini %u",cel,reg->inipos)
 
+    // alloc topmost
+    if (c == rpos - 1) {
+      from = 3;
+      didcas = Casa(binset + cel,&from,1);
+
+      if (likely(didcas != 0)) {
+        ystats2(reg->stat.rfrees,rpos)
+        ystats(reg->stat.xallocs)
+        reg->binpos = pos;
+        return cel;
+      }
+      cfln = Getfln(reg,cel);
+      errorctx(cfln,Lalloc,"pos %u/%u",c,rpos)
+      error2(Lalloc,Fln,"reg %.01llu cel %u is not free %u",reg->uid,cel,from);
+      return Nocel;
+    }
+
+    // move others to local bin
+    from = 3;
+    didcas = Casa(binset + cel,&from,2);
+
+    if (unlikely(didcas == 0)) {
+      cfln = Getfln(reg,cel);
+      errorctx(cfln,Lalloc,"pos %u/%u",c,rpos)
+      error2(Lalloc,Fln,"reg %.01llu cel %u is not free %u",reg->uid,cel,from);
+      return Nocel;
+    }
+    Putfln(reg,cel,(Fln))
     bin[pos++] = cel;
   }
-#else
-  memcpy(bin + pos,rbin,rpos * sizeof(ub4));
-  pos += rpos;
-#endif
-
-  reg->rbinpos = 0; // empty remote bin
-
-  Atomset(reg->lock,0,Morel);
-
-  ystats2(reg->stat.rfrees,rpos)
-
-  // return topmost
-  cel = bin[--pos];
-  ystats(reg->stat.xallocs)
-  ycheck(Nocel,Lalloc,cel >= celcnt,"cel %u above cnt %u",cel,celcnt)
-  ycheck(Nocel,Lalloc,cel >= reg->inipos,"cel %u above ini %u",cel,reg->inipos)
-  reg->binpos = pos;
-
-  rv = slab_markused(reg,cel,2,Fln);
-  if (unlikely(rv != 0)) return Nocel;
-
-  return cel;
+  return Nocel;
 }
 
-// Add cels to remote bin. Already marked. Returns number of cels left
-static ub4 add2rbin(heap *hb,struct remote *rem,region *reg,ub4 bkt,ub4 cnt)
+// Add cel to remote bin. Already marked. Region locked
+static ub4 cel2rbin(heap *hb,region *reg,ub4 cel,enum Loc loc)
 {
-  ub4 cel,c,celcnt;
+  ub4 celcnt;
   ub4 pos,rpos;
   ub4 *bin,*from;
-  ub4 *remp;
   celset_t set;
   bool didcas;
-
-  ub4 zero = 0;
-  didcas = Cas(reg->lock,zero,1);
-  if (unlikely(didcas == 0)) { // contended
-    if (hb) hb->stat.clocks++;
-    Pause
-    zero = 0;
-    didcas = Cas(reg->lock,zero,1);
-    if (unlikely(didcas == 0)) return cnt;
-  }
-  if (hb) hb->stat.locks++;
 
   celcnt = reg->celcnt;
 
@@ -396,7 +403,7 @@ static ub4 add2rbin(heap *hb,struct remote *rem,region *reg,ub4 bkt,ub4 cnt)
   if (unlikely(bin == nil)) {
     if (hb) bin = getrbinmem(hb,celcnt);
     else bin = bootalloc(Fln,0,Lrfree,celcnt * 4);
-    if (bin == nil) return cnt;
+    if (bin == nil) return 1;
     from = nil;
     didcas = Cas(reg->rembin,from,bin);
     if (didcas == 0) {
@@ -405,228 +412,280 @@ static ub4 add2rbin(heap *hb,struct remote *rem,region *reg,ub4 bkt,ub4 cnt)
     }
   }
 
-  remp = rem->remcels + bkt * Rembatch;
+  pos = reg->binpos;
+  rpos = reg->rbinpos;
+  if (unlikely(pos + rpos >= celcnt)) { // overfull, should never occur
+    error(loc,"region %.01llu bin cel %u to remote pos %u + %u above %u",reg->uid,cel,pos,rpos,celcnt)
+    return 1;
+  }
+
+#if Yal_enable_check
+  set = slab_chkfree(reg,cel);
+  if (set != 3) error(loc,"region %.01llu cel %u/%u is not free %u",reg->uid,cel,celcnt,set);
+#endif
+  bin[rpos] = cel;
+
+  reg->rbinpos = rpos + 1;
+
+  return 0;
+}
+
+// Add cels to remote bin. Already marked.
+static ub4 cels2rbin(heap *hb,ub4 *bin,region *reg,ub4 cnt,enum Loc loc)
+{
+  ub4 cel,c,celcnt;
+  ub4 pos,rpos;
+  ub4 *rbin,*frbin;
+  ub4 cfln;
+  celset_t set;
+  ub4 from;
+  bool didcas;
+
+  from = 0; didcas = Cas(reg->lock,from,1);
+  if (didcas == 0) return 1;
+  vg_drd_wlock_acq(reg)
+  celcnt = reg->celcnt;
+
+  rbin = Atomget(reg->rembin,Moacq);
+  if (unlikely(rbin == nil)) {
+    rbin = getrbinmem(hb,celcnt);
+    if (rbin == nil) {
+      Atomset(reg->lock,0,Morel);
+      vg_drd_wlock_rel(reg)
+      return cnt;
+    }
+    frbin= nil;
+    didcas = Cas(reg->rembin,frbin,rbin);
+    if (didcas == 0) {
+      rbin = frbin;
+      putrbinmem(hb,celcnt);
+    }
+  }
 
   pos = reg->binpos;
   rpos = reg->rbinpos;
   if (unlikely(pos + rpos + cnt > celcnt)) { // overfull, should never occur
+    error(loc,"region %.01llu bin cel %u to remote pos %u + %u + %u above %u",reg->uid,*bin,pos,rpos,cnt,celcnt)
     Atomset(reg->lock,0,Morel);
-    error(Lfree,"region %.01llu bin cel %u to remote bkt %u pos %u + %u + %u above %u",reg->uid,*remp,bkt,pos,rpos,cnt,celcnt)
+    vg_drd_wlock_rel(reg)
     return cnt;
   }
 
 #if Yal_enable_check
-  // ylog(Lfree,"region %.01llu bin cel %u to remote bkt %u pos %u + %u / %u",reg->uid,*remp,bkt,pos,cnt,celcnt)
-
   for (c = 0; c < cnt; c++) {
-    cel = remp[c];
-    set = slab_chkused(reg,cel);
-    if (set != 2) error(Lalloc,"bkt %u pos %u/%u region %.01llu cel %u is not free %u",bkt,c,cnt,reg->uid,cel,set);
-    bin[rpos++] = cel;
+    cel = bin[c];
+    set = slab_chkfree(reg,cel);
+    if (set != 3) {
+      cfln = Getfln(reg,cel);
+      errorctx(cfln,loc,"pos %u/%u",c,cnt)
+      error2(loc,Fln,"pos %u/%u region %.01llu cel %u is not free %u",c,celcnt,reg->uid,cel,set);
+    }
+    rbin[rpos++] = cel;
   }
 #else
-  memcpy(bin + rpos,remp,cnt * sizeof(ub4));
+  memcpy(rbin + rpos,bin,cnt * sizeof(ub4));
+  rpos += cnt;
 #endif
 
   reg->rbinpos = rpos;
 
   Atomset(reg->lock,0,Morel);
-
-  if (hb) ystats2(hb->stat.xfreesum,cnt)
+  vg_drd_wlock_rel(reg)
 
   return 0;
 }
 
-// free from other thread. Returns cel len. Protected with refcnt. hb may nbe nil
-static ub4 slab_free_remote(heapdesc *hd,heap *hb,region *reg,size_t ip,size_t len,ub4 tag,enum Loc loc)
+// free from other thread. Returns cel len. Region locked. hb may be nil
+static ub4 slab_free_rreg(heapdesc *hd,heap *hb,region *reg,size_t ip,ub4 tag,enum Loc loc)
 {
-  struct remote *rem;
-  ub8 uid,ouid,ruid;
-  ub4 pos,xpos;
-  ub4 cel,ocel,cellen,celcnt,cnt,rcnt;
-  ub4 ovflen,xovflen,blen;
-  struct overflow *ovf,*xovf,*novf;
-  ub4 *remp;
+  struct rembuf *rb;
+  struct remote *rem,*remp;
+  ub4 cel,cellen,celcnt,cnt;
+  region *xreg;
+  ub4 hid,clas,seq,clasofs;
+  Ub8 clasmsk,Clasmsk,clasmsks,seqmsk,Seqmsk,hidmsk,Hidmsk;
+  yalstats *hs;
   size_t frees;
-  Ub8 bktmsk,bkt1msk,msk,bmsk;
-  ub4 lo,lo0,bkt;
-  celset_t set;
-  region *oreg,*rreg;
-  bool rv;
+  ub4 ref;
+  bool rv,all;
 
   cellen = reg->cellen;
-
-  if (unlikely(len != 0)) {
-    if (len > cellen) {
-      error(loc,"free(%zx) of size %u has invalid len %zu",ip,cellen,len)
-      return 0;
-    }
-  }
-
   celcnt = reg->celcnt;
+
   cel = slab_cel(reg,ip,cellen,celcnt,loc);
   if (unlikely(cel == Nocel)) {
     return 0;
   }
 
   // mark
-  rv = slab_markfree(reg,cel,cellen,Fln,tag);
+  rv = markfree(reg,cel,cellen,3,Fln,tag);
+  if (unlikely(rv != 0)) {
+    ypush(hd,Fln)
+    return 0;
+  }
+
+  cel2rbin(hb,reg,cel,loc);
+
+  if (hb == nil) {
+    hd->stat.xfreebatch++;
+    return cellen;
+  }
+  hs = &hb->stat;
+  hs->xfreebatch1++;
+
+  frees = hs->xfreebuf;
+  if ( (frees & 0x3f) != 0x3f) return cellen;
+  all = ( (frees & 0x3ff) == 0x3ff);
+
+  // unbuffer earlier cells
+  hidmsk = Hidmsk = hb->remask;
+  if (hidmsk == 0) return cellen; // none
+
+ do {
+  hid = ctzl(hidmsk);
+  ycheck(0,loc,hid >= Remhid,"hid %u",hid)
+  rb = hb->rembufs[hid];
+  rem = rb->rem;
+
+  clasmsks = 0;
+  for (clasofs = 0; clasofs <= Clascnt / 64; clasofs++) {
+    if ( (clasmsk = Clasmsk = rb->clas[clasofs]) == 0) continue;
+    // ydbg1(Fln,loc,"ofs %u clasmsk %lx",clasofs,clasmsk)
+    do {
+      clas = ctzl(clasmsk) + clasofs * 64;
+      ycheck(0,loc,clas >= Clascnt,"ofs %u class %u",clasofs,clas)
+      seqmsk = Seqmsk = rb->seq[clas];
+      do {
+        ycheck(0,loc,seqmsk == 0,"ofs %u class %u mask 0",clasofs,clas)
+        seq = ctzl(seqmsk);
+        seqmsk &= ~(1ul << seq);
+        ycheck(0,loc,seq >= Clasregs,"class %u seq %u",clas,seq)
+        remp = rem + clas * Clasregs + seq;
+        cnt = remp->cnt;
+        ycheck(0,loc,cnt == 0,"class %u seq %u pos 0",clas,seq)
+        if (cnt == 1 && !all) continue;
+        xreg = remp->reg;
+        ycheck(0,loc,xreg->hid != hid,"hid %u vs %u",hid,xreg->hid)
+        ycheck(0,loc,xreg->clas != clas,"class %u vs %u",clas,xreg->clas)
+        ycheck(0,loc,xreg->claspos != seq,"class %u vs %u",seq,xreg->claspos)
+        ref = Atomget(xreg->remref,Moacq);
+        ycheck(0,0,ref  == 0,"ref %u %zx",ref,(size_t)remp)
+        if (cels2rbin(hb,remp->bin,xreg,cnt,loc)) {
+          ydbg2(Fln,loc,"busy region %.01llu from %u gen %u ref %-2u cnt %-2u hid %u clas %u seq %u %zx",xreg->uid,hb->id,xreg->gen,ref,cnt,hid,clas,seq,(size_t)xreg)
+          continue;
+        }
+        ref = Atomsub(xreg->remref,1,Moacqrel);
+        hs->xfreebatch += cnt;
+        ydbg2(Fln,loc,"use  region %.01llu from %u gen %u ref %u cnt %u hid %u clas %u seq %u %zx",xreg->uid,hb->id,xreg->gen,ref,cnt,hid,clas,seq,(size_t)xreg)
+        remp->cnt = 0;
+        remp->reg = nil;
+        Seqmsk &= ~(1ul << seq);
+      } while (seqmsk); // each seq
+      rb->seq[clas] = Seqmsk;
+      clasmsk &= ~(1ul << clas);
+      if (Seqmsk == 0) Clasmsk &= ~(1ul << clas);
+    } while (clasmsk); // each clas
+    rb->clas[clasofs] = Clasmsk;
+    clasmsks |= Clasmsk;
+  } // each clasofs
+  hidmsk &= ~(1ul << hid);
+  if (clasmsks == 0) Hidmsk &= ~(1ul << hid);
+ } while (hidmsk); // each hid
+  hb->remask = Hidmsk;
+
+  return cellen;
+}
+
+// free from other thread. Returns cel len. Region not locked.
+static ub4 slab_free_rheap(heapdesc *hd,heap *hb,region *reg,size_t ip,ub4 tag,enum Loc loc)
+{
+  struct remote *rem,*remp;
+  struct rembuf *rb;
+  ub4 *binp;
+  ub4 pos;
+  ub4 cel,cellen,celcnt;
+  ub4 clasofs,clasbit;
+  ub4 hid,clas,seq;
+  ub4 ref;
+  bool rv;
+
+  ycheck(0,loc,hb == nil,"reg %u nil heap",reg->id)
+
+  cellen = reg->cellen;
+  celcnt = reg->celcnt;
+  hid = reg->hid;
+
+  cel = slab_cel(reg,ip,cellen,celcnt,loc);
+  if (unlikely(cel == Nocel)) return 0;
+
+  // mark
+  rv = markfree(reg,cel,cellen,3,Fln,tag);
   if (unlikely(rv != 0)) {
     ypush(hd,Fln)
     return 0;
   }
 
   // create a remote buffer if not present
-  if ( (rem = hd->rem) == nil) {
-    rem = hd->rem = newrem(hd,hb);
-    if (rem == nil) return 0;
+  if (unlikely(hid >= Remhid)) {
+    hb->stat.xfreedropped++;
+    return cellen;
   }
+  if ( (rb = hb->rembufs[hid]) == nil) {
+    rb = hb->rembufs[hid] = newrem(hb);
+    if (unlikely(rb == nil)) return 0;
+  }
+  rem = rb->rem;
 
-  frees = hd->stat.xfreebuf++;
+  hb->stat.xfreebuf++;
+  yhistats(hb->stat.xmaxbin,hb->stat.xfreebuf - hb->stat.xfreebatch)
 
-  // common case: direct add
-  uid = reg->uid;
-  bktmsk = rem->bktmsk;
-  bkt1msk = rem->bkt1msk;
+  // add to local buffer, unbuffer at next free with region lock
+  clas = reg->clas;
+  seq = reg->claspos; // indeed pos
+  ycheck(0,loc,clas == 0 || clas >= Clascnt,"reg %u class %u",reg->id,clas)
+  ycheck(0,loc,seq >= Clasregs,"reg %u class %u seq %u",reg->id,clas,seq)
 
-  yhistats(hd->stat.xmaxbin,(ub4)(hd->stat.xfreebin - hd->stat.xfreesum))
+  remp = rem + clas * Clasregs + seq;
+  if ( (binp = remp->bin) == nil) {
+    binp = remp->bin = getrbinmem(hb,celcnt);
+  }
+  pos = remp->cnt;
+  ycheck(0,loc,pos >= celcnt,"reg %u pos %u above %u",reg->id,pos,celcnt)
 
-  pos = rem->ovfpos;
+  ydbg2(Fln,loc,"clas %u seq %u reg %.01llu pos %u hid %u clas %u seq %u",clas,seq,reg->uid,pos,hid,clas,seq)
 
-  // expand ?
-  ovflen = rem->ovflen;
-  ycheck(Hi32,loc,pos > ovflen,"pos %u above %u",pos,ovflen)
-  if (unlikely(pos == ovflen)) {
-    if (pos == Ovfmax) {
-      hd->stat.remote_dropped++;
-      hd->stat.remote_dropbytes += reg->cellen;
-      error(loc,"heap %u overflow bin full for reg %.01llu",hd->id,reg->uid)
+  if (pos == 0) {
+    ycheck(0,loc,remp->reg != nil,"region %.01llu from %u has empty bin reg %.01llu %zx",reg->uid,hb->id,remp->reg->uid,(size_t)remp)
+    remp->reg = reg;
+    ref = Atomad(reg->remref,1,Moacqrel);
+    // ycheck(0,loc,ref != 0,"reg %.01llu from %u ref %u hid %u clas %u pos %u",reg->uid,hb->id,ref,hid,clas,seq)
+    ycheck(0,loc,ref >= Remhid,"reg %.01llu.%u ref %u",reg->uid,reg->id,ref)
+    ydbg2(Fln,loc,"add  region %.01llu from %u gen %u ref %-2u cnt 0  hid %u clas %u seq %u rem %zx reg %zx",reg->uid,hb->id,reg->gen,ref,hid,clas,seq,(size_t)remp,(size_t)reg)
+  } else {
+    if (remp->reg != reg) {
+      do_ylog(hd->id,loc,Fln,Error,0,"reg %.01llu.%u vs bin reg %.01llu.%u",reg->uid,reg->id,remp->reg->uid,remp->reg->id);
       return cellen;
     }
-    ovf = rem->ovfbin;
-    blen = ovflen * sizeof(struct overflow);
-    if (ovf == rem->ovfmem) {
-      novf = osmmap(blen * 2);
-      memcpy(novf,ovf,blen);
-      Atomad(global_mapadd,1,Monone);
-    } else  novf = osmremap(ovf,blen,blen * 2);
-    rem->ovfbin = novf;
-    rem->ovflen = ovflen * 2;
+    ycheck(0,loc,remp->reg != reg,"reg %.01llu.%u vs bin reg %.01llu.%u",reg->uid,reg->id,remp->reg->uid,remp->reg->id)
   }
+  binp[pos] = cel;
+  remp->cnt = pos + 1;
 
-  // first add to overflow
+  // add to masks
+  rb->seq[clas] |= (1ul << seq);
+  clasofs = clas / 64;
+  clasbit = clas & 63;
+  rb->clas[clasofs] |= (1ul << clasbit);
+  hb->remask |= (1ul << hid);
 
-  ovf = rem->ovfbin + pos;
-  ycheck(Hi32,Lnone,pos >= rem->ovflen,"pos %u above %u",pos,rem->ovflen)
-  ovf->reg = reg;
-  ovf->cel = cel;
-  rem->ovfpos = ++pos;
-
-  set = slab_chkused(reg,cel); // dbg
-  if (set != 2) error(loc,"reg %.01llu cel %-3u is not free %u",uid,cel,set);
-
-  yhistats(hd->stat.xmaxovf,pos)
-
-  if (sometimes(frees,0x0f) ) { // then process overflow in batches
-    xpos = 0;
-    xovf = rem->xovfbin;
-    if (pos <= Rembatch) lo = 0;
-    else lo = pos - Rembatch;
-    lo0 = lo;
-    ovf = rem->ovfbin + lo;
-    do {
-      oreg = ovf->reg;
-      if (oreg == nil) { ovf++; continue; }
-      ocel = ovf->cel;
-      ouid = oreg->uid;
-
-      set = slab_chkused(oreg,ocel); // dbg
-      if (set != 2) error(loc,"reg %.01llu.cel %-3u is not free %u",oreg->uid,ocel,set);
-
-      bkt = oreg->bucket;
-      msk = 1ul << bkt;
-      bkt1msk |= msk;
-      cnt = rem->remcnts[bkt];
-      remp = rem->remcels + bkt * Rembatch;
-      rreg = rem->remregs[bkt];
-      ruid = rem->remuids[bkt];
-
-      // empty: add
-      if (cnt == 0) {
-        rem->remregs[bkt] = oreg;
-        rem->remuids[bkt] = ouid;
-        remp[0] = ocel;
-        rem->remcnts[bkt] = 1;
-
-      // collide or full: postpone
-      } else if (ouid != ruid || cnt == Rembatch) {
-        ycheck(0,loc,rreg == nil,"nil reg at bkt %u",bkt)
-        if (cnt == Rembatch) bktmsk |= msk;
-        xovflen = rem->xovflen;
-        xovf = rem->xovfmem;
-        if (xpos >= xovflen) {
-          if (rem->xovfbin == rem->xovfmem) {
-            Atomad(global_mapadd,1,Monone);
-            xovf = osmmap(xovflen * 2);
-          } else  xovf = osmremap(rem->xovfbin,xovflen,xovflen * 2);
-          rem->xovfbin = xovf;
-          rem->xovflen = xovflen * 2;
-        }
-        xovf[xpos].reg = oreg;
-        xovf[xpos].cel = ocel;
-        xpos++;
-
-      // add
-      } else {
-        ycheck(0,loc,rreg == nil,"nil reg at bkt %u",bkt)
-        remp[cnt] = ocel;
-        rem->remcnts[bkt] = (ub2)(cnt + 1);
-        if (cnt == Rembatch - 1) bktmsk |= msk;
-      }
-      ovf++;
-    } while (++lo < pos);
-
-    if (xpos) { // leftovers
-      ovf = rem->ovfbin + lo0;
-      memcpy(ovf,xovf,xpos * sizeof(struct overflow));
-      lo0 += xpos;
-    }
-    ycheck(0,loc,lo0 > pos,"lo0 %u above pos %u",lo0,pos)
-    ystats2(hd->stat.xfreebin,pos - lo0);
-    yhistats(hd->stat.xmaxbin,(ub4)(hd->stat.xfreebin - hd->stat.xfreesum))
-    rem->ovfpos = lo0;
-
-    if (lo0 > 200 || sometimes(frees,0x3f)) msk = bkt1msk;
-    else msk =  bktmsk;
-    while (msk) {
-      bkt = ctzl(msk);
-      bmsk = (1ul << bkt);
-      msk &= ~bmsk;
-      cnt = rem->remcnts[bkt];
-      rreg = rem->remregs[bkt];
-      ycheck(0,loc,rreg == nil,"nil reg at bkt %u uid %.01llu",bkt,rem->remuids[bkt])
-      rcnt = add2rbin(hb,rem,rreg,bkt,cnt);
-      rem->remcnts[bkt] = (ub2)rcnt;
-      if (rcnt != Rembatch) bktmsk &= ~bmsk;
-      if (likely(rcnt == 0)) { // common: emptied
-        hd->stat.xslabfrees += cnt;
-        rem->remregs[bkt] = nil;
-        bkt1msk &= ~bmsk;
-      }
-    }
-  }
-  rem->bkt1msk = bkt1msk;
-  rem->bktmsk = bktmsk;
   return cellen;
 }
-
-#endif // Yal_inter_thread_free
 
 /* returns ptr or 0 if no space
    aligned_alloc selects a cel from the never allocated pool that may leave a gap
    This gap is moved to the bin
  */
-static Hot size_t slab_newalcel(region *reg,ub4 align,ub4 cellen Tagarg(tag) )
+static Hot size_t slab_newalcel(region *reg,ub4 ulen,ub4 align,ub4 cellen Tagargt(tag) )
 {
   size_t ip,base;
   ub4 c,cel,celcnt,ofs;
@@ -644,20 +703,27 @@ static Hot size_t slab_newalcel(region *reg,ub4 align,ub4 cellen Tagarg(tag) )
 
   celcnt = reg->celcnt;
   cel = inipos;
-  if (cel == celcnt) return 0; // common if no cels are never allocated. Searching in the bin is too expensive
-
-  ip = base + cel * cellen;
+  if (cel == celcnt) {
+    reg->fln = Fln;
+    return 0; // common if no cels are never allocated. Searching in the bin is too expensive
+  }
+  ip = base + (size_t)cel * cellen;
   ip = doalign8(ip,align);
   ofs = (ub4)(ip - base);
-  if (reg->celord) cel = ofs >> reg->celord;
-  else cel = ofs / cellen;
+  ycheck(0,Lallocal,reg->celord == 0,"region %u cellen %u,cellen",reg->id,cellen)
+  cel = ofs >> reg->celord;
 
-  if (cel >= celcnt) return 0;
-
+  if (cel >= celcnt) {
+    reg->fln = Fln;
+    return 0;
+  }
   ydbg3(Lallocal,"cel %u ini %u",cel,inipos);
   rv = slab_markused(reg,cel,0,Fln);
-  if (unlikely(rv != 0)) return Nocel;
-
+  reg->prvcel = cel;
+  if (unlikely(rv != 0)) {
+    reg->fln = Fln;
+    return 0;
+  }
   if (cel + 1 == celcnt) { ydbg3(Lallocal,"cel %u ini %u",cel,inipos) }
 
   reg->inipos = cel + 1;
@@ -667,6 +733,8 @@ static Hot size_t slab_newalcel(region *reg,ub4 align,ub4 cellen Tagarg(tag) )
     binp = meta + reg->binorg;
     for (c = inipos; c < cel; c++) {
       rv = slab_markused(reg,c,0,Fln);
+      if (unlikely(rv != 0)) return Nocel;
+      rv = markfree(reg,c,cellen,2,Fln,0);
       if (unlikely(rv != 0)) return Nocel;
       binp[binpos++] = c;
     }
@@ -686,86 +754,101 @@ static Hot size_t slab_newalcel(region *reg,ub4 align,ub4 cellen Tagarg(tag) )
   lenorg = reg->lenorg;
   if (cellen <= Hi16) {
     len2 = (ub2 *)(meta + lenorg);
-    len2[cel] = (ub2)cellen;
+    len2[cel] = (ub2)ulen;
   } else {
     len4 = meta + lenorg;
-    len4[cel] = cellen;
+    len4[cel] = ulen;
   }
 
   return ip;
 }
 
 // returns cel or Nocel if full
-static Hot ub4 slab_newcel(heap *hb,region *reg)
+static Hot ub4 slab_newcel(region *reg,enum Loc loc)
 {
   ub4 cel,celcnt;
-  ub4 pos;
+  ub4 pos,c;
+  ub4 allocs;
   ub4 *meta;
   ub4 *bin;
   bool rv;
   size_t binallocs = reg->stat.binallocs;
-  bool some;
+  ub4 from;
+  bool some,didcas;
 
   meta = reg->meta;
   celcnt = reg->celcnt;
 
   // remote bin
-#if Yal_inter_thread_free
 
   // If local bin, fresh or other regions heve cels, only check remote periodically
-  some = sometimes( /* reg->stat.iniallocs + */ binallocs,0x1f);
+  allocs = (ub4)(reg->stat.iniallocs + binallocs);
+  some = sometimes(allocs,0x1f);
   if (unlikely(some)) {
-    cel = slab_remalloc(hb,reg);
-    if (cel != Nocel) {
-      return cel;
+    from = 0; didcas = Cas(reg->lock,from,1);
+    if (didcas) {
+      vg_drd_wlock_acq(reg)
+      cel = slab_remalloc(reg);
+      Atomset(reg->lock,0,Morel);
+      vg_drd_wlock_rel(reg)
+      if (cel != Nocel) return cel;
     }
   }
-#endif
 
   pos = reg->binpos;
+  // ycheck(0,Lnone,pos != 0,"region %.01llu len %u cnt %u bin %u above ini %u %u %u",reg->uid,reg->cellen,celcnt,pos,reg->inipos,reg->bpchk1,reg->bpchk2)
   if (pos) { // from bin
-    ycheck(0,Lnone,pos > reg->inipos,"region %.01llu len %u cnt %u free %u",reg->uid,reg->cellen,reg->celcnt,pos)
+    ycheck(0,loc,pos > reg->inipos,"region %.01llu len %u cnt %u bin %u above %u",reg->uid,reg->cellen,celcnt,pos,reg->inipos)
 
     pos--;
 
     bin = meta + reg->binorg;
-    ycheck(0,Lfree,(size_t)(bin + pos) >= reg->metautop,"bin pos %u above meta %zu",pos,reg->metautop)
+    ycheck(0,loc,(size_t)(bin + pos) >= reg->metautop,"bin pos %u above meta %zu",pos,reg->metautop)
     cel = bin[pos];
 
+    if (cel == Nocel) {
+      for (c = 0; c <= pos; c++) {
+        cel = bin[c];
+        do_ylog(0,loc,Fln,Info,0,"bin %u cel %u",c,cel);
+      }
+      error(loc,"reg %.01llu bin %u",reg->uid,pos)
+    }
     reg->binpos = pos;
+    bin[pos] = Nocel;
 
-    ycheck(Nocel,Lalloc,cel >= celcnt,"region %.01llu cel %u >= cnt %u",reg->uid,cel,reg->celcnt)
+    ycheck(Nocel,loc,cel >= celcnt,"region %.01llu cel %u >= cnt %u",reg->uid,cel,reg->celcnt)
     reg->stat.binallocs = binallocs + 1;
 
     rv = slab_markused(reg,cel,2,Fln);
     if (likely(rv == 0)) return cel;
   } // bin
 
+  // from initial slab
   cel = reg->inipos;
   if (unlikely(cel == celcnt)) {
-    ydbg3(0,"reg %u ini %u == cnt seq %zu",reg->id,celcnt,reg->stat.iniallocs)
+    ydbg3(loc,"reg %u ini %u == cnt seq %zu",reg->id,celcnt,reg->stat.iniallocs)
+    reg->fln = Fln;
     return Nocel;
   }
 
-  // from initial slab
-
   rv = slab_markused(reg,cel,0,Fln);
   if (unlikely(rv != 0)) {
-    ydbg2(0,"region %u no mark",reg->id)
+    ydbg2(Fln,loc,"region %u no mark",reg->id)
+    reg->fln = Fln;
     return Nocel;
   }
 
   reg->inipos = cel + 1;
-
-  ystats(reg->stat.iniallocs);
+  reg->stat.iniallocs++;
 
   return cel;
 }
 
-static Hot void *slab_alloc(heap *hb,region *reg,ub4 ulen,enum Loc loc,ub4 tag)
+// generic for malloc,calloc,aligned_alloc
+static Hot void *slab_alloc(heapdesc *hd,region *reg,ub4 ulen,ub4 align,enum Loc loc,ub4 tag)
 {
-  ub4 cel,cellen = reg->cellen;
-  ub4 inipos = reg->inipos;
+  ub4 cel,cellen;
+  ub4 inipos;
   ub4 *meta;
   size_t lenorg;
   ub4 *len4;
@@ -773,27 +856,34 @@ static Hot void *slab_alloc(heap *hb,region *reg,ub4 ulen,enum Loc loc,ub4 tag)
   size_t ip;
   void *p;
 
-  ycheck(nil,Lnone,ulen == 0,"ulen %u tag %.01u",ulen,tag)
+  ypush(hd,Fln)
+
+  ycheck(nil,loc,reg == nil,"nil reg len %u tag %.01u",ulen,tag)
+  ypush(hd,Fln)
+  cellen = reg->cellen;
+  inipos = reg->inipos;
+  ycheck(nil,loc,ulen == 0,"len %u tag %.01u",ulen,tag)
+  ycheck(nil,loc,ulen > cellen,"len %u above %u",ulen,cellen)
+
+  ycheck(nil,loc,reg->aged != 0,"region %.01llu age %u",reg->uid,reg->aged)
+
+  ypush(hd,Fln)
 
   reg->age = 0;
-  if (unlikely(loc != Lalloc)) {
-    if (loc == Lcalloc) {
-      ycheck(nil,Lnone,ulen > cellen,"ulen %u above %u",ulen,cellen)
-      ystats(reg->stat.callocs)
-    } else if (loc == Lallocal) {
-
-      ystats(reg->stat.Allocs)
+  if (unlikely(loc == Lallocal && align > cellen )) {
+    ystats(reg->stat.Allocs)
 #if Yal_enable_stats >= 2
-      ub4 abit = ctz(ulen);
-      sat_inc(reg->stat.aligns + abit);
+    ub4 abit = ctz(ulen);
+    sat_inc(reg->stat.aligns + abit);
 #endif
-      ip = slab_newalcel(reg,ulen,cellen Tagarg(tag) );
-      return (void *)ip;
-    } else if (loc == Lreal) {
-    }
+    ypush(hd,Fln)
+    ip = slab_newalcel(reg,ulen,align,cellen Tagarg(tag) );
+    vg_mem_undef(ip,ulen)
+    return (void *)ip;
   } // malloc / calloc / aligned_alloc
 
-  cel = slab_newcel(hb,reg);
+  ypush(hd,Fln)
+  cel = slab_newcel(reg,loc);
   if (unlikely(cel == Nocel)) {
     ydbg3(loc,"no cel in region %u seq %zu",reg->id,reg->stat.iniallocs)
     return nil;
@@ -820,23 +910,100 @@ static Hot void *slab_alloc(heap *hb,region *reg,ub4 ulen,enum Loc loc,ub4 tag)
     }
   }
 
-  ip = reg->user + cel * cellen;
+  ip = reg->user + (size_t)cel * cellen;
   p = (void *)ip;
 
+  ypush(hd,Fln)
+
+#if 0 // no longer works with drd
+  vg_p = vg_mem_isaccess( (char *)p,ulen);
+  if (unlikely(vg_p == 0)) {
+    cchar *state = vg_mem_isdef( (char *)p,ulen) ? "defined" : "undefined";
+    error(loc,"vg: region %u %zx = malloc(%u) is %s ofs %zu` %x",reg->id,(size_t)p,ulen,state,vg_p - ip,*(char *)p)
+    return nil;
+  }
+#endif
+
+  if (likely(loc != Lcalloc)) {
+    vg_mem_undef(p,ulen)
+    return p;
+  }
+
+  // calloc
+  ystats(reg->stat.callocs)
+  ydbg2(Fln,loc,"calloc(%u) cel %u/%u ini %u seq %zu",ulen,cel,reg->celcnt,inipos,reg->stat.callocs)
+  vg_mem_def(p,ulen)
+  if (inipos != reg->inipos && reg->clr == 0) {
+
+#if Yal_enable_check > 1
+    char *cp = (char *)p;
+    for (ub4 i = 0; i < ulen; i++) {
+      if (cp[i]) {
+        do_ylog(0,0,Fln,Warn,0,"reg %.01llu gen %u cel %u ofs %u '%x' clr %u ini %u/%u",reg->uid,reg->gen,cel,i,cp[i],reg->clr,inipos,reg->inipos);
+        for (ub4 j = 0; j < min(ulen,256); j++) {
+          do_ylog(0,0,Fln,Info,0,"reg %.01llu gen %u cel %u ofs %u '%x' clr %u ini %u/%u",reg->uid,reg->gen,cel,i,cp[j],reg->clr,inipos,reg->inipos);
+        }
+         error(loc,"reg %.01llu gen %u cel %u ofs %u '%x' clr %u ini %u/%u",reg->uid,reg->gen,cel,i,cp[i],reg->clr,inipos,reg->inipos)
+       }
+    }
+#endif
+    return p; // is already 0
+  }
+  ydbg2(Fln,loc,"calloc clear seq %zu",reg->stat.callocs)
+
+  memset(p,0,ulen);
+  return p;
+}
+
+// simpler for malloc only
+static Hot void *slab_malloc(region *reg,ub4 ulen,ub4 tag)
+{
+  ub4 cel,cellen = reg->cellen;
+  ub4 *meta;
+  size_t lenorg;
+  ub4 *len4;
+  ub2 *len2;
+  size_t ip;
+  void *p;
+
+  ycheck(nil,Lalloc,ulen == 0,"ulen %u tag %.01u",ulen,tag)
   ycheck(nil,Lalloc,ulen > cellen,"ulen %u above %u",ulen,cellen)
-  if (vg_mem_isaccess(p,ulen)) {
-    error(Lalloc,"vg: region %u %zx = malloc(%u) was allocated earlier",reg->id,(size_t)p,ulen)
+
+  ycheck(nil,Lalloc,reg->aged != 0,"region %.01llu age %u",reg->uid,reg->aged)
+
+  reg->age = 0;
+
+  cel = slab_newcel(reg,Lalloc);
+  if (unlikely(cel == Nocel)) {
+    ydbg3(Lalloc,"no cel in region %u seq %zu",reg->id,reg->stat.iniallocs)
     return nil;
   }
 
+#if Yal_enable_tag
+  meta = reg->meta;
+
+  size_t tagorg = reg->tagorg;
+  ub4 *tags = meta + tagorg;
+
+  tags[cel] = tag;
+#endif
+
+  if (cellen > Cel_nolen) {
+    meta = reg->meta;
+    lenorg = reg->lenorg;
+    if (cellen <= Hi16) {
+      len2 = (ub2 *)(meta + lenorg);
+      len2[cel] = (ub2)cellen;
+    } else {
+      len4 = meta + lenorg;
+      len4[cel] = cellen;
+    }
+  }
+
+  ip = reg->user + (size_t)cel * cellen;
+  p = (void *)ip;
+
   vg_mem_undef(p,ulen)
-
-  if (likely(loc != Lcalloc)) return p;
-
-  vg_mem_def(p,ulen)
-  if (inipos != reg->inipos && reg->clr == 0) return p; // is already 0
-
-  memset(p,0,ulen);   // calloc()
   return p;
 }
 
@@ -868,10 +1035,11 @@ static Hot ub4 slab_frecel(heap *hb,region *reg,ub4 cel,ub4 cellen,ub4 celcnt,ub
   ub4 pos;
   ub4 *meta,*bin;
   bool rv;
+  celset_t set;
 
-  if (cel >= celcnt) return 0;
+  ycheck(0,Lfree,cel >= celcnt,"region %u cel %u above %u",reg->id,cel,celcnt)
 
-  rv = slab_markfree(reg,cel,cellen,Fln,tag);
+  rv = markfree(reg,cel,cellen,2,Fln,tag);
 
   if (unlikely(rv != 0)) {
     ydbg1(Fln,Lfree,"reg %.01llu cel %u",reg->uid,cel);
@@ -887,16 +1055,35 @@ static Hot ub4 slab_frecel(heap *hb,region *reg,ub4 cel,ub4 cellen,ub4 celcnt,ub
   ycheck(0,Lfree,(size_t)(bin + pos) >= reg->metautop,"bin pos %u above meta %zu",pos,reg->metautop)
   bin[pos] = cel;
 
-  reg->binpos = ++pos;
+  pos++;
+  reg->binpos = pos;
+
+  set = slab_chkfree(reg,cel);
+  ycheck(0, Lfree,set != 2,"region %.01llu gen %u.%u.%u cel %u set %u",reg->uid,reg->gen,hb->id,reg->id,cel,set)
+  reg->prvcel = cel;
 
   ystats(reg->stat.frees);
-  if (pos == reg->inipos) reg->age = 1; // becomes empty
-  return pos ;
+  if (pos == reg->inipos) {
+    reg->age = 1; // becomes empty
+    ydbg2(Fln,Lnone,"empty region %.01llu gen %u.%u.%u cellen %u",reg->uid,reg->gen,hb->id,reg->id,cellen);
+  }
+
+#if 0
+  if (pos == 1) return pos;
+
+  for (c = 0; c < pos; c++) {
+    cel = bin[c];
+    set = slab_chkfree(reg,cel);
+    ycheck(0, Lfree,set != 2,"reg %u cel %u set %u",reg->id,cel,set)
+  }
+#endif
+
+  return pos;
 }
 
 // check and add to bin. local only
 // returns bin size, thus zero on error
-static Hot ub4 slab_free(heap *hb,region *reg,size_t ip,ub4 reqlen,ub4 cellen,ub4 celcnt,ub4 tag)
+static Hot ub4 slab_free(heap *hb,region *reg,size_t ip,ub4 cellen,ub4 celcnt,ub4 tag)
 {
   ub4 cel,bincnt;
 
@@ -907,9 +1094,6 @@ static Hot ub4 slab_free(heap *hb,region *reg,size_t ip,ub4 reqlen,ub4 cellen,ub
     hb->stat.invalid_frees++; // error
     return 0;
   }
-  if (unlikely(reqlen != 0)) {
-    if (reqlen > cellen) return error(Lfree,"free_sized(%zx,%u) has len %u",ip,reqlen,cellen);
-  }
   bincnt = slab_frecel(hb,reg,cel,cellen,celcnt,tag);
 
   return bincnt;
@@ -918,22 +1102,6 @@ static Hot ub4 slab_free(heap *hb,region *reg,size_t ip,ub4 reqlen,ub4 cellen,ub
 static void slab_reset(region *reg)
 {
   ycheck0(Lnone,reg->uid == 0,"region %.01llu",reg->uid);
-}
-
-// return remote bin size
-static ub4 slab_rbincnt(region *reg)
-{
-  ub4 rid = reg->id;
-  ub4 cnt;
-  ub4 pos = reg->binpos;
-  ub4 rpos = reg->rbinpos;
-
-  ycheck(0,Lnone,pos > reg->inipos,"region %u len %u cnt %u free %u/%u",rid,reg->cellen,reg->celcnt,reg->inipos,pos)
-  ycheck(0,Lnone,reg->metalen == 0,"region %u len %u cnt %u no meta",rid,reg->cellen,reg->celcnt)
-
-  cnt = pos + rpos;
-  ycheck(0,Lnone,cnt > reg->inipos,"region %u len %u bin %u+%u free %u",rid,reg->cellen,pos,rpos,reg->inipos)
-  return rpos;
 }
 
 #undef Logfile

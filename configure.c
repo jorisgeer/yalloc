@@ -133,7 +133,7 @@ static ub4 write_cfg(char *buf,ub4 pos,ub4 len)
   pos += snprintf_mini(buf,pos,len," Contention %u \\n\\\n",Contention);
   pos += snprintf_mini(buf,pos,len," prep_TLS %u \\n\\\n",Yal_prep_TLS);
   pos += snprintf_mini(buf,pos,len," Bootmem %u \\n\\\n",Bootmem);
-  pos += snprintf_mini(buf,pos,len," Basealign2 %u \\n\\\n",Basealign2);
+  pos += snprintf_mini(buf,pos,len," Basealign %u \\n\\\n",Basealign);
   pos += snprintf_mini(buf,pos,len," Stdalign %u \\n\\\n",Stdalign);
   pos += snprintf_mini(buf,pos,len," log_level %u \\n\\\n",Yal_log_level);
   pos += snprintf_mini(buf,pos,len," enable_extensions %u \\n\\\n\\n",Yal_enable_extensions);
@@ -179,7 +179,7 @@ static ub4 genconfig(cchar *name,ub4 pagebits,char *nowtim)
   ub4 llongsiz = (ub4)sizeof(long long);
   ub4 ptrsiz = (ub4)sizeof(void *);
 
-  info(L,"int %u long %u llong %u ptr %u",intsiz,longsiz,llongsiz,ptrsiz);
+  info(L,"  int %u long %u llong %u ptr %u",intsiz,longsiz,llongsiz,ptrsiz);
 
   pos = snprintf_mini(bck,0,len,"%s.bak",name);
   if (pos) rename(name,bck);
@@ -199,11 +199,14 @@ static ub4 genconfig(cchar *name,ub4 pagebits,char *nowtim)
     vmsize = 1ul << min(vmbits,63); // -V547
   } else return error(L,"unsupported platform, sizeof(void *) %zu",sizeof(void *));
 
-  if (pagebits) pagesize = 1u << pagebits; //user override
-  else { // get from system
+  if (pagebits) {
+    pagesize = 1u << pagebits; // user override
+    info(L,"  pagesize %u (overridden",pagesize);
+  } else { // get from system
     pagesize = ospagesize();
     if (pagesize) {
       pagebits = ctz(pagesize);
+      info(L,"  pagesize %u (from os)",pagesize);
     } else {
       pagebits = Sys_page;
       pagesize = 1u << Sys_page;
@@ -223,15 +226,18 @@ static ub4 genconfig(cchar *name,ub4 pagebits,char *nowtim)
     else dirone++;
   }
 
+  info(0,"  pagesize %u VMsize %u bits",pagesize,vmbits);
   pos = header(buf,len,name,"generated config",nowtim);
   if (pos == 0) return 0;
 
   pos +=  snprintf_mini(buf,pos,len,"#define Sys_page %u // %u`\n\n",pagebits,pagesize);
   pos +=  snprintf_mini(buf,pos,len,"#define Vmbits %u\n",vmbits);
-  pos +=  snprintf_mini(buf,pos,len,"#define Vmsize 0x%zx // %zu`\n",vmsize,vmsize);
+  pos +=  snprintf_mini(buf,pos,len,"#define Vmsize 0x%zxul // %zu`\n\n",vmsize,vmsize);
 
-  for (dirone = 0; dirone < 3; dirone++) pos +=  snprintf_mini(buf,pos,len,"#define Dir%u %u\n\n",dirone + 1,dir[dirone]);
-
+  for (dirone = 0; dirone < 3; dirone++) {
+    dirbits = dir[dirone];
+    pos +=  snprintf_mini(buf,pos,len,"#define Dir%u %u // %u`\n",dirone + 1,dirbits,1u << dirbits);
+  }
   pos +=  snprintf_mini(buf,pos,len,"typedef unsigned %s Ub8;\n\n",byte8);
 
   pos +=  snprintf_mini(buf,pos,len,"#define Size_max %s\n\n",sizet);
@@ -249,8 +255,8 @@ static ub4 genconfig(cchar *name,ub4 pagebits,char *nowtim)
   oswrite(fd,buf,pos,L);
   osclose(fd);
 
-  info(L,"created %s(%u) based on config.h %s",name,pos,nowtim);
-  info(L,"configured for a %u-bit system",ptrsiz * 8);
+  info(L,"  created %s(%u) based on config.h %s",name,pos,nowtim);
+  info(L,"  configured for a %u-bit system",ptrsiz * 8);
   return pos;
 }
 
@@ -275,12 +281,13 @@ int main(int argc,char *argv[])
       if (strcmp(arg + 1,"-help") == 0) return usage();
     }
   }
+  info(0,"  generating config for yalloc %s",yal_version);
   now = time(NULL);
   nowtm = gmtime(&now);
   strftime(timebuf,256,"%a %e %b %R UTC",nowtm);
 
 #ifdef Page_override
-  pagebits = Sys_page; // falllback
+  pagebits = Sys_page; // fallback
   if (Page_override >= 32) error(L,"Page_override (%u) is a power of two",Page_override);
   if (Page_override < 8) pagebits = Sys_page;
   else pagebits = Page_override;

@@ -5,25 +5,26 @@
 You can use it as a drop-in replacement for the system's malloc(), free() and related library functions. The behaviour is fully compatible with C11.
 
 Many memory allocators prioritize performance over safety aka security. Some others prioritize the other way around.
-Essential safety, such as detecting double and invalid frees, and safeguarding internal control structures from overwrinting, comes with unavoidable implementation cost. +
+Essential safety, such as detecting double and invalid frees, and safeguarding internal control structures from overwriting, comes with unavoidable implementation cost. +
  +
- 
+
 yalloc's main goal is to provide such safety with low enough cost to make the added value affordable in terms of efficiency.
-Secondary goal is to keep implementation size, complexity and dependencies low.
+Secondary goal is to keep implementation size, complexity and dependencies low. +
+ +
 
 The main features of this allocator are :
 
-segregated metadata / no headers:: Metadata is kept separate from user data. This reduces the risk of metadata corruption and results in a more cache / TLB friendly layout
+segregated metadata / no headers:: Metadata is kept separate from user data. This reduces the risk of metadata corruption and results in a more cache / TLB friendly layout.
 
 double free and invalid free detection:: With configurable handling and reporting. Includes concurrent access from multiple threads.
 
-multithreading supported by nonblocking atomics::  creating heaps on-demand to avoid contention
+multithreading supported by nonblocking atomics::  creating heaps on-demand to avoid contention.
 
-configurable statistics, tracing and diagnostics:: todo
+configurable statistics, tracing and diagnostics:: low-overhead detailed stats.
 
-modest code size & complexity:: 10 KLOC including statistics, tests and dependencies
+modest code size & complexity:: 8 KLOC including tests and dependencies.
 
-good performance:: compares well in many link:https://github.com/daanx/mimalloc-bench[benchmarks]
+good performance:: compares well in many link:https://github.com/daanx/mimalloc-bench[benchmarks].
 
 == Status
 Early alpha, no outstanding issues. +
@@ -34,13 +35,13 @@ Some synthetic tests show high memory usage
 == Prerequisites
 - 64 or 32 bit Unix-like operating system with mmap() support. Linux and MacOs tested.
 
-- C11 C compiler or C99 compiler with atomics support. If atomics are not available, free(p) and realloc(p,n) need to be called from the same thread p was allocated.
+- C11 C compiler or C99 compiler with atomics support. If atomics are not available, free(p) and realloc(p,n) need to be called from the same thread malloc() was called.
 
 yalloc has minimal OS dependencies and, as expected, quite minimal standard library dependencies.
 For diagnostics and statistics formatting, a miniature self-contained printf is included.
 
 == Building
-Review `config.h`. +
+Review `config.h` and `build.sh`. +
 
 The preferred way to build is :
 
@@ -50,17 +51,18 @@ If building otherwise, make sure first to run once :
 
   ./configure
 
-Essentially, you need to compile the main yalloc.c module with the helper modules os.c and printf.c. e.g.
+Essentially, you need to compile and run configure, then compile yalloc.c :
 
-  cc -c os.c printf.c configure.c
-  cc -o configure os.o printf.o configure.o && ./configure
-  cc -c yalloc.c os.c printf.c
-  cc -shared -o yalloc.so yalloc.o os.o printf.o
+  cc -c os.c printf.c
+  cc -o configure configure.c *.o
+  ./configure
+  cc -c yalloc.c
+  cc -shared -o yalloc.so *.o
 
 == Using
 
 === static linking, any platform
-  cc -o myprog [ your projct ] yalloc/{yalloc,os,printf}.o
+  cc -o myprog [ your project ] yalloc/{yalloc,os,printf}.o
 
 === dynamic linking, Linux
 
@@ -69,43 +71,50 @@ Essentially, you need to compile the main yalloc.c module with the helper module
   gdb -iex "set exec-wrapper env LD_PRELOAD=./yalloc.so" --args python -c 'print(1+1)'
 
 === idem, macos
-  DYLD_INSERT_LIBRARIES=yalloc.so 
+  DYLD_INSERT_LIBRARIES=yalloc.so
 
 === included in source
 Alternatively, you can include yalloc.c directly in your source, provided static identifiers will not conflict.
 
 == Diagnostics / troubleshooting
+yalloc has various provisions to help troubleshoot issues at your app's side as well as on yalloc's side
 
-=== Statistics
+=== statistics
 You can enable support with compile time variable `Yal_enable_stats`. This will add minimal overhead.
-Set environment variable `Yalloc_stats` to print statistics at program exit.
+Set environment variable `Yalloc_stats` to a value as per `config.h` to print statistics at program exit.
 
-=== Tracing
+=== tracing
 You can enable support with compile time variable `Yal_enable_trace`. This will add minimal overhead.
-Set environment variable `Yalloc_trace` to enable at runtime.
+Set environment variable `Yalloc_trace` to enable at runtime, or call `yal_options()` from your app.
 
-=== Callsite reporting
-You can have file coordinates included in a trace by replacing malloc(len) with yal_alloc(len,tag) and enabling `Yal_enable_tag`
-This tag can contain encoded file coordinates or symbolic callsite label as enum
+=== callsite reporting
+You can have file coordinates included in a trace by replacing `malloc(len)` with `yal_alloc(len,tag)`
+This tag can contain encoded file coordinates or a symbolic callsite label.
+If you also enable `Yal_enable_tag`, this callsite info is retained and shown at invalid free diagnostics.
 
-- Enable Valgrind support and run `./vg myprog`
+=== valgrind
+link:http://valgrind.org[Valgrind] is a dynamic analyzer. Its _client request_ mechanism is used to mark allocated and freed memory as well as protect metadata.
+Thus, when running your app linked with yalloc under valgrind *without* replacing malloc, illegal access on both sides of the API is detected.
 
-- Build and run tests
+Enable Valgrind support in `config.h` and run `./vg_mc.sh myprog`
+
+=== test
+A basic test utility is included. This is work in progress.
 
 == Usage patterns
-Usage pattens can vary considerably. Some pattens align better with yalloc than others.
+Usage patterns can vary considerably. Some pattens align better with yalloc than others.
 
-- short-lived blocks, e.g. allocating and freeing a small number of blocks within a loop. Favourable
+- short-lived blocks, e.g. allocating and freeing a small number of blocks within a loop. Favourable.
 
-- many similar-sized blocks, e.g. building a large graph. Favourable
+- many similar-sized blocks, e.g. building a large graph. Favourable.
 
-- allocating a high number of same-sized small blocks, then use them many times. Very favourable
+- allocating a high number of same-sized small blocks, then use them many times. Very favourable.
 
-- free and realloc from another thread than the block was allocated. Less favourable due to double directory lookup
+- free and realloc from another thread than the block was allocated. Less favourable due to double directory lookup.
 
 - allocating blocks from a large size distribution. Popular sizes go in fixed-size bins, others into a bump allocator. Moderately favourable (more memory overhead)
 
-- creating a large number of threads, each allocating some blocks. With low contention, only a small number of heaps will be created. Higer meory usage.
+- creating a large number of threads, each allocating some blocks. With low contention, only a small number of heaps will be created.
 
 == Development tools
 
@@ -113,37 +122,41 @@ yalloc development is helped by using the following tools:
 
 link:https://valgrind.org[valgrind] - dynamic analyzer
 
-link:https://pvs-studio.com/en/pvs-studio/?utm_source=website&utm_medium=github&utm_campaign=open_source[PVS-Studio] - static analyzer for C, C++, C#, and Java code
+link:https://pvs-studio.com/en/pvs-studio[PVS-Studio] - static analyzer for C, C++, C#, and Java code
+
+link:https://scan.coverity.com/projects/jorisgeer-yalloc[Coverity]  - static analysis
 
 == Design
 
 A _heap_ is the toplevel structure to hold all user data and admin aka metadata.
-Memory ranges are obtained from the OS as large _regions_. Each region has separately mmap()ed user data and metadata.
-User blocks above a given size are mmap()ed directly, described by a virtual region. Initial regions are of a given size, subsequent regions of the same size class will be successively larger.
+Memory ranges are obtained from the OS as large _regions_. Each region has separate user data and metadata blocks.
+User blocks above a given size are obtained directly directly, described by a virtual region. Other blocks are arranged from fixed-sized pools named _regions_.
+Initial regions are of a given size, subsequent regions of the same size class will be successively larger.
 
-Regions are described by a region descriptor table, similar to how multi-level page tables describe virtual memory. A single top-level directory holds entries to mid-level tables.
+Regions are described by a directory, similar to how multi-level page tables describe virtual memory. A single top-level directory holds entries to mid-level tables.
 These in turn hold entries to leaf tables. The latter holds a region pointer per OS memory page.
-free() and realloc() uses these to locate an entry, given the minimum region size. Valid pointers are guaranteed by leading to a region and being at a valid cell start.
+free() and realloc() uses these to locate a block. Pointers are validated by leading to a region and being at a valid cell start.
 
-Within a region, user data is kept separate from admin aka metadata. This protects metadata from being overwriitten
-The user data is a single block, consisting of fixed-size cells. The metadata contains entries per cell.
+Within a region, user data is kept separate from admin aka metadata. This protects metadata from being overwriitten and aligns user blocks favourably.
+The user data is a single block, consisting of fixed-size cells. The metadata contain an entries per cell.
 User blocks have no header or trailer. Consecutively allocated blocks are adjacent without a gap. This helps cache and TLB efficiency.
-Once a region becomes fully free, it is 'aged' gradually and eventually returned to the os. During this period, it can be reused for similar ort other size classes.
+Once a region becomes fully free, it is _aged_ gradually and eventually released to the OS. During this period, it can be reused for similar or other size classes.
 
 Blocks are aligned following _weak alignment_ as in link:https://www.open-std.org/JTC1/SC22/WG14/www/docs/n2293.htm[C11 WG14 / N2293]
-Thus, small blocks follow the alignment of the largest type that fits in. 2=2 3=4 4=4 5=8 ...
+Thus, small blocks follow the alignment of the largest type that fits in. 2=2 3=4 4=4 5=8 ... unless configured otherwise.
 
 Freed blocks are held in a recycling bin aka freelist.. A subsequent malloc() of similar size hands these out most recently freed first.
-In additon, each cell has a 'free' marker used to detect double free.
+In additon, each cell has a marker used to detect double free or invalid free.
 
 Multiple threads are supported by having each thread use a private heap during the call, from a pool of several heaps.
 The number of heaps is determined by detecting contention and grows on demand.
 Allocations are always local in a thread's own heap.
-If free / realloc cannot locate a block [in the local heap], a global region descriptor tabel is consulted. This table holds an aggregate region directory and is updated atomically.
-Each region contains a local and remote freelist. A free or realloc from the same thread is taken from the local freelist without atomics (except double-free detect) or locking.
+Synchronization is done by opportunistic _trylocks_ using atomic compare-swap instructions.
+If free / realloc cannot locate a block [in the local heap], a global directory is consulted. This directory holds an aggregate region directory and is updated atomically.
+Each region contains a local and remote freelist, the latter allocated on demand. A free or realloc from the same thread is taken from the local freelist without atomics (except double-free detect) or locking.
 Free or realloc from a different thread is handled by adding it to the owner region's remote freelist.
-This is handled by a set of atomic compare-swap and a tiny, nonblocking interlock. A subsequent alloc request will inspect the local freelist first.
-If empty, the remote freelist is checked and a nonblocking opportunistic lock is used to remove the entry.
+A subsequent alloc request will inspect the local freelist first. Periodically, the remote freelist is checked and a nonblocking opportunistic lock is used to remove the entry.
+
 For realloc(), the size can be obtained first. If a change is needed, a new block is allocated from the local heap, and the free of the original block is handled
 as with a free().
 

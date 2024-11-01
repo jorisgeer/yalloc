@@ -4,26 +4,20 @@
 
    SPDX-FileCopyrightText: © 2024 Joris van der Geer
    SPDX-License-Identifier: GPL-3.0-or-later
+
+   A heap is the base structure that holds all admin. They are created on demand and never freed as such.
 */
 
 #define Logfile Fheap
-
-static xregion dummyreg;
 
 static void slab_reset(region *reg);
 
 static void heap_init(heap *hb)
 {
-  static_assert(Basealign2 >1,"Basealign2 > 1");
-  static_assert(Basealign2 < 14,"Basealign2 < 14");
   static_assert(Clascnt < 65536,"Clascnt < 64K");
-  static_assert(Mmap_max_threshold < 32,"mmap threshold < 32");
-
   static_assert(Page + Dir1 + Dir2 + Dir3 == Vmbits,"VM size not covered by dir");
 
   hb->stat.id = hb->id;
-
-  hb->mrufrereg = &dummyreg;
 }
 
 static void heap_reset(heap *hb)
@@ -35,7 +29,6 @@ static void heap_reset(heap *hb)
     if (reg->typ == Rslab) slab_reset(reg);
     reg = reg->nxt;
   }
-  hb->mrufrereg = &dummyreg;
 }
 
 static _Atomic unsigned int heap_gid;
@@ -62,23 +55,24 @@ static heap *newheap(heapdesc *hd,enum Loc loc,ub4 fln)
   ub4 llen = Dirmem_init * Dir3len;
 
   static_assert( (Stdalign & Stdalign1) == 0,"Stdalign must be a power of 2");
-  static_assert(Basealign2 >1,"Basealign2 > 1");
-  static_assert(Basealign2 < 14,"Basealign2 < 14");
+  static_assert(Basealign > 0,"Basealign > 0");
+  static_assert(Basealign < Pagesize,"Basealign < Pagesize");
   static_assert(Mmap_max_threshold < 31,"Mmap_max_threshold < 31");
+  static_assert(Mmap_threshold <= Mmap_max_threshold,"Mmap_threshold < max");
 
   len = hlen + rlen + rxlen;
   len += (dlen + llen) * sizeof(void *);
   len = doalign4(len,16u);
 
   if (id < 3) { // first heaps
-    ydbg1(fln,Lnone,"page %u clas %u ",Page,Clascnt)
-    ydbg1(Fln,Lnone,"sizes: region %u clasregs %u rootdir %u",rsiz,(ub4)sizeof(hb->clasregs),(ub4)sizeof(hb->rootdir))
+    ydbg1(fln,loc,"page %u clas %u zero %zx",Page,Clascnt,(size_t)zeroblock)
+    ydbg1(Fln,loc,"sizes: region %u clasregs %u rootdir %u",rsiz,(ub4)sizeof(hb->clasregs),(ub4)sizeof(hb->rootdir))
   }
-  ydbg2(0,Lnone,fln,Info,0,"new heap %u for %u base %u regs %u+%u dir %up + %up = %u` tag %.01u",hid,id,hlen,rlen,rxlen,dlen,llen,len,fln);
+  ydbg2(fln,loc,"new heap %u for %u base %u regs %u+%u dir %up + %up = %u` tag %.01u",hid,id,hlen,rlen,rxlen,dlen,llen,len,fln);
 
   if (hid > tidcnt) {
     errorctx(Fln,Lnone,"base %u",id);
-    do_ylog(Diagcode,Lnone,fln,Warn,1,"heap %u above tidcnt %u",hid,tidcnt);
+    do_ylog(Diagcode,loc,fln,Warn,1,"heap %u above tidcnt %u",hid,tidcnt);
   }
   vbase = osmmap(len);
   if (vbase == nil) return nil;
@@ -86,10 +80,10 @@ static heap *newheap(heapdesc *hd,enum Loc loc,ub4 fln)
   hb = (heap *)base;
 
   base += hlen;
-  ycheck(nil,Lnone,(base & 15),"regmem align %zx hlen %x",base,hlen)
+  ycheck(nil,loc,(base & 15),"regmem align %zx hlen %x",base,hlen)
   hb->regmem = (region *)base;
   base += rlen;
-  ycheck(nil,Lnone,(base & 15),"xregmem align %zx hlen %x",base,hlen)
+  ycheck(nil,loc,(base & 15),"xregmem align %zx hlen %x",base,hlen)
   hb->xregmem = (mpregion *)base;
   base += rxlen;
 
@@ -99,16 +93,17 @@ static heap *newheap(heapdesc *hd,enum Loc loc,ub4 fln)
   hb->leafdirmem = (xregion **)base;
   hb->ldirmem_top = llen;
   base += llen * sizeof(void *);
-  ycheck(nil,Lnone,base - (size_t)vbase > len,"len %zu above %u",base - (size_t)vbase,len)
+  ycheck(nil,loc,base - (size_t)vbase > len,"len %zu above %u",base - (size_t)vbase,len)
 
   hb->id = hid;
 
   heap_init(hb);
   hb->stat.mmaps = 1;
 
-  zero = 0;
-  didcas = Cas(hb->lock,zero,1); // Atomset(hb->lock,1,Morel); // give it locked
-  ycheck(nil,Lnone,didcas == 0,"new heap %u from %u",hid,zero)
+  vg_drd_rwlock_init(hb)
+  zero = 0; didcas = Cas(hb->lock,zero,1); // Atomset(hb->lock,1,Morel); // give it locked
+  ycheck(nil,loc,didcas == 0,"new heap %u from %u",hid,zero)
+  vg_drd_wlock_acq(hb)
 
   iter = iters;
 
@@ -145,11 +140,17 @@ static heap *heap_new(heapdesc *hd,enum Loc loc,ub4 fln)
       didcas = Cas(hb->lock,zero,1);
     }
     if (didcas) {
+      vg_drd_wlock_acq(hb)
+      Atomset(hb->locfln,Fln,Morel);
       heap_reset(hb);
       hd->stat.useheaps++;
-      ydbg2(Lnone,"use next heap %u for %u",hb->id,hd->id);
+      ydbg2(fln,Lnone,"use next heap %u for %u",hb->id,hd->id);
       return hb;
     }
+#if Yal_dbg_level > 1
+    do_ylog(Diagcode,loc,fln,Debug,0,"no next heap %u for %u",hb->id,hd->id);
+    do_ylog(Diagcode,loc,Atomget(hb->locfln,Moacq),Debug,0,"no next heap %u for %u",hb->id,hd->id);
+#endif
     hd->stat.nogetheap0s++;
     hb = hb->nxt;
   }
@@ -168,11 +169,15 @@ static void *getrbinmem(heap *hb,ub4 len)
   ub4 end = hb->rbmemlen;
   ub4 inc,meminc = max(Rmeminc,Pagesize);
 
+  len = doalign4(len,8);
+
   if (pos + len > end) { // won't fit
     pos = 0;
     inc = max(meminc,len);
     inc = doalign4(inc,meminc);
     mem = hb->rbinmem = osmmap(inc * 4);
+    hb->stat.rbinallocs++;
+    hb->rbmemlen = inc;
   }
   hb->rbmempos = pos + len;
   return mem + pos;
@@ -185,24 +190,22 @@ static void putrbinmem(heap *hb,ub4 len)
    hb->rbmempos -= min(pos,len);
 }
 
-static struct remote *newrem(heapdesc *hd,heap *hb)
+static struct rembuf *newrem(heap *hb)
 {
   struct remote *rem;
-  ub4 len = sizeof(struct remote);
+  struct rembuf *rb;
+  ub4 len = Clascnt * Clasregs * sizeof(struct remote);
+  ub4 blen = sizeof(struct rembuf);
 
-  if (hb) rem = getrbinmem(hb,(len + 4) / 4);
-  else rem = bootalloc(Fln,hd->id,Lrfree,len);
+  rem = getrbinmem(hb,(len + 4) / 4);
+  rb = getrbinmem(hb,(blen + 4) / 4);
 
-  if (rem == nil) return rem;
-
-  rem->ovfbin = rem->ovfmem;
-  rem->xovfbin = rem->xovfmem;
-  rem->ovflen = Ovflen;
-  rem->xovflen = Ovfxlen;
-  return rem;
+  if (rem == nil || rb == nil) return nil;
+  rb->rem = rem;
+  return rb;
 }
 
-#if Yal_prep_TLS
+#if Yal_prep_TLS // assumes attributes are supported, not checked
 static void __attribute__((constructor)) __attribute__((used))  yal_before_TLS(void)
 {
   yal_tls_inited = 0;

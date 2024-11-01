@@ -6,12 +6,13 @@
    SPDX-License-Identifier: GPL-3.0-or-later
   */
 
-#ifdef Backtrace // glibc-linux or macos
+#ifdef Backtrace // glibc-linux or macos 10.5+, see build.sh
+
  #ifndef _POSIX_C_SOURCE
   #define _POSIX_C_SOURCE 200809L
-  #include <execinfo.h>
-  #undef _POSIX_C_SOURCE
  #endif
+
+  #include <execinfo.h>
 
  static void showtrace(void)
  {
@@ -27,16 +28,20 @@
 static void callstack(heapdesc *hd)
 {
 #if Yal_enable_stack
-  ub4 i;
-  ub4 pos = hd->flnpos;
-  ub4 fln,*stack = hd->flnstack;
+  ub4 pos,cur;
+  ub4 fln,*stack;
 
-  for (i = 0; i <= pos; i++) {
-    fln = stack[i];
-    if (fln || i == 0) minidiag(fln,Lnone,Info,hd->id,"pos %u/%u",i,pos);
+  if (hd == nil) { minidiag(0,Lnone,Info,0,"no callstack"); return; }
+
+  cur = hd->flnpos;
+  stack = hd->flnstack;
+
+  for (pos = 0; pos < 16; pos++) {
+    fln = stack[pos];
+    if (fln) minidiag(fln,Lnone,Info,hd->id,"%u%s",pos,pos == cur ? " <--" : "");
   }
 #else
-  minidiag(0,Lnone,Info,hd->id,"no callstack");
+  minidiag(0,Lnone,Info,hd ? hd->id : 0,"no callstack");
 #endif
 }
 
@@ -54,6 +59,7 @@ static Noret void mysigact(int sig,siginfo_t *si,void *pp)
   heapdesc *hd = thread_heap;
   ub4 fln = Fdbg << 16;
   ub4 id = hd ? hd->id : 0;
+  unsigned long pid = Atomget(global_pid,Monone);
   char buf[256];
 
   switch(sig) {
@@ -73,7 +79,7 @@ static Noret void mysigact(int sig,siginfo_t *si,void *pp)
     minidiag(fln|__LINE__,Lsig,Fatal,id,"yalloc: signal %d\n",sig);
   }
   ip = (size_t)adr;
-  minidiag(fln|__LINE__,Lsig,Fatal,id,"yalloc[%lu]: sig%s at adr %zx",ospid(),name,ip);
+  minidiag(fln|__LINE__,Lsig,Fatal,id,"yalloc[%lu]: sig%s at adr %zx",pid,name,ip);
   if (adr) {
     memset(buf,0,256);
     region_near(ip,buf,255);

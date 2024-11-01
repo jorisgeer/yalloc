@@ -48,14 +48,14 @@
   #define Yal_trigger_stats 0x11223344 // compatible hack - make calloc(0,trigger) invoke Yal_stats()
   #define Yal_trigger_stats_threads 0x11223345
 
-
-  /* control tracing
-   1 - enable
-   2 - use yal-diag.cfg for suppressions
-  */
   #define Yal_enable_trace 1 // incurs minor overhead, unless enabled at run time
   #define Yal_trace_default 0
 
+  /* control tracing
+   1 - basic - one line per call
+   2 - extended
+   4 - use yal-diag.cfg for suppressions
+  */
   #define Yal_trace_envvar "Yalloc_trace"
 
   #define Yal_trace_ctl "yal_diag.cfg"
@@ -66,8 +66,8 @@
   // Enables various internal checks aka assertions. Adds minor overhead. Advised to enable for alpha and beta versions.
   #define Yal_enable_check 1
 
-  // enable semi stack trace
-  #define Yal_enable_stack 0
+  // enable semi stack trace. Adds minor overhead
+  #define Yal_enable_stack 1
 
   #define Yal_log_level 7 // 1 assert 2 error 3 warn 4 info 5 trace 6 vrb 7 dbg
 
@@ -94,21 +94,25 @@
 #define Mmap_max_threshold 22u
 
 #define Xclas_threshold 4
-#define Clas_threshold 256 // popularity measure
+#define Clas_threshold 128 // popularity measure
 
 // --- memory usage ---
 
 // How many free() calls between a region age step. Must be pwr2 - 1
-static const unsigned int regfree_interval = 0x7f;
+static const unsigned int regfree_interval = 0xff;
 
-#define Trim_scan 64 // number of regions to scan at a time
+#define Trim_scan 64 // number of regions to scan at a time. 0 to disable
 
-// aging thresholds
+// ageing thresholds
 static unsigned int Trim_ages[3] = {
   2, // recycle
   6, // remove from dir
   12}; // release mem
 static unsigned int Trim_Ages[3] = {3,6,9}; // idem, larger blocks
+
+static const unsigned int Region_interval = 0xff; // pwr2 - 1
+static const unsigned int Region_alloc = 32; // allow #alloc releases per interval
+static const unsigned long Mmap_retainlimit = 1ul << 30; // directly release memory
 
 // --- slab ---
 #define Cel_nolen 64 // Do not store user aka net length per cell below this block len
@@ -128,13 +132,6 @@ static unsigned int Trim_Ages[3] = {3,6,9}; // idem, larger blocks
 
 #define Rmeminc 4096
 
-// remote free
-#define Rembatch 32
-#define Rembkt 64
-#define Ovflen 256
-#define Ovfxlen 64
-#define Ovfmax 65536
-
 // number of directories
 #define Dirmem_init 8
 #define Dirmem 16
@@ -142,9 +139,6 @@ static unsigned int Trim_Ages[3] = {3,6,9}; // idem, larger blocks
 // --- threading ---
 
 #define L1line 128
-
-// Support free(p) and realloc(p) with 'p' allocated in another thread
-#define Yal_inter_thread_free 1
 
 // Install thread exit handler - nonportable
 #define Yal_thread_exit 0
@@ -165,8 +159,9 @@ static unsigned int Trim_Ages[3] = {3,6,9}; // idem, larger blocks
 #define Bootmem (0x1000 - 32)
 
 // --- align ---
-#define Basealign2 3
-#define Stdalign 16u
+#define Minalign 1u // Minimum alignment above C11 standard
+#define Basealign 8u // Expected alignof(max_align_t)
+#define Stdalign 16u // Alignment of internal use blocks of arbitrary length
 
 // --- extensions / compatibility ---
 #define Yal_enable_extensions 1

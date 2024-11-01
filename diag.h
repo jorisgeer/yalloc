@@ -17,6 +17,8 @@
 
 #define Diagcnts 600 // 256
 
+static const ub4 logitems;
+
 enum Diactl { Dianone,Diadis,Diaena,Diaerr };
 
 static enum Diactl diagctls[Diagcnts]; // for yal_diag.cfg suppressions
@@ -67,6 +69,7 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
   va_list ap;
   int fd;
   ub4 tid = 0;
+  unsigned long pid = Atomget(global_pid,Monone);
   enum Diactl ctl;
   ub4 n,pos = 0,upos;
   ub4 check;
@@ -101,18 +104,18 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
     if ( (1u << lvl) & ylog_mask) return 0;
   }
 
+  msgcnt = Atomad(g_msgcnt,1,Moacqrel);
   if (lvl > Error) {
     fd = Yal_log_fd;
-    msgcnt = Atomad(g_msgcnt,1,Moacqrel);
     if (msgcnt == 0) {
-      upos = snprintf_mini(headbuf,0,255,"\n%17s %-5s %-4s %-3s %-1s %-7s msg\n","file/line","pid","tid","dia","","api");
+      upos = snprintf_mini(headbuf,0,255,"\n%18s %-4s %-5s %-4s %-3s %-1s %-7s msg\n","file/line","seq","pid","tid","dia","","api");
       pos = underline(buf,len,headbuf,upos);
     }
   } else {
     fd = Yal_err_fd;
     errcnt = Atomad(g_errcnt,1,Moacqrel);
     if (errcnt == 0) {
-      pos = snprintf_mini(buf,0,len,"\n--- yalloc detected error ---\n");
+      pos = snprintf_mini(buf,0,len,"\n-- %lu -- yalloc detected error\n",pid);
       pos += snprintf_mini(buf,pos,len,"  yalloc %s",yal_version);
       pos = showdate(buf,pos,len);
       buf[pos++] = '\n';
@@ -127,7 +130,7 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
 
   if (fln) pos = diagfln(buf,pos,len,fln);
 
-  pos += snprintf_mini(buf,pos,len,"%-5lu %-4u %-3u ",Atomget(mypid,Monone),tid,did);
+  pos += snprintf_mini(buf,pos,len,"%-4u %-5lu %-4u %-3u ",msgcnt,pid,tid,did);
 
   name = lvlnames[min(lvl,Nolvl)];
   buf[pos++] = *name;
@@ -160,15 +163,24 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
 
   if (lvl > Error && Atomget(exiting,Moacq)) return pos;
 
-  oswrite(fd,buf,pos,Fln);
+  n = oswrite(fd,buf,pos,Fln);
 
-  if (lvl > Error) return pos;
+  if (n == 0) {
+    if (lvl > Error) Yal_err_fd = 2;
+    else Yal_log_fd = 2;
+    oswrite(2,buf,pos,Fln);
+  }
+
+  if (lvl > Error) {
+    return pos;
+  }
 
   if (Yal_err_fd != Yal_Err_fd && Yal_Err_fd >= 0) oswrite(Yal_Err_fd,buf,pos,Fln);
 
   if ( (check & 4) == 0) return 0;
 
   if (Cas(exiting,zero,1)) { // let only one thread call exit
+    callstack(hd);
     if (global_stats_opt) yal_mstats(nil,global_stats_opt | Yal_stats_print,Fln,"diag-exit");
     minidiag(Fln,loc,Error,tid,"\n--- %.255s exiting ---\n",global_cmdline);
     _Exit(1);
@@ -186,9 +198,9 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
 #define ylogx(loc,fmt,...) do_ylog(0,loc,Fln,Info,0,fmt,__VA_ARGS__);
 
 #if Yal_enable_trace
-  #define ytrace(loc,fmt,...) if (unlikely(global_trace != 0)) do_ylog(Yal_diag_count + __COUNTER__,loc,Fln,Trace,0,fmt,__VA_ARGS__);
+  #define ytrace(lvl,hd,loc,fmt,...) if (unlikely(hd->trace > lvl)) do_ylog(Yal_diag_count + __COUNTER__,loc,Fln,Trace,0,fmt,__VA_ARGS__);
 #else
-  #define ytrace(loc,fmt,...)
+  #define ytrace(lvl,hd,loc,fmt,...)
 #endif
 
 #if Yal_dbg_level > 0
@@ -197,9 +209,9 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
   #define ydbg1(fln,loc,fmt,...)
 #endif
 #if Yal_dbg_level > 1
-  #define ydbg2(loc,fmt,...) do_ylog(Diagcode,loc,Fln,Debug,0,fmt,__VA_ARGS__);
+  #define ydbg2(fln,loc,fmt,...) do_ylog(Diagcode,loc,fln,Debug,0,fmt,__VA_ARGS__);
 #else
-  #define ydbg2(loc,fmt,...)
+  #define ydbg2(fln,loc,fmt,...)
 #endif
 #if Yal_dbg_level > 2
   #define ydbg3(loc,fmt,...) do_ylog(Diagcode,loc,Fln,Debug,0,fmt,__VA_ARGS__);
@@ -233,12 +245,20 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
 #endif
 
 #if Yal_enable_stack
- #define ypush(hd,fln) hd->flnstack[hd->flnpos++ & 15] = (fln);
- #define ypopall(hd) hd->flnpos = 0;
+ #define ypush(hd,fln) do_ypush(hd,(fln));
+static inline void do_ypush(heapdesc*hd,ub4 fln)
+{
+  ub4 pos;
+
+  if (hd == nil) { minidiag(fln,0,Info,0,"no push %x",fln); return; }
+
+  pos = hd->flnpos;
+  hd->flnstack[pos] = fln;
+  hd->flnpos = pos < 15 ? pos + 1 : 0;
+}
 
 #else
  #define ypush(hb,fln)
- #define ypopall(hb)
 #endif
 
 /* diag file has an entry per line to override default for a single diag code or range
@@ -303,8 +323,10 @@ static Cold void diag_initrace(void)
 static ub4 trace_enable(ub4 ena)
 {
   ub4 rv = global_trace;
+  heapdesc *hd = getheapdesc(Lnone);
 
   minidiag(Fln,Lnone,Info,0,"trace %u -> %u",rv,ena);
+  hd->trace = ena;
   global_trace = ena | 8;
   return rv;
 }

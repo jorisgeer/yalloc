@@ -18,14 +18,12 @@ usage()
   echo 'usage: build [options] [target]'
   echo
   echo '-a  - analyze'
-  echo '-q  - qucik - build yalloc.o only'
+  echo '-q  - quick - build yalloc.o only'
   echo '-t   - also build test'
   echo '-m  - create map file'
   echo '-v  - verbose'
-
+  echo 'V - verify'
   echo '-h  - help'
-  echo
-  echo 'target - only build given target'
 }
 
 error()
@@ -60,7 +58,7 @@ case $tool in
     UBSAN_OPTIONS=print_stacktrace=1
     libs=
   else
-    cdbg='-g -fno-stack-protector -fwrapv -fcf-protection=none -mbranch-protection=none -fno-asynchronous-unwind-tables -D_FORTIFY_SOURCE=0' # -fno-stack-clash-protection
+    cdbg='-gline-tables-only -fno-stack-protector -fwrapv -fcf-protection=none -mbranch-protection=none -fno-asynchronous-unwind-tables -D_FORTIFY_SOURCE=0' # -fno-stack-clash-protection
     libs=
   fi
   copt='-O2 -march=native'
@@ -110,8 +108,6 @@ esac
 
 cflags="-I. $copt $cdiag $cfmt $cdbg $cxtra"
 
-# --gc-sections --no-ld-generated-unwind-info -z stack-size=1234
-
 asmcflags='-fverbose-asm -frandon-seed=0'
 
 map=0
@@ -120,6 +116,7 @@ vrb=0
 bldtst=0
 quick=0
 osinc=0
+verify=0
 target=''
 objs=''
 
@@ -177,6 +174,7 @@ while [ $# -ge 1 ]; do
   '-t') bldtst=2 ;;
   '-T') bldtst=1 ;;
   '-v') vrb=1 ;;
+  '-V') verify=1; bldtst=2 ;;
   '-i') osinc=1 ;;
   *) target="$1" ;;
   esac
@@ -198,6 +196,7 @@ fi
 if [ $docfg -eq 1 ]; then
   cc configure.o configure.c
   ld  configure  "configure.o $objs"
+  verbose './configure' './configure'
   if ./configure "layout.h"; then
     echo "configure returned OK"
   else
@@ -210,7 +209,7 @@ cc yalloc.o yalloc.c
 
 if [ $bldtst -ge 2 ]; then
   cc test.o test.c
-  cc yaldum.o yaldum.c
+#  cc yaldum.o yaldum.c
 fi
 
 if [ $bldtst -ge 1 ]; then
@@ -234,3 +233,23 @@ if [ -n "$cmd" ]; then
     $cc -shared -o yalloc.so yalloc.o $objs
   fi
 fi
+
+if [ $verify -eq 0 ]; then
+  exit 0
+fi
+
+# aligned_alloc
+verbose 'test align small' 'test align alloc 4k 32"'
+./test -s A 1 4096 32
+
+verbose 'test align large' 'test align alloc 64k 32"'
+./test -s A 0x10000 0x10000 32
+
+# slab
+verbose 'test slab' 'test slab 64k 3 10"'
+./test -s s 1 0x10000 3 10
+
+# allfree
+verbose 'test alloc-free' 'test alloc-free"'
+./test -s a 1 100 32 1000
+

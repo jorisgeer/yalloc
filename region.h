@@ -17,13 +17,6 @@
 // Global, not per-heap directory
 static xregion *** _Atomic global_rootdir[Dir1len];
 
-// static _Atomic ub4 global_dirver;
-
-static Const inline ub4 bucket(size_t x)
-{
-  return (ub4)murmurmix(x) & (Rembkt - 1);
-}
-
 // Hand out leaf directories. Used for local and global dir.
 static xregion **newleafdir(heap *hb)
 {
@@ -74,17 +67,15 @@ static xregion ***newdir(heap *hb)
 // memory for dirs is allocated from local heap as in local dir
 static void setgregion(heap *hb,xregion *reg,size_t bas,size_t len,bool add,enum Loc loc,ub4 fln)
 {
-#if Yal_inter_thread_free
   xregion *xreg,*from;
   size_t org,end; // in pages
   ub4 pos1,pos2,pos3,posend;
   ub4 shift1,shift2;
   xregion *** _Atomic * dir1, ** _Atomic *dir2, * _Atomic *dir3;
   xregion ***ndir2,**ndir3;
-  // ub4 dirver;
   bool didcas;
 
-  ydbg1(fln,loc,"set global %s region %u @ %zx p %zx len %zu` %u",regname(reg),reg->id,(size_t)reg,bas,len,add);
+  ydbg2(fln,loc,"set global %s region %u.%u @ %zx p %zx len %zu` %u",regname(reg),reg->hid,reg->id,(size_t)reg,bas,len,add);
 
   if (add) {
     xreg = reg;
@@ -100,8 +91,6 @@ static void setgregion(heap *hb,xregion *reg,size_t bas,size_t len,bool add,enum
   shift1 = Vmbits - Page - Dir1;
   shift2 = shift1 - Dir2;
 
-  // dirver = Atomad(global_dirver,1,Moacqrel);
-
   do {
     pos1 = (org >> shift1) & Dir1msk;
     dir2 = (xregion ** _Atomic *)Atomgeta(dir1 + pos1,Moacq);
@@ -110,7 +99,7 @@ static void setgregion(heap *hb,xregion *reg,size_t bas,size_t len,bool add,enum
       if (ndir2 == nil) return;
       didcas = Casa(dir1 + pos1,(xregion ****)&dir2,ndir2);
       if (unlikely(didcas == 0)) {
-        ydbg2(Lnone,"dir 2 nil for reg %u",reg->id)
+        ydbg2(fln,Lnone,"dir 2 nil for reg %u",reg->id)
         if (hb) hb->dirmem_pos -= Dir2len;
       } else dir2 = (xregion ** _Atomic *)ndir2; // our new
     }
@@ -127,25 +116,32 @@ static void setgregion(heap *hb,xregion *reg,size_t bas,size_t len,bool add,enum
 
       didcas = Casa(dir2 + pos2,(xregion ***)&dir3,ndir3);
       if (unlikely(didcas == 0)) {
-        ydbg2(Lnone,"dir 2 nil for reg %u",reg->id)
+        ydbg2(fln,Lnone,"dir 2 nil for reg %u",reg->id)
         if (hb) hb->ldirmem_pos -= Dir3len;
       } else dir3 = (xregion * _Atomic *)ndir3;
     }
-    do {
-      from = add ? nil : reg;
-      didcas = Casa(dir3 + pos3,&from,xreg);
-#if Yal_enable_check
-      if (unlikely(didcas == 0)) {
-        errorctx(fln,loc,"reg %zx base %lx len %lu`",(size_t)reg,bas,len);
-        error2(loc,Fln,"heap %u %s region %u cas %zx for %u",hb ? hb->id : 0,regname(reg),reg->id,(size_t)from,add);
-      }
-#endif
-    } while (++pos3 < posend);
+
+    if (add) {
+      do {
+        from = nil;
+        didcas = Casa(dir3 + pos3,&from,xreg);
+        if (unlikely(didcas == 0)) {
+          errorctx(fln,loc,"reg %zx base %lx len %lu`",(size_t)reg,bas,len);
+          error2(loc,Fln,"heap %u %s region %u still mapped to %zx %u",hb ? hb->id : 0,regname(reg),reg->id,(size_t)from,from->id);
+        }
+      } while (++pos3 < posend);
+    } else {
+      do {
+        from = reg;
+        didcas = Casa(dir3 + pos3,&from,xreg);
+        if (unlikely(didcas == 0)) {
+          errorctx(fln,loc,"reg %zx base %lx len %lu`",(size_t)reg,bas,len);
+          error2(loc,Fln,"heap %u %s region %u was not mapped %zx",hb ? hb->id : 0,regname(reg),reg->id,(size_t)from);
+        }
+      } while (++pos3 < posend);
+    }
+
   } while (org < end); // -V776 PVS inf loop false positive ?
-
-  // dirver = Atomad(global_dirver,1,Moacqrel);
-
-#endif
 }
 
 // add region in heap directory
@@ -158,7 +154,7 @@ static bool setregion(heap *hb,xregion *reg,size_t bas,size_t len,bool add,enum 
   xregion ****dir1,***dir2,**dir3;
   ub4 hid = hb->id;
 
-  ydbg2(loc,"set %s region %u p %zx len %zu` %u",regname(reg),reg->id,bas,len,add);
+  ydbg2(fln,loc,"set %s region %u p %zx len %zu` %u",regname(reg),reg->id,bas,len,add);
 
 #if Yal_enable_check
 
@@ -181,7 +177,6 @@ static bool setregion(heap *hb,xregion *reg,size_t bas,size_t len,bool add,enum 
 
   do {
     pos1 = (org >> shift1) & Dir1msk;
-    // ycheck(1,Lnone,pos1 >= Dir1len,"pos1 %u above %u",pos1,Dir1len)
     dir2 = dir1[pos1];
     if (dir2== nil) {
       dir2 = newdir(hb);
@@ -194,7 +189,6 @@ static bool setregion(heap *hb,xregion *reg,size_t bas,size_t len,bool add,enum 
     posend = (ub4)min(end - org + pos3,Dir3len);
     org += posend - pos3;
 
-    // ycheck(1,Lnone,pos2 >= Dir2len,"pos1 %u above %u",pos2,Dir2len)
     dir3 = dir2[pos2];
     if (dir3== nil) {
       dir3 = newleafdir(hb);
@@ -207,9 +201,8 @@ static bool setregion(heap *hb,xregion *reg,size_t bas,size_t len,bool add,enum 
     } while (++pos3 < posend);
   } while (org < end);
 
-#if Yal_inter_thread_free
   if (reg->typ != Rmini) setgregion(hb,reg,bas,len,add,loc,fln);
-#endif
+
   return 0;
 }
 
@@ -227,23 +220,22 @@ static Hot xregion *findregion(heap *hb,size_t ip,enum Loc loc)
   ip1 = ip >> shift1;
   pos1 = ip1 & Dir1msk;
 
-  // ycheck(nil,Lnone,pos1 >= Dir1len,"pos1 %u above %u",pos1,Dir1len)
   dir2 = dir1[pos1];
 
   if (unlikely(dir2 == nil)) return nil;
 
   shift2= Vmbits - Dir1 - Dir2;
   pos2 = (ip >> shift2) & Dir2msk;
-  // ycheck(nil,Lnone,pos2 >= Dir2len,"pos1 %u above %u",pos2,Dir2len)
   dir3 = dir2[pos2];
 
   if (unlikely(dir3 == nil)) return nil;
 
   pos3 = (ip >> Page) & Dir3msk;
-  // ycheck(nil,Lnone,pos3 >= Dir3len,"pos1 %u above %u",pos3,Dir3len)
   reg = dir3[pos3];
 
-  if (unlikely(reg == nil)) { ydbg2(0,"pos %u,%u,%u.%x %zx %zx %u",pos1,pos2,pos3,pos3,ip,ip & (Pagesize - 1),Pagesize); return nil; }
+  if (unlikely(reg == nil)) { ydbg3(0,"pos %u,%u,%u.%x %zx %zx %u",pos1,pos2,pos3,pos3,ip,ip & (Pagesize - 1),Pagesize); return nil; }
+
+  vg_mem_def((char *)reg,sizeof(region));
 
 #if Yal_enable_check
   size_t base = reg->user;
@@ -256,7 +248,6 @@ static Hot xregion *findregion(heap *hb,size_t ip,enum Loc loc)
   return reg;
 }
 
-#if Yal_inter_thread_free
 // as above, global
 static xregion *findgregion(enum Loc loc,size_t ip)
 {
@@ -265,7 +256,6 @@ static xregion *findgregion(enum Loc loc,size_t ip)
   ub4 shift1,shift2;
   xregion *** _Atomic *dir1,**_Atomic *dir2,*_Atomic *dir3;
   xregion *reg;
-  // ub4 v1,v2;
 
   shift1= Vmbits - Dir1;
   ip1 = ip >> shift1;
@@ -274,8 +264,6 @@ static xregion *findgregion(enum Loc loc,size_t ip)
   shift2= Vmbits - Dir1 - Dir2;
   pos2 = (ip >> shift2) & Dir2msk;
   pos3 = (ip >> Page) & Dir3msk;
-
-  // v1 = Atomget(global_dirver,Moacq);
 
   dir1 = global_rootdir;
 
@@ -295,8 +283,6 @@ static xregion *findgregion(enum Loc loc,size_t ip)
 
   reg = Atomgeta(dir3 + pos3,Moacq);
 
-  // v2 = Atomget(global_dirver,Moacq);
-
   if (unlikely(reg == nil)) {
     if (ip1 & ~Dir1msk) error(loc,"ptr %zx is %zu` outside %u bit VM space",ip,ip - Vmsize,Vmbits);
     errorctx(0,loc,"no region at pos %u,%u,%u",pos1,pos2,pos3)
@@ -304,6 +290,7 @@ static xregion *findgregion(enum Loc loc,size_t ip)
   }
 
 #if Yal_enable_check
+  vg_mem_def(reg,sizeof(xregion))
   size_t base = reg->user;
   size_t len = reg->len;
 
@@ -318,7 +305,7 @@ static xregion *findgregion(enum Loc loc,size_t ip)
 static void *region_near(size_t ip,char *buf,ub4 len)
 {
   size_t basea = Size_max,baseb = 0,bas,lena,lenb,ip1;
-  ub4 b;
+  ub4 b,age = 0,aged = 0;
   xregion *rega = nil,*regb = nil;
   mpregion *mpreg;
   bregion *breg;
@@ -327,6 +314,11 @@ static void *region_near(size_t ip,char *buf,ub4 len)
   heap *hb = Atomget(global_heaps,Moacq);
 
   *buf = 0;
+
+  if (ip == (size_t)zeroblock) {
+    snprintf_mini(buf,0,len,"ptr  %zx is a zero-len block",ip);
+    return nil;
+  }
 
   ip1 = ip >> (Vmbits - Dir1);
   if (ip1 & ~Dir1msk) { snprintf_mini(buf,0,len,"ptr  %zx is %zu` outside %u bit VM space",ip,ip - Vmsize,Vmbits ); return nil; }
@@ -348,14 +340,16 @@ static void *region_near(size_t ip,char *buf,ub4 len)
     }
     reg = hb->reglst;
     while (reg) {
+      vg_mem_def(reg,sizeof(region))
+      vg_mem_def(reg->meta,reg->metalen)
       if ( (bas = reg->user ) > ip && bas < basea) { basea = bas; rega = (xregion *)reg; }
-      if ( bas < ip && bas > baseb) { baseb = bas; regb = (xregion *)reg;  }
+      if ( bas < ip && bas > baseb) { baseb = bas; regb = (xregion *)reg; age = reg->age; aged = reg->aged; }
       reg = reg->nxt;
     }
     mpreg = hb->mpreglst;
     while (mpreg) {
       if ( (bas = mpreg->user )> ip && bas < basea) { basea = bas; rega = (xregion *)mpreg; }
-      if ( bas < ip && bas > baseb) { baseb = bas; regb = (xregion *)mpreg;  }
+      if ( bas < ip && bas > baseb) { baseb = bas; regb = (xregion *)mpreg; age = Atomget(mpreg->age,Moacq); aged = mpreg->aged; }
       mpreg = mpreg->nxt;
     }
     hb = hb->nxt;
@@ -370,7 +364,7 @@ static void *region_near(size_t ip,char *buf,ub4 len)
   lenb = regb->len; // -V522 PVS nil ptr deref
 
   if (ip > baseb && ip < baseb + lenb) {
-    snprintf_mini(buf,0,len,"ptr %zx is %zu`b inside %s region %u.%u len %zu` age %u.%u",ip,ip - baseb,regname(regb),regb->hid,regb->id,lenb,regb->age,regb->aged);
+    snprintf_mini(buf,0,len,"ptr %zx is %zu`b inside %s region %u.%u len %zu` age %u.%u",ip,ip - baseb,regname(regb),regb->hid,regb->id,lenb,age,aged);
     return regb;
   }
   if (ip > baseb && ip - baseb - lenb < basea - ip) {
@@ -380,8 +374,6 @@ static void *region_near(size_t ip,char *buf,ub4 len)
   snprintf_mini(buf,0,len,"ptr %zx is %zu`b before %s region %u.%u len %zu` at %zx .. %zx",ip,basea - ip,regname(rega),rega->hid,rega->id,lena,basea,basea + lena);
   return rega;
 }
-
-#endif // Yal_inter_thread_free
 
 #define Metaguard 0
 
@@ -423,20 +415,68 @@ static mpregion *newmpregmem(heap *hb)
   return reg;
 }
 
+#if Yal_enable_valgrind
+#define openreg(reg) vg_openreg(reg);
+#define closereg(reg) vg_closereg(reg);
+#define openregs(hb) vg_openregs(hb);
+#define closeregs(hb) vg_closeregs(hb);
+
+static void vg_openreg(region *reg)
+{
+  vg_mem_def(reg,sizeof(region))
+  vg_mem_def(reg->meta,reg->metalen)
+}
+
+static void vg_openregs(heap *hb)
+{
+  region *reg = hb->reglst;
+  while (reg) {
+    vg_mem_def(reg,sizeof(region))
+    vg_mem_def(reg->meta,reg->metalen)
+    reg = reg->nxt;
+  }
+}
+
+static void vg_closereg(region *reg)
+{
+  vg_mem_noaccess(reg->meta,reg->metalen)
+  vg_mem_noaccess(reg,sizeof(region))
+}
+
+static void vg_closeregs(heap *hb)
+{
+  region *nxreg,*reg = hb->reglst;
+  while (reg) {
+    nxreg = reg->nxt;
+    vg_mem_noaccess(reg->meta,reg->metalen)
+    vg_mem_noaccess(reg,sizeof(region))
+    reg = nxreg;
+  }
+}
+
+#else
+#define openreg(reg)
+#define closereg(reg)
+#define openregs(hb)
+#define closeregs(hb)
+#endif
+
 // create new region with user and meta blocks
 static region *newregion(heap *hb,ub4 order,size_t len,size_t metaulen,ub4 cellen,enum Rtype typ)
 {
   void *user,*ouser;
   void *meta,*ometa;
   size_t mlen,ulen,olen,omlen,loadr,hiadr;
-  ub8 uid;
-  region *reg,*preg,*trimreg,*trimpreg,*nxt;
-  ub4 rid,hid;
-  ub4 claseq;
-  ub4 ohid = hid = hb->id;
-  ub4 bkt;
+  ub8 uid = 0;
+  region *reg = nil,*ureg,*preg,*nreg,*nxt,*nxureg;
+  ub4 rid,hid = hb->id;
+  ub4 ord = order;
+  ub4 claseq,gen;
+  ub4 ohid = hid;
   ub4 shift;
   ub4 iter;
+  ub4 from;
+  bool didcas;
   yalstats *sp = &hb->stat;
 
   ycheck(nil,Lalloc,len < Pagesize,"heap %u type %s region has len %zu",hid,regnames[typ],len)
@@ -444,40 +484,105 @@ static region *newregion(heap *hb,ub4 order,size_t len,size_t metaulen,ub4 celle
 
   ycheck(nil,Lnone,order > Regorder,"region len %zu` order %u",len,order)
 
+  openregs(hb)
+
   // recycle ?
-  reg = hb->freeregs[order];
-  preg = trimreg = trimpreg = nil;
-  ulen = len;
-  iter = 100;
-  while (reg && --iter) {
-    if (ulen <= reg->len && metaulen <= reg->metalen) break; // suitable size
-    else if (reg->len == 0 && trimreg == nil) { trimreg = reg; trimpreg = preg; }
-    preg = reg;
-    reg = reg->frenxt;
+  iter = 40 + 4 * order;
+  do {
+    ureg = hb->freeregs[ord];
+    while (ureg && --iter) {
+      vg_mem_def(ureg,sizeof(region))
+      vg_mem_def(ureg->meta,ureg->metalen)
+      nxureg = ureg->frenxt;
+      if (len <= ureg->len && metaulen <= ureg->metalen) { // suitable size
+        reg = ureg;
+        nreg = reg->frenxt; // unlist
+        preg = reg->freprv;
+        if (preg) preg->frenxt = nreg;
+        else hb->freeregs[ord] = nreg;
+        if (nreg) nreg->freprv = preg;
+        reg->frenxt = reg->freprv = nil;
+        sp->useregions++;
+        uid = (sp->useregions + sp->newregions + sp->noregions) * 2;
+        ydbg2(Fln,Lnone,"use region %.01llu -> %u.%llu len %zu` gen %u.%u.%u cel %u for %zu`,%u",reg->uid,hid,uid,reg->len,reg->gen,hid,reg->id,reg->cellen,len,cellen);
+        break;
+      }
+      ureg = nxureg;
+    }
+  } while (reg == nil && ++ord <= min(Regorder,order + 3));
+
+  if (reg == nil) { // use trimmed
+    iter = 50;
+    ureg = hb->freeregs[0];
+    while (ureg && --iter) {
+      if (ureg->order >= order - 1 && ureg->order <= order + 3 && len <= ureg->prvlen && metaulen <= ureg->prvmetalen) { // would have reused
+        reg = ureg;
+        sp->noregions++;
+        sp->curnoregions++;
+        uid = (sp->useregions + sp->newregions + sp->noregions) * 2;
+        ydbg1(Fln,Lnone,"use region %.01llu -> %u.%llu len %zu` gen %u.%u.%u cel %u for %zu`,%u",reg->uid,hid,uid,reg->len,reg->gen,hid,reg->id,reg->cellen,len,cellen);
+        break;
+      }
+      ureg = ureg->frenxt;
+    }
+
+    if (reg == nil) {
+      reg = hb->freeregs[0];
+      if (reg) {
+        nreg = reg->frenxt;
+        hb->freeregs[0] = nreg;
+        if (nreg) nreg->freprv = nil;
+        sp->useregions++;
+        uid = (sp->useregions + sp->newregions + sp->noregions) * 2;
+        ycheck(nil,0,reg->len != 0,"region %.01llu len %zu`",reg->uid,reg->len)
+        ydbg1(Fln,Lnone,"use region %.01llu -> %u.%llu len %zu` gen %u.%u.%u cel %u for %zu`,%u",reg->uid,hid,uid,reg->len,reg->gen,hid,reg->id,reg->cellen,len,cellen);
+      }
+    } else {
+      nreg = reg->frenxt;
+      preg = reg->freprv;
+
+      if (preg) preg->frenxt = nreg;
+      else hb->freeregs[0] = nreg;
+      if (nreg) nreg->freprv = preg;
+      sp->useregions++;
+      uid = (sp->useregions + sp->newregions + sp->noregions) * 2;
+      ycheck(nil,0,reg->len != 0,"region %u len %zu`",reg->id,reg->len)
+      ydbg2(Fln,Lnone,"use region %.01llu -> %u.%llu len %zu` gen %u.%u.%u cel %u for %zu`,%u",reg->uid,hid,uid,reg->len,hid,reg->gen,reg->id,reg->cellen,len,cellen);
+    }
   }
-  if (reg == nil && trimreg) {
-    reg = trimreg; // reuse trimmed region
-    preg = trimpreg;
-  }
+
+  closeregs(hb)
+
   if (reg) { // reuse
 
-    ycheck(nil,0,reg->hb != hb,"region %u heap %zx vs %zx",reg->id,(size_t)reg->hb,(size_t)hb);
+    vg_mem_def(reg,sizeof(region))
+    vg_mem_def(reg->meta,reg->metalen)
+
+    ycheck(nil,0,reg->aged == 0,"region %.01llu not aged",reg->uid)
+    ycheck(nil,0,reg->inuse != 0,"region %.01llu in use",reg->uid)
+    ycheck(nil,0,reg->hb == nil,"region %.01llu nil hb",reg->uid)
+    ycheck(nil,0,reg->hb != hb,"region %.01llu hb %u vs %u",reg->uid,hb->id,reg->hb->id)
+
+#if Yal_enable_check > 2
+    for (ord = 0; ord <= Regorder; ord++) {
+      ureg = hb->freeregs[ord];
+      iter = 0;
+      while (ureg && iter < 1000) {
+        ycheck(nil,0,ureg == reg,"ord %u iter %u reg %u.%u present",ord,iter,reg->gen,reg->id)
+        ureg = ureg->frenxt; iter++;
+      }
+      ycheck(nil,0,iter == 1000,"ord %u iter %u",ord,iter)
+    }
+#endif
+
+    from = 0; didcas = Cas(reg->lock,from,1);
+    ycheck(nil,0,didcas == 0,"region %.01llu from %u",reg->uid,from)
+    vg_drd_wlock_acq(reg)
+
     ycheck(nil,0,reg->typ != Rslab,"region %u typ %s",reg->id,regnames[reg->typ]);
 
-    uid = ++sp->useregions + sp->newregions;
     olen = reg->len;
     ouser = (void *)reg->user;
-
-    if (olen && reg->aged < 2) {
-      setregion(hb,(xregion *)reg,(size_t)ouser,olen,0,Lalloc,Fln); // unmap old one
-    }
-    reg->typ = Rnone;
-
-    // remove from free reg list
-    if (preg) {
-      ycheck(nil,0,preg->typ != Rslab,"region %u typ %s",preg->id,regnames[preg->typ]);
-      preg->frenxt = reg->frenxt;
-    } else hb->freeregs[order] = reg->frenxt;
 
     omlen = reg->metalen;
     ometa = (void *)reg->meta;
@@ -487,13 +592,17 @@ static region *newregion(heap *hb,ub4 order,size_t len,size_t metaulen,ub4 celle
     ohid = reg->hid;
     nxt = reg->nxt;
     claseq = reg->claseq;
+    gen = reg->gen;
 
     slabstats(reg,&hb->stat,nil,0,0,0,0,0); // accumulate stats from previous user
 
-    ydbg2(Lnone,"reuse region %.01llu -> %.01llu len %zu` cel %u for %zu`,%u",reg->uid,uid,olen,reg->cellen,len,cellen);
+    Atomset(reg->lock,0,Morel);
+    vg_drd_wlock_rel(reg)
 
     memset(reg,0,sizeof(region));
 
+    reg->typ = Rnone;
+    reg->gen = gen + 1;
     reg->claseq = claseq;
     reg->nxt = nxt;
     reg->clr = 1; // if set, calloc() needs to clear.
@@ -502,39 +611,43 @@ static region *newregion(heap *hb,ub4 order,size_t len,size_t metaulen,ub4 celle
     olen = omlen = 0;
     ouser = nil; ometa = nil;
     rid = (ub4)++sp->newregions;
-    uid = rid + sp->useregions;
+    rid *= 2;
+    uid = (sp->newregions + sp->useregions + sp->noregions) * 2;
     reg = newregmem(hb);
-    ydbg2(Lnone,"new region %zx %u.%lu len %zu` for size %u",(size_t)reg,hid,uid,ulen,cellen);
+    ydbg1(Fln,Lnone,"new region %zx %u.%llu gen 0.%u.%u len %zu` for cellen %u",(size_t)reg,hid,uid,hid,rid,len,cellen);
     if (reg == nil) {
       return nil;
     }
+    vg_mem_name(reg,sizeof(region),"'slab region'")
+    vg_drd_rwlock_init(reg)
 
     if ( (size_t)reg & 15) {
       error(Lalloc,"region %u at %p unaligned",rid,(void *)reg)
       return nil;
     }
 
-    // maintain list for aging and stats
+    // maintain list for ageing and stats
     if (hb->reglst == nil) hb->reglst = hb->regtrim = hb->regprv = reg;
     else {
       preg = hb->regprv;
+      vg_mem_def(preg,sizeof(region))
       ycheck(nil,0,preg->typ != Rslab,"region %u typ %s",preg->id,regnames[preg->typ]);
       preg->nxt = reg;
+      vg_mem_noaccess(preg,sizeof(region))
       hb->regprv = reg;
     }
   } // new or not
 
-  reg->hb = hb;
+  reg->inuse = 1;
 
+  reg->hb = hb;
   reg->typ = typ;
 
-  bkt = bucket(uid);
   uid |= (ub8)hid << 32;
 
   reg->hid = ohid;
   reg->id = rid;
   reg->uid = uid;
-  reg->bucket = bkt;
 
   if (olen == 0) {
     ulen = doalign8(len,Pagesize);
@@ -542,6 +655,7 @@ static region *newregion(heap *hb,ub4 order,size_t len,size_t metaulen,ub4 celle
     if (user == nil) {
       return nil;
     }
+    vg_mem_name(user,ulen,"'slab user'")
   } else {
     user = ouser;
     ulen = olen;
@@ -555,7 +669,7 @@ static region *newregion(heap *hb,ub4 order,size_t len,size_t metaulen,ub4 celle
   ylostats(hb->stat.loadr,loadr)
   yhistats(hb->stat.hiadr,hiadr)
 
-  reg->order = (ub1)order;
+  reg->order = order;
 
   if (omlen == 0) {
     mlen = doalign8(metaulen,256);
@@ -570,6 +684,7 @@ static region *newregion(heap *hb,ub4 order,size_t len,size_t metaulen,ub4 celle
     if (meta == nil) {
       return nil;
     }
+    vg_mem_name(meta,mlen,"'slab meta'")
   } else {
     ycheck(nil,0,ometa == nil,"nil meta for len %zu",omlen)
     meta = ometa;
@@ -585,43 +700,101 @@ static region *newregion(heap *hb,ub4 order,size_t len,size_t metaulen,ub4 celle
 }
 
 // new region for mmap block
-static mpregion *newmpregion(heap *hb,size_t len)
+static mpregion *newmpregion(heap *hb,size_t len,enum Loc loc,ub4 fln)
 {
-  mpregion *reg,*trimreg,*preg,*trimpreg;
+  mpregion *ureg,*reg = nil,*preg,*nreg;
   ub4 rid;
   ub4 hid = hb->id;
-  ub4 order,iter;
-  size_t user,ouser,olen;
+  ub4 order,ord,iter;
+  size_t user,olen;
   void *p;
   yalstats *sp = &hb->stat;
 
-  order = sizeof(size_t) * 8 - clzl(len) - Mmap_threshold;
-
-  ycheck(nil,Lnone,order >=Vmbits - Mmap_threshold,"region len %zu` order %u",len,order)
-
-  // reuse ?
-  reg = hb->freempregs[order];
-  preg = trimreg = trimpreg = nil;
-  iter = 50;
-  while (reg && --iter) {
-    ycheck(nil,0,reg->typ != Rmmap,"region %u typ %s",reg->id,regnames[reg->typ]);
-    if (len <= reg->len && 4 * len > reg->len) break; // suitable size
-    else if (reg->len == 0 && trimreg == nil) { trimreg = reg; trimpreg = preg; }
-    preg = reg;
-    reg = reg->frenxt;
+  if (len < mmap_limit) {
+    do_ylog(Diagcode,loc,fln,Assert,0,"mmap region len %zu",len);
+    return nil;
   }
-  if (reg == nil && trimreg) {
-    reg = trimreg; // reuse trimmed region
-    preg = trimpreg;
+
+  order = ord = sizeof(size_t) * 8 - clzl(len);
+
+  ycheck(nil,Lnone,order < Mmap_threshold,"region len %zu` order %u below %u",len,order,Mmap_threshold)
+  ycheck(nil,Lnone,order >= Vmbits,"region len %zu` order %u above %u",len,order,Vmbits)
+
+  // recycle ?
+  iter = 80;
+  do {
+    ureg = hb->freempregs[ord - Mmap_threshold];
+    while (ureg && --iter) {
+      ydbg2(Fln,loc,"try xreg %u len %zu` for %zu` ord %u/%u",ureg->id,ureg->len,len,ord,order)
+      if (len <= ureg->len) {
+        ydbg2(Fln,loc,"use xregion %u.%u len %zu` gen %u for %zu` ord %u/%u",ureg->hid,ureg->id,ureg->len,ureg->gen,len,ord,order)
+        reg = ureg;
+
+        nreg = reg->frenxt; // unlist
+        preg = reg->freprv;
+        if (preg) preg->frenxt = nreg;
+        else hb->freempregs[ord - Mmap_threshold] = nreg;
+        if (nreg) nreg->freprv = preg;
+        sp->usempregions++;
+        break; // suitable size
+      }
+      ureg = ureg->frenxt;
+    }
+  } while (reg == nil && ++ord < min(Vmbits,order + 3));
+
+  if (reg == nil) { // use empty one
+    iter = 100;
+    ureg = hb->freemp0regs;
+    while (ureg && --iter) {
+      if (len <= ureg->prvlen && len * 2 >= ureg->prvlen) { // would have reused
+        reg = ureg;
+        ydbg1(Fln,loc,"use xregion %u.%u len %zu` gen %u for %zu` ord %u/%u",ureg->hid,ureg->id,ureg->len,ureg->gen,len,ord,order)
+        sp->nompregions++;
+        sp->curnompregions++;
+        break;
+      }
+      ureg = ureg->frenxt;
+    }
+    // unlist
+    if (reg == nil) {
+      reg = hb->freemp0regs;
+      if (reg) {
+        ydbg1(Fln,loc,"use xregion %u.%u len %zu` for %zu` ord %u/%u",reg->hid,reg->id,reg->len,len,ord,order)
+        nreg = reg->frenxt;
+        hb->freemp0regs = nreg;
+        if (nreg) nreg->freprv = nil;
+      }
+    } else {
+      nreg = reg->frenxt;
+      if (reg == hb->freemp0regs) {
+        hb->freemp0regs = nreg;
+        if (nreg) nreg->freprv = nil;
+      } else {
+        preg = reg->freprv;
+        if (preg) preg->frenxt = nreg;
+        if (nreg) nreg->freprv = preg;
+      }
+    }
   }
+
+#if Yal_enable_check > 2
+  ureg = hb->freemp0regs;
+  iter = 0;
+  while (ureg && iter < 100) {
+     ydbg1(Fln,loc,"%u has xregion %u.%u len %zu`",iter++,ureg->hid,ureg->id,ureg->len)
+     ureg = ureg->frenxt;
+  }
+#endif
 
   if (reg == nil) { // new
-    rid = (ub4)++hb->stat.newmpregions;
+    hb->stat.newmpregions++;
+    rid = (ub4)hb->stat.newmpregions;
+    rid = rid * 2 + 1;
 
     reg = newmpregmem(hb);
     if (reg == nil) return nil;
 
-    ydbg2(Lnone,"new xregion %zx %u.%u for size %zu from %zu",(size_t)reg,hid,rid,len,reg->len);
+    ydbg1(Fln,Lnone,"new xregion %zx %u.%u for size %zu` from %zu`",(size_t)reg,hid,rid,len,reg->len);
 
     if (hb->mpreglst == nil) { // maintain for stats and trim
       hb->mpreglst = hb->mpregtrim = hb->mpregprv = reg;
@@ -636,20 +809,23 @@ static mpregion *newmpregion(heap *hb,size_t len)
     reg->id = rid;
     reg->hid = hid;
     reg->order = order;
-    reg->age = reg->aged = 0;
+    Atomset(reg->age,0,Morel);
+    reg->aged = 0;
     Atomset(reg->set,2,Morel); // give it freed
     return reg;
   } else rid = reg->id;
+
+  reg->frenxt = reg->freprv = nil;
 
   // reuse
   ycheck(nil,0,reg->hb != hb,"mpregion %u heap %zx vs %zx",rid,(size_t)reg->hb,(size_t)hb);
   sp->usempregions++;
   olen = reg->len;
-  ouser = reg->user;
-  ydbg2(Lnone,"use xregion %zx %u.%u for size %zu from %zu",(size_t)reg,hid,reg->id,len,olen);
+  ydbg2(Fln,Lnone,"use xregion %zx %u.%u for size %zu` from %zu`",(size_t)reg,hid,reg->id,len,olen);
 
-  if (olen && reg->age < 2) {
-    setregion(hb,(xregion *)reg,(size_t)ouser,olen,0,Lalloc,Fln); // unmap old one
+  if (olen) {
+    reg->gen++;
+    reg->clr = 1;
   } else {
     Atomad(global_mapadd,1,Monone);
     p = osmmap(len);
@@ -658,17 +834,12 @@ static mpregion *newmpregion(heap *hb,size_t len)
     reg->user = user;
     reg->len = len;
     reg->order = order;
+    reg->clr = 0;
     Atomset(reg->set,2,Morel); // give it freed
   }
-  reg->age = reg->aged = 0;
+  Atomset(reg->age,0,Morel);
+  reg->aged = 0;
   reg->typ = Rnone;
-
-  // remove from free reg list
-  if (preg) {
-    ycheck(nil,0,preg->typ != Rmmap,"region %u typ %s",preg->id,regnames[preg->typ]);
-    preg->frenxt = reg->frenxt;
-  } else hb->freempregs[order] = reg->frenxt;
-  reg->frenxt = nil;
 
   return reg;
 }

@@ -1,5 +1,5 @@
 {
-   yal_isaccess
+   vg_mem_isaccess
    Memcheck:User
    fun:vg_mem_isaccess
 }
