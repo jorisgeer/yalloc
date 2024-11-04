@@ -12,6 +12,12 @@
 
 #define Logfile Frealloc
 
+#if Realloc_clear
+  #define Realclear(p,oldlen,newlen) memset((p) + (oldlen),0,(newlen) - (oldlen));
+#else
+  #define Realclear(p,on,nn)
+#endif
+
 // copy org part
 static void real_copy(void *p,void *np,size_t oldlen)
 {
@@ -36,6 +42,9 @@ static void *real_mmap(heap *hb,bool local,mpregion *reg,size_t orglen,size_t ne
   else setgregion(hb,(xregion *)reg,ip,Pagesize,0,Lreal,Fln);
 
   vg_mem_noaccess(ip,reg->len)
+
+  newlen = doalign8(newlen,Pagesize);
+
   np = osmremap((void *)ip,reg->len,orglen,newlen);
   if (np == nil) return nil;
   vg_mem_def(np,newulen)
@@ -80,6 +89,7 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
       if (newulen < 8192 && newulen * 2 > alen) {
         if (local && alen > Cel_nolen) slab_setlen(reg,pi->cel,(ub4)newulen);
         closereg(reg)
+        pi->fln = Fln;
         return p; // not worth
       }
       if (local) reg->stat.reallocles++;
@@ -93,6 +103,7 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
         flen = slab_frecel(hb,reg,pi->cel,reg->cellen,reg->celcnt,Fln); // put old in recycling bin
         if (likely(flen != 0)) {
           closereg(reg)
+          pi->fln = Fln;
           return np;
         }
         hd->stat.invalid_frees++;
@@ -102,6 +113,7 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
         flen = slab_free_rheap(hd,hb,reg,ip,tag,Lreal);
         if (likely(flen != 0)) {
           closereg(reg)
+          pi->fln = Fln;
           return np;
         }
         hd->stat.invalid_frees++;
@@ -114,17 +126,23 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
       if (newulen >= (1ul << Mmap_threshold) / 2) {
         np = real_mmap(hb,local,(mpregion *)xreg,ulen,newlen,newulen); // typically mremap
         ystats(hb->stat.mreallocles)
+        pi->fln = Fln;
         return np;
       }
       np = alloc_heap(hd,hb,newlen,newulen,1,Lreal,Fln);
       if (unlikely(np == nil)) return (void *)__LINE__;
       real_copy(p,np,newulen);
       free_mmap(hd,local ? hb : nil,(mpregion *)xreg,ip,ulen,Lreal,Fln);
+      pi->fln = Fln;
       return np;
-    } else if (typ == Rbump) return p;
-    else if (typ == Rmini) return p;
+    } else if (typ == Rbump) {
+      pi->fln = Fln;
+      return p;
+    } else if (typ == Rmini) {
+      pi->fln = Fln;
+      return p;
     // else if (typ == Rnone) return p; // todo check
-    else return (void *)__LINE__;
+    } else return (void *)__LINE__;
 
   } else { // expand
 
@@ -135,7 +153,10 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
     if (likely(typ == Rslab || typ == Rnone)) {
       np = alloc_heap(hd,hb,newlen,newulen,1,Lreal,tag);
       if (unlikely(np == nil)) return (void *)__LINE__;
-      if (unlikely(alen == 0)) return np;
+      if (unlikely(alen == 0)) {
+        pi->fln = Fln;
+        return np;
+      }
       reg = (region *)xreg;
       openreg(reg)
       real_copy(p,np,ulen);
@@ -145,6 +166,7 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
         flen = slab_frecel(hb,reg,pi->cel,reg->cellen,reg->celcnt,tag); // put old in recycling bin
         if (likely(flen != 0)) {
           closereg(reg)
+          pi->fln = Fln;
           return np;
         }
         hd->stat.invalid_frees++;
@@ -154,6 +176,7 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
         flen = slab_free_rheap(hd,hb,reg,ip,tag,Lreal);
         if (likely(flen != 0)) {
           closereg(reg)
+          pi->fln = Fln;
           return np;
         }
         hd->stat.invalid_frees++;
@@ -162,10 +185,11 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
       }
 
     } else if (typ == Rbump || typ == Rmini) {
-      ydbg1(Fln,Lreal,"len %lu",newlen);
+      ydbg2(Fln,Lreal,"len %lu",newlen);
       np = alloc_heap(hd,hb,newlen,newulen,1,Lreal,tag);
       if (unlikely(np == nil)) return (void *)__LINE__;
       if (likely(alen != 0)) real_copy(p,np,alen);
+      pi->fln = Fln;
       return np;
 
     } else if (typ == Rmmap) {
@@ -173,6 +197,7 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
       ydbg3(Lreal,"reg %u",xreg->id);
       np = real_mmap(hb,local,(mpregion *)xreg,alen,newlen,newulen);
       ystats(hb->stat.mreallocgts)
+      pi->fln = Fln;
       return np;
     } else return (void *)__LINE__;
   } // shrink or expand
@@ -245,13 +270,20 @@ static void *yrealloc(void *p,size_t oldlen,size_t newlen,ub4 tag)
   ytrace(1,hd,Lsize," %p len %zu -> %zu tag %.01u",p,pi.len,newlen,tag)
 
   if (likely(alen != 0)) {
+    ylostats(hb->stat.minrelen,newlen)
+    yhistats(hb->stat.maxrelen,newlen)
     np = real_heap(hd,hb,p,alen,newlen,&pi,tag);
+    //coverity[pass_freed_arg]
+#if Yal_enable_trace
+     if (unlikely(hd->trace != 0)) do_ylog(Yal_diag_count + __COUNTER__,Lreal,pi.fln,Trace,0,"- realloc(%zx,%zu) from %zu = %zx",(size_t)p,newlen,alen,(size_t)np);
+#endif
   } else {
     np = alloc_heap(hd,hb,doalign8(newlen,Stdalign),newlen,1,Lreal,tag);
-  }
+    Realclear(np,0,newlen)
 
-  //coverity[pass_freed_arg]
-  ytrace(0,hd,Lreal,"- realloc(%zx,%zu) from %zu = %zx",(size_t)p,newlen,alen,(size_t)np)
+    //coverity[pass_freed_arg]
+    ytrace(0,hd,Lreal,"- realloc(%zx,%zu) from %zu = %zx",(size_t)p,newlen,alen,(size_t)np)
+  }
 
   Atomset(hb->lock,0,Morel);
   vg_drd_wlock_rel(hb)
@@ -260,6 +292,9 @@ static void *yrealloc(void *p,size_t oldlen,size_t newlen,ub4 tag)
 
   if (likely( (ub4)ip >= Pagesize)) {
     ytrace(1,hd,Lreal,"- %p len %zu",np,newlen)
+    if (pi.len < newlen) {
+      Realclear(np,pi.len,newlen)
+    }
     return np;
   }
   fln = (ub4)(size_t)np;

@@ -18,6 +18,7 @@ static void heap_init(heap *hb)
   static_assert(Page + Dir1 + Dir2 + Dir3 == Vmbits,"VM size not covered by dir");
 
   hb->stat.id = hb->id;
+  hb->stat.minrelen = Hi64;
 }
 
 static void heap_reset(heap *hb)
@@ -30,8 +31,6 @@ static void heap_reset(heap *hb)
     reg = reg->nxt;
   }
 }
-
-static _Atomic unsigned int heap_gid;
 
 // create heap for new thread
 static heap *newheap(heapdesc *hd,enum Loc loc,ub4 fln)
@@ -55,8 +54,8 @@ static heap *newheap(heapdesc *hd,enum Loc loc,ub4 fln)
   ub4 llen = Dirmem_init * Dir3len;
 
   static_assert( (Stdalign & Stdalign1) == 0,"Stdalign must be a power of 2");
-  static_assert(Basealign > 0,"Basealign > 0");
-  static_assert(Basealign < Pagesize,"Basealign < Pagesize");
+  static_assert(Stdalign > 0,"Stdalign > 0");
+  static_assert(Stdalign < Pagesize,"Stdalign < Pagesize");
   static_assert(Mmap_max_threshold < 31,"Mmap_max_threshold < 31");
   static_assert(Mmap_threshold <= Mmap_max_threshold,"Mmap_threshold < max");
 

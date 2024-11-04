@@ -46,10 +46,13 @@ fi
 date=$(date -u '+%Y%m%d')
 time=$(date -u '+%H%M')
 
+# clang >= 8 aug 19  '-mbranch-protection=none'
+# clang >= 7 '-fcf-protection=none'
+
 case $tool in
   'clang' | 'icx')
   cc=clang
-  cdiag='-Wall -Wextra -Wunused -Wsign-conversion -Wchar-subscripts -Werror=format -Werror=return-type -Wno-c2x-compat -Wno-poison-system-directories'
+  cdiag='-Wall -Wextra -Wunused -Wno-unused-command-line-argument -Wsign-conversion -Wchar-subscripts -Werror=format -Werror=return-type -Wno-c2x-compat -Wno-poison-system-directories'
   cfmt='-fno-caret-diagnostics -fno-color-diagnostics -fno-diagnostics-show-option -fno-diagnostics-fixit-info -fno-diagnostics-show-note-include-stack -fno-show-column'
   cxtra='-std=c11 -funsigned-char -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -fpic -ftls-model=local-dynamic -fno-plt'
   cana="--analyze"
@@ -61,9 +64,11 @@ case $tool in
     cdbg='-gline-tables-only -fno-stack-protector -fwrapv -fcf-protection=none -mbranch-protection=none -fno-asynchronous-unwind-tables -D_FORTIFY_SOURCE=0' # -fno-stack-clash-protection
     libs=
   fi
-  copt='-O2 -march=native'
+  copt='-O2'
   lflags="-O2 -g $cdbg -static"
   ;;
+
+# a64 gcc >= 8 2018 -fcf-protection  -fno-stack-clash-protection'
 
   'gcc')
   cc=gcc
@@ -77,7 +82,7 @@ case $tool in
   else
     cdbg='-g -fno-stack-protector -fcf-protection=none -fno-stack-clash-protection -fno-asynchronous-unwind-tables -D_FORTIFY_SOURCE=0'
   fi
-  copt='-O2 -march=native -fwrapv -fgcse-after-reload -ftree-partial-pre -fsplit-paths'
+  copt='-O2 -fwrapv -fgcse-after-reload -ftree-partial-pre -fsplit-paths'
   lflags="-O2 -fuse-ld=gold $cdbg -static"
     libs=
   ;;
@@ -214,7 +219,7 @@ fi
 
 if [ $bldtst -ge 1 ]; then
   ld test "test.o yalloc.o $objs"
-#  ld test_libc "test.o yaldum.o $objs"
+  # ld test_libc "test.o yaldum.o $objs"
 fi
 
 if [ $quick -eq 2 ]; then
@@ -253,3 +258,6 @@ verbose 'test slab' 'test slab 64k 3 10"'
 verbose 'test alloc-free' 'test alloc-free"'
 ./test -s a 1 100 32 1000
 
+# realloc
+verbose 'test realloc' 'test realloc"'
+./test -s R 1 0x20000 10000

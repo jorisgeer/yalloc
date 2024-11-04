@@ -211,7 +211,8 @@ static ub4 bump_free(heapdesc *hd,heap *hb,bregion *reg,size_t ip,size_t reqlen,
     }
     ypush(hd,Fln)
     if (one == 0) return error(loc,"bumpregion %.01llu ptr %zx len %u never allocated tag %.01u",reg->uid,ip,len,fretag)
-    else  return error(loc,"bumpregion %.01llu ptr %zx len %u tag %.01u state %u",reg->uid,ip,len,fretag,one)
+    else if (one == 2) return free2(Fln,loc,(xregion *)reg,ip,len,fretag,"bump");
+    else return error(loc,"bumpregion %.01llu ptr %zx len %u tag %.01u state %u",reg->uid,ip,len,fretag,one)
   }
 
   one = 1;

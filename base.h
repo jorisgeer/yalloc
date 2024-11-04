@@ -76,15 +76,17 @@ typedef const char cchar;
  #pragma clang diagnostic error "-Wzero-length-array"
  #pragma clang diagnostic error "-Wshift-count-overflow"
  #pragma clang diagnostic error "-Wshorten-64-to-32"
+#if __clang_major__ > 7
  #pragma clang diagnostic error "-Watomic-implicit-seq-cst"
+ #pragma clang diagnostic warning "-Wimplicit-int-conversion"
+#endif
  #pragma clang diagnostic error "-Wunused-value"
  #pragma clang diagnostic error "-Wformat"
- #pragma clang diagnostic warning "-Wimplicit-int-conversion"
- #pragma clang diagnostic ignored "-Wpadded"
- #pragma clang diagnostic ignored "-Wunused-function"
- #pragma clang diagnostic ignored "-Wdeclaration-after-statement"
- #pragma clang diagnostic ignored "-Wreserved-identifier"
- #pragma clang diagnostic ignored "-Wc2x-compat"
+// #pragma clang diagnostic ignored "-Wpadded"
+// #pragma clang diagnostic ignored "-Wunused-function"
+// #pragma clang diagnostic ignored "-Wdeclaration-after-statement"
+// #pragma clang diagnostic ignored "-Wreserved-identifier"
+// #pragma clang diagnostic ignored "-Wc2x-compat"
 // #pragma clang diagnostic ignored "-Wunused-parameter"
 // #pragma clang diagnostic ignored "-Wunused-variable"
 // #pragma clang diagnostic ignored "-Wunused-but-set-variable"
@@ -105,10 +107,10 @@ typedef const char cchar;
  #pragma GCC diagnostic error "-Warray-bounds"
  #pragma GCC diagnostic error "-Wformat"
  #pragma GCC diagnostic error "-Wunused-value"
- #pragma GCC diagnostic ignored "-Wunused-variable"
- #pragma GCC diagnostic ignored "-Wunused-parameter"
- #pragma GCC diagnostic ignored "-Wpadded"
- #pragma GCC diagnostic ignored "-Wattributes"
+// #pragma GCC diagnostic ignored "-Wunused-variable"
+// #pragma GCC diagnostic ignored "-Wunused-parameter"
+// #pragma GCC diagnostic ignored "-Wpadded"
+// #pragma GCC diagnostic ignored "-Wattributes"
 #else
  #define Isclang 0
  #define Isgcc 0

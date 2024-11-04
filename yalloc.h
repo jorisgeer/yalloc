@@ -55,12 +55,6 @@ static const char yal_version[] = "0.8.1-alpha.0";
 
 #endif // gcc or clang
 
-// rough approx
-static void sat_inc(unsigned int *a)
-{
-  *a = (*a & 0x7fffffff) + 1;
-}
-
 #ifndef clz
   static Const int clz(unsigned int x)
   {
@@ -91,6 +85,28 @@ static void sat_inc(unsigned int *a)
     return n;
   }
 #endif
+
+static inline ub4 Const doalign4(ub4 n,ub4 a) { return (n + a - 1) & ~(a - 1); }
+
+static inline size_t Const doalign8(size_t n,size_t a) { return (n + a - 1) & ~(a - 1); }
+
+#if Yal_enable_check > 1
+static bool chkalign(void *p,size_t len,ub4 std) {
+  static const ub2 as[] = { 1,1,2,4,4,8,8,8 };
+  ub4 a;
+  size_t ap,ip = (size_t)p;
+
+  if (len < 8) a = as[len];
+  else a = std;
+  ap = doalign8(ip,a);
+  return ap != ip;
+}
+#endif
+
+// derived config shared with configure
+#define Maxclass (Mmap_max_threshold + 3)
+#define Clascnt (Maxclass * 4)
+static const ub4 class_grain = 3;
 
 #define Hi20 0xfffffu
 #define Hi24 0xffffffU

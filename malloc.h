@@ -51,6 +51,7 @@ struct yal_stats {
 
   // stats - unsummable
   unsigned int minlen,maxlen;
+  size_t minrelen,maxrelen;
   size_t mapminlen,mapmaxlen;
   size_t loadr,hiadr,lomapadr,himapadr;
 

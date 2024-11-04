@@ -382,6 +382,8 @@ static Cold size_t yal_mstats_heap(int fd,heap *hb,yalstats *ret,bool print,ub4 
   size_t fresiz = sp->fresiz;
   ub4 maxlen = sp->maxlen;
   ub4 minlen = maxlen ? sp->minlen : 0;
+  size_t maxrelen = sp->maxrelen;
+  size_t minrelen = maxrelen ? sp->minrelen : 0;
   size_t mapmaxlen = sp->mapmaxlen;
   size_t mapminlen = mapmaxlen ? sp->mapminlen : 0;
   size_t newregs = sp->newregions;
@@ -391,7 +393,7 @@ static Cold size_t yal_mstats_heap(int fd,heap *hb,yalstats *ret,bool print,ub4 
 
   double clockperc;
 
-  ub4 cnt,i,clas,*clascnts;
+  ub4 cnt,clas,*clascnts;
 
   errs = invalid_frees + sp->errors;
 
@@ -418,18 +420,18 @@ static Cold size_t yal_mstats_heap(int fd,heap *hb,yalstats *ret,bool print,ub4 
       tpos = table(tbuf,0,tlen,6,7,"mark",sp->trimregions[0],"unlist",sp->trimregions[1],"undir",sp->trimregions[2],"unmap",sp->trimregions[3],nil);
       if (tpos) pos += snprintf_mini(buf,pos,len,"  trim %.*s\n ",tpos,tbuf);
 
-      pos += snprintf_mini(buf,pos,len,"  clas %3u-%-3u len %3u-%-3u",minclass,sp->maxclass,minlen,sp->maxlen);
+      pos += snprintf_mini(buf,pos,len,"  clas %3u-%-3u len %3u - %-3u real %3zu - %-3zu",minclass,sp->maxclass,minlen,maxlen,minrelen,maxrelen);
       pos += snprintf_mini(buf,pos,len,"  avail %zu` inuse %zu` in %'zu %s` adr %zx .. %zx\n",fresiz,sp->inuse,sp->inusecnt,"block",sp->loadr,sp->hiadr);
       pos += snprintf_mini(buf,pos,len,"  mmap %zu` unmap %zu`\n\n",sp->mmaps,sp->munmaps - sp->delmpregions);
 
       if (hb && detail) {
+        pos += snprintf_mini(buf,pos,len,"clas size  count\n");
         clascnts = hb->clascnts;
-        i = 0;
+        clascnts[0] = (ub4)min(alloc0s,Hi32);
         for (clas = 0; clas < Xclascnt; clas++) {
           cnt = clascnts[clas];
           if (cnt) {
-            pos += snprintf_mini(buf,pos,len," %u=%u",hb->claslens[clas],cnt);
-            if ( (++i & 0xf) == 0) buf[pos++] = '\n';
+            pos += snprintf_mini(buf,pos,len,"  %-2u %-6u %u`\n",clas,hb->claslens[clas],cnt);
           }
         }
         buf[pos++] = '\n';

@@ -16,6 +16,8 @@ struct ptrinfo { // malloc_usable_size
   size_t len;
   ub4 cel;
   ub4 local;
+  ub4 fln;
+  ub4 filler;
 };
 
 // free large block
@@ -42,7 +44,7 @@ static enum Status free_mmap(heapdesc *hd,heap *hb,mpregion *reg,size_t ap,size_
   }
 
   if (ulen) {
-    if (doalign8(ulen,Pagesize) != len) { error(loc,"free(%zx,%zu) from %u mmap block had size %zu",ap,ulen,hd->id,len) return St_error; }
+    if (reg->ulen != ulen) { error(loc,"free(%zx,%zu) from tid %u mmap block had size %zu",ap,ulen,hd->id,reg->len) return St_error; }
   }
   if (align) {
     ycheck(St_error,loc,align & Pagesize1,"mmap region %u.%u align %zu",reg->hid,reg->id,align)
@@ -178,9 +180,8 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 tick)
     reg->age = age + 1;
     order = reg->order;
 
-    if (aged == 0 && age >= ages[0]) { // arrange for recycling
-      ydbg2(Fln,Lfree,"recycle slab region %.01llu gen %u.%u.%u len %zu ",uid,reg->gen,hid,rid,reg->len);
-      if (reg == hb->mrureg) hb->mrulen = 0;
+    if (aged == 0 && age >= ages[0]) { // arrange for recycling todo re-check emptiness
+      ydbg1(Fln,Lfree,"recycle slab region %.01llu gen %u.%u.%u len %zu ",uid,reg->gen,hid,rid,reg->len);
 
       setregion(hb,(xregion *)reg,reg->user,reg->len,0,Lfree,Fln);
 
@@ -215,6 +216,7 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 tick)
       hb->cfremsk[clas] |= msk;
       claseq = hb->clasregcnt[clas];
       if (claseq) hb->clasregcnt[clas] = (ub2)(claseq - 1);
+      hb->smalclas[clas] = nil;
       hb->stat.trimregions[1]++;
       reg->aged = 1;
     }
@@ -738,8 +740,8 @@ static Hot size_t yfree_heap(heapdesc *hd,void *p,size_t reqlen,struct ptrinfo *
   totrim = sometimes(frees,regfree_interval);
 
   if (likely(totrim == 0)) {
-    from = 1; didcas = Cas(hb->lock,from,0);
-    ycheck(Nolen,loc,didcas == 0,"heap %u unlock %u",hb->id,from)
+    Atomset(hb->lock,0,Morel);
+    // ycheck(Nolen,loc,didcas == 0,"heap %u unlock %u",hb->id,from)
     // Atomset(hb->lock,0,Morel);
     vg_drd_wlock_rel(hb)
     return retlen;

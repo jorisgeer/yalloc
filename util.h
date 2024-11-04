@@ -6,21 +6,6 @@
    SPDX-License-Identifier: GPL-3.0-or-later
 */
 
-static inline ub4 Const doalign4(ub4 n,ub4 a) { return (n + a - 1) & ~(a - 1); }
-
-static inline size_t Const doalign8(size_t n,size_t a) { return (n + a - 1) & ~(a - 1); }
-
-static bool chkalign(void *p,size_t len) {
-  static const ub2 as[] = { 1,1,2,4,4,8,8,8 };
-  ub4 a;
-  size_t ap,ip = (size_t)p;
-
-  if (len < 8) a = as[len];
-  else a = Basealign;
-  ap = doalign8(ip,a);
-  return ap != ip;
-}
-
 static size_t atox(cchar *s)
 {
   size_t x = 0;

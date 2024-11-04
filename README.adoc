@@ -22,7 +22,7 @@ multithreading supported by nonblocking atomics::  creating heaps on-demand to a
 
 configurable statistics, tracing and diagnostics:: low-overhead detailed stats.
 
-modest code size & complexity:: 8 KLOC including tests and dependencies.
+modest code size & complexity:: &tilde; 8 KLOC inclusive, compiling into &tilde; 60 KB code.
 
 good performance:: compares well in many link:https://github.com/daanx/mimalloc-bench[benchmarks].
 

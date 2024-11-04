@@ -20,7 +20,8 @@ void *malloc(size_t len)
   }
 #endif
 
-  p = ymalloc(len,__LINE__);
+  p = ymalloc(len,Fln);
+
   return p;
 }
 

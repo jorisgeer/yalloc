@@ -89,49 +89,6 @@ static mpregion *yal_mmap(heapdesc *hd,heap *hb,size_t len,size_t ulen,size_t al
   return reg;
 }
 
-// small size classes
-static const ub1 smalclas[64] = {
-  0,0,0,1,
-  1,2,2,2,
-  2,3,3,3,
-  3,4,4,4, // 15
-
-  4,5,5,5,
-  5,5,5,5,
-  5,6,6,6,
-  6,6,6,6, // 31
-
-  6,7,7,7,
-  7,7,7,7,
-  7,7,7,7,
-  7,7,7,7, // 47
-
-  7,8,8,8,
-  8,8,8,8,
-  8,8,8,8,
-  8,8,8,8 }; // 63
-
-static const ub1 smalalen[64] = { // and their sizes / alignment
-  2,2,2,4,
-  4,8,8,8,
-  8,16,16,16,
-  16,16,16,16, // 15
-
-  16,24,24,24,
-  24,24,24,24,
-  24,32,32,32,
-  32,32,32,32, // 31
-
-  32,48,48,48,
-  48,48,48,48,
-  48,48,48,48,
-  48,48,48,48, // 47
-
-  48,64,64,64,
-  64,64,64,64,
-  64,64,64,64,
-  64,64,64,64 }; // 63
-
 /* determine size class, then popularity of that class.
  unpopular small requests go to a bump allocator
  unpopular large requests go to mmap
@@ -153,32 +110,34 @@ static Hot void *alloc_heap(heapdesc *hd,heap *hb,size_t reqlen,size_t ulen,ub4 
   Ub8 clasmsk,fremsk,msk;
   ub4 clascnt,threshold;
   ub4 ord,cord;
+  ub4 grain = class_grain;
   ub4 iter;
   ub4 xpct;
 
   if (reqlen < 64) { // small
     len = (ub4)reqlen;
-    clas = smalclas[len];
-    alen = smalalen[len];
+    clas = len2clas[len];
+    alen = clas2len[clas];
     ord = clas;
 
-    ydbg3(Lnone,"clas %2u for len %5u ord %u",clas,len,ord);
+    ydbg3(Lnone,"clas %2u for len %5u",clas,len);
     ycheck(nil,loc,alen < len,"alen %u len %u",alen,len)
 
   } else if (likely(reqlen <= Hi30)) { // normal. Above mmap_max still counting popularity
     len = (ub4)reqlen;
     if (len & (len - 1)) { // 0000_0000_1ccx_xxxx  use 2 'cc' bits for 4 size classes per power of two and round 'xxx...' up
       ord = 32 - clz(len);
-      cord = ord - 3;
+      cord = ord - grain;
       clasal = 1u << cord;
       alen = doalign4(len,clasal);
-      clen = (alen >> cord) & 3;
-      if (clen == 0) clas = ord + 4; // if clen == 0, we can use clas = ctz(len) as below
-      else clas = Maxclass + ord * 3 + clen + 4;
+      clen = (alen >> cord) & grain;
+      if (clen == 0) clas = ord + Baseclass - 6; // if clen == 0, we can use clas = ctz(len) as below
+      else clas = Maxclass + ord * grain + clen + 4; // VMbits - 6 + ...  ?
+      ycheck(nil,loc,len < Smalclas && clas != len2clas[len],"len %u clas %u vs %u clen %u",len,clas,len2clas[len],clen)
       ydbg3(Lnone,"clas %2u for len %5x ord %u.%u align %x alen %x clen %x",clas,len,ord,cord,align,alen,clen);
     } else { // pwr2
       ord = ctz(len);
-      clas = ord + 4; // smal uses 8 and covers 6
+      clas = ord + Baseclass - 6; // ctz(64) = 6
       alen = len;
       ydbg3(Lnone,"clas %2u for len %5u ord %u",clas,len,ord);
     }
@@ -193,18 +152,18 @@ static Hot void *alloc_heap(heapdesc *hd,heap *hb,size_t reqlen,size_t ulen,ub4 
 
   ycheck(nil,loc,clas >= Xclascnt,"class %u for len  %u out of range %u",clas,alen,Xclascnt)
 
-  clascnt = hb->clascnts[clas];
+  clascnt = hb->clascnts[clas] & Hi31;
 
   if (clascnt == 0) {
     hb->claslens[clas] = alen;
     hb->cfremsk[clas] = 0xfffffffful;
-    ydbg2(Fln,Lnone,"clas %2u for len %5u` ord %u",clas,len,ord);
+    ydbg2(Fln,Lnone,"clas %2u for len %5u`",clas,len);
   }
 #if Yal_enable_check
   else if (hb->claslens[clas]  != alen) { error(loc,"reqlen %zu clas %u alen %u vs %u %zu",reqlen,clas,alen,hb->claslens[clas],ulen) return nil; }
 #endif
 
-  hb->clascnts[clas] = (clascnt & Hi31) + 1;
+  hb->clascnts[clas] = clascnt + 1;
 
   // mmap ?
   if (unlikely(reqlen >= mmap_limit)) {
@@ -262,8 +221,12 @@ static Hot void *alloc_heap(heapdesc *hd,heap *hb,size_t reqlen,size_t ulen,ub4 
     reg = clasregs[pos];
     if (unlikely(reg == nil)) { // need to create new
 
+      if (unlikely(len == 0)) {
+        ystats(hb->stat.alloc0s)
+        return zeroblock;
+      }
       // next class ?
-      if (clascnt < threshold && clas < Clascnt - 3 && loc != Lallocal) { // size class not popular yet
+      if (clascnt < threshold && iter < 4 && clas < Clascnt - 3 && loc != Lallocal) { // size class not popular yet
         for (nx = 1; nx < 3; nx++) {
           nxclas = clas + nx;
           ycheck(nil,loc,nxclas >= Clascnt,"class %u for len  %u out of range %u",nxclas,alen,Clascnt)
@@ -307,6 +270,8 @@ static Hot void *alloc_heap(heapdesc *hd,heap *hb,size_t reqlen,size_t ulen,ub4 
         ydbg2(Fln,loc,"reg %.01llu clas %u pos %u msk %lx %lx",reg->uid,clas,pos,clasmsk,fremsk);
         xpct = Atomget(reg->lock,Moacq);
         ycheck(nil,loc,xpct != 0,"new reg %u lock %u",reg->id,xpct)
+        hb->smalclas[clas] = reg;
+        ydbg2(Fln,loc,"reg %.01llu clas %u len %u",reg->uid,clas,len);
       }
     } else { // havereg
       vg_mem_def(reg,sizeof(region))
@@ -325,8 +290,6 @@ static Hot void *alloc_heap(heapdesc *hd,heap *hb,size_t reqlen,size_t ulen,ub4 
     if (likely(p != nil)) {
       ytrace(0,hd,loc,"-malloc(%zu`) = %zx tag %.01u",loc == Lalloc ? ulen : len,(size_t)p,tag)
       ydbg2(Fln,loc,"clas %u pos %u msk %lx",clas,pos,fremsk);
-      hb->mrulen = reg->cellen;
-      hb->mrureg = reg;
       vg_mem_noaccess(reg->meta,reg->metalen)
       vg_mem_noaccess(reg,sizeof(region))
       return p;
@@ -358,6 +321,14 @@ static Hot void *alloc_heap(heapdesc *hd,heap *hb,size_t reqlen,size_t ulen,ub4 
       pos = 0;
     }
     hb->claspos[clas] = (ub2)pos;
+    reg = clasregs[pos];
+    if (reg) {
+      ycheck(nil,loc,clas != reg->clas,"region %.01llu clas %u len %u vs %u %u",reg->uid,reg->clas,reg->cellen,clas,alen)
+      ycheck(nil,loc,reg->cellen < len,"region %.01llu clas %u len %u vs %u",reg->uid,clas,reg->cellen,len)
+    }
+    hb->smalclas[clas] = reg; // may be nil
+    ydbg2(Fln,loc,"reg %.01llu clas %u len %u",reg->uid,clas,len);
+
   } while (likely(--iter));
 
   if (reg) errorctx(reg->fln,loc,"reg %u msk %lx",reg->id,fremsk)
@@ -470,18 +441,18 @@ static Hot void *yal_heapdesc(heapdesc *hd,size_t len,size_t ulen,ub4 align,enum
   return p;
 }
 
-// calloc, aligned_alloc
+// calloc
 static void *yalloc(size_t len,size_t ulen,enum Loc loc,ub4 tag)
 {
   heapdesc *hd = getheapdesc(loc);
   void *p;
 
-#if Minalign > 2
-  if (likely(len != 0)) len = max(len,Minalign);
+  p = yal_heapdesc(hd,len,ulen,1,loc,tag);
+
+#if Yal_enable_check > 1
+  if (unlikely(chkalign(p,len,Stdalign) != 0)) error(Lalloc,"alloc(%zu) = %zx not aligns",len,(size_t)p)
 #endif
 
-  p = yal_heapdesc(hd,len,ulen,1,loc,tag);
-  ycheck(nil,loc,chkalign(p,ulen) != 0,"alloc(%zu) = %zx not aligns",ulen,(size_t)p)
   return p;
 }
 
@@ -492,52 +463,62 @@ static void *ymalloc(size_t len,ub4 tag)
   heap *hb = hd->hb;
   region *reg;
   void *p;
-  size_t mrulen;
+  ub4 clas;
+  ub4 clascnt;
   ub4 from;
   bool didcas;
-
-  // trivia: malloc(0)
-  if (unlikely(len == 0)) {
-    p = (void *)zeroblock;
-    ytrace(0,hd,Lalloc,"alloc 0 = %zx  tag %.01u",(size_t)p,tag)
-    ystats(hd->stat.alloc0s)
-    return p;
-  }
-
-#if Minalign > 2
-  len = max(len,Minalign);
-#endif
 
   if (likely(hb != nil)) { // simplified case
     from = 0; didcas = Cas(hb->lock,from,1);
     if (likely(didcas != 0)) {
       ystats(hd->stat.getheaps)
       // Atomset(hb->locfln,Fln,Morel);
-      if (unlikely( (hb->stat.binallocs & 0xff) == 0xff)) mrulen = hb->mrulen = 0;
-      else mrulen = hb->mrulen;
-      if (len <= mrulen && len * 2 > mrulen) {
-        reg = hb->mrureg;
-        vg_mem_def(reg,sizeof(region))
-        vg_mem_def(reg->meta,reg->metalen)
 
-        p = slab_malloc(reg,(ub4)len,tag);
+      if (likely(len < Smalclas)) {
+        clas = len2clas[len];
+        reg = hb->smalclas[clas];
+        if (likely(reg != nil)) {
+          clascnt = hb->clascnts[clas] & Hi31;
+          ycheck(nil,Lalloc,clascnt == 0,"clas %u count 0",clas)
+          ystats(hb->clascnts[clas])
+          vg_mem_def(reg,sizeof(region))
+          vg_mem_def(reg->meta,reg->metalen)
+          ycheck(nil,Lalloc,reg->clas != clas,"region %.01llu clas %u len %zu vs %u %u",reg->uid,clas,len,reg->clas,reg->cellen)
+          ycheck(nil,Lalloc,reg->cellen < len,"region %.01llu clas %u len %u vs %zu",reg->uid,clas,reg->cellen,len)
+          reg->age = 0; // todo replace with re-check at trim
+          ydbg2(Fln,Lalloc,"len %zu",len)
 
-        if (likely(p != nil)) {
-          ycheck(nil,Lalloc,chkalign(p,len) != 0,"alloc(%zu) = %zx not aligns",len,(size_t)p)
+          p = slab_malloc(reg,(ub4)len,tag);
+
+          if (likely(p != nil)) {
+#if Yal_enable_check > 1
+            if (unlikely(chkalign(p,len,Stdalign) != 0)) error(Lalloc,"alloc(%zu) = %zx not aligns",len,(size_t)p)
+#endif
+            Atomset(hb->lock,0,Morel);
+            vg_mem_noaccess(reg->meta,reg->metalen)
+            vg_mem_noaccess(reg,sizeof(region))
+            return p;
+          }
+          hb->smalclas[clas] = nil; // e.g. full
+        } // havereg
+
+        if (unlikely(len == 0)) {
+          p = (void *)zeroblock;
+          ytrace(0,hd,Lalloc,"alloc 0 = %zx  tag %.01u",(size_t)p,tag)
+          ystats(hb->stat.alloc0s)
           Atomset(hb->lock,0,Morel);
-          vg_mem_noaccess(reg->meta,reg->metalen)
-          vg_mem_noaccess(reg,sizeof(region))
           return p;
         }
-        hb->mrulen = 0;
-      }
+
+      } // small
       p = alloc_heap(hd,hb,len,len,1,Lalloc,tag);
       Atomset(hb->lock,0,Morel);
       return p;
-    } else {
-      ystats(hd->stat.nogetheaps)
-    } // didcas
-  } // have hb
+    } // locked
+    ydbg2(Fln,Lalloc,"len %zu",len)
+    ystats(hd->stat.nogetheaps)
+  } // heap
+  ydbg2(Fln,Lalloc,"len %zu",len)
   return yal_heapdesc(hd,len,len,1,Lalloc,tag);
 }
 

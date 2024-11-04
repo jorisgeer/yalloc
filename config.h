@@ -67,7 +67,7 @@
   #define Yal_enable_check 1
 
   // enable semi stack trace. Adds minor overhead
-  #define Yal_enable_stack 1
+  #define Yal_enable_stack 0
 
   #define Yal_log_level 6 // 1 assert 2 error 3 warn 4 info 5 trace 6 vrb 7 dbg
 
@@ -84,17 +84,19 @@
 
   #define Yal_errno 1 // Whether to set errno to ENOMEM on out-of-memory
 
-// --- virtual memory ---
+// --- virtual memory, in bits ---
 
-#define Vmbits64 48 // 256 TB for 64-bit systems, 32 for 32-bit systems
+#define Vmbits64 48 // -rerun configure- 256 TB for 64-bit systems, 32 for 32-bit systems
 
 #define Minregion 16
 
-#define Mmap_threshold 16u
-#define Mmap_max_threshold 22u
+#define Mmap_threshold 16u // mmap threshold for unpopular blocks
+#define Mmap_max_threshold 22u // -rerun configure-  mmap threshold for all blocks
 
 #define Xclas_threshold 4
 #define Clas_threshold 128 // popularity measure
+
+#define Smalclas 1024 // -rerun configure- use tabled class below this len
 
 // --- memory usage ---
 
@@ -102,6 +104,9 @@
 static const unsigned int regfree_interval = 0xff;
 
 #define Trim_scan 64 // number of regions to scan at a time. 0 to disable
+
+// --- safety ---
+#define Realloc_clear 0
 
 // ageing thresholds
 static unsigned int Trim_ages[3] = {
@@ -159,9 +164,8 @@ static const unsigned long Mmap_retainlimit = 1ul << 30; // directly release mem
 #define Bootmem (0x1000 - 32)
 
 // --- align ---
-#define Minalign 1u // Minimum alignment above C11 standard
 #define Basealign 8u // Expected alignof(max_align_t)
-#define Stdalign 16u // Alignment of internal use blocks of arbitrary length
+#define Stdalign 16u // Alignment of blocks > 8
 
 // --- extensions / compatibility ---
 #define Yal_enable_extensions 1

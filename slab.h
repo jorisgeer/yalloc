@@ -262,7 +262,7 @@ static Hot bool slab_markused(region *reg,ub4 cel,celset_t from,ub4 fln)
     return 1;
   }
   errorctx(fln,Lalloc,"region %u gen %u cel %u/%u is not freed earlier %u -> %u = %u",reg->id,reg->gen,cel,reg->celcnt,from,to,expect)
-  error2(Lfree,Fln,"region %.01llu invalid alloc(%zx) of size %u - cel %u/%u bin %u is not free %u",reg->uid,ip,cellen,cel,reg->celcnt,reg->binpos,reg->prvcel)
+  error2(Lfree,Fln,"region %.01llu invalid alloc(%zx) of size %u - cel %u/%u bin %u is not free",reg->uid,ip,cellen,cel,reg->celcnt,reg->binpos)
   return 1;
 }
 
@@ -394,7 +394,6 @@ static ub4 cel2rbin(heap *hb,region *reg,ub4 cel,enum Loc loc)
   ub4 celcnt;
   ub4 pos,rpos;
   ub4 *bin,*from;
-  celset_t set;
   bool didcas;
 
   celcnt = reg->celcnt;
@@ -419,8 +418,8 @@ static ub4 cel2rbin(heap *hb,region *reg,ub4 cel,enum Loc loc)
     return 1;
   }
 
-#if Yal_enable_check
-  set = slab_chkfree(reg,cel);
+#if Yal_enable_check > 1
+  celset_t set = slab_chkfree(reg,cel);
   if (set != 3) error(loc,"region %.01llu cel %u/%u is not free %u",reg->uid,cel,celcnt,set);
 #endif
   bin[rpos] = cel;
@@ -662,8 +661,9 @@ static ub4 slab_free_rheap(heapdesc *hd,heap *hb,region *reg,size_t ip,ub4 tag,e
     ycheck(0,loc,ref >= Remhid,"reg %.01llu.%u ref %u",reg->uid,reg->id,ref)
     ydbg2(Fln,loc,"add  region %.01llu from %u gen %u ref %-2u cnt 0  hid %u clas %u seq %u rem %zx reg %zx",reg->uid,hb->id,reg->gen,ref,hid,clas,seq,(size_t)remp,(size_t)reg)
   } else {
-    if (remp->reg != reg) {
-      do_ylog(hd->id,loc,Fln,Error,0,"reg %.01llu.%u vs bin reg %.01llu.%u",reg->uid,reg->id,remp->reg->uid,remp->reg->id);
+    if (unlikely(remp->reg != reg)) {
+      if (remp->reg) do_ylog(hd->id,loc,Fln,Error,0,"reg %.01llu.%u vs bin reg %.01llu.%u",reg->uid,reg->id,remp->reg->uid,remp->reg->id);
+      else do_ylog(hd->id,loc,Fln,Warn,0,"reg %.01llu.%u nil bin",reg->uid,reg->id); // todo xmalloc-test
       return cellen;
     }
     ycheck(0,loc,remp->reg != reg,"reg %.01llu.%u vs bin reg %.01llu.%u",reg->uid,reg->id,remp->reg->uid,remp->reg->id)
@@ -719,7 +719,6 @@ static Hot size_t slab_newalcel(region *reg,ub4 ulen,ub4 align,ub4 cellen Tagarg
   }
   ydbg3(Lallocal,"cel %u ini %u",cel,inipos);
   rv = slab_markused(reg,cel,0,Fln);
-  reg->prvcel = cel;
   if (unlikely(rv != 0)) {
     reg->fln = Fln;
     return 0;
@@ -774,6 +773,7 @@ static Hot ub4 slab_newcel(region *reg,enum Loc loc)
   bool rv;
   size_t binallocs = reg->stat.binallocs;
   ub4 from;
+  celset_t set;
   bool some,didcas;
 
   meta = reg->meta;
@@ -796,7 +796,7 @@ static Hot ub4 slab_newcel(region *reg,enum Loc loc)
   }
 
   pos = reg->binpos;
-  // ycheck(0,Lnone,pos != 0,"region %.01llu len %u cnt %u bin %u above ini %u %u %u",reg->uid,reg->cellen,celcnt,pos,reg->inipos,reg->bpchk1,reg->bpchk2)
+
   if (pos) { // from bin
     ycheck(0,loc,pos > reg->inipos,"region %.01llu len %u cnt %u bin %u above %u",reg->uid,reg->cellen,celcnt,pos,reg->inipos)
 
@@ -806,8 +806,8 @@ static Hot ub4 slab_newcel(region *reg,enum Loc loc)
     ycheck(0,loc,(size_t)(bin + pos) >= reg->metautop,"bin pos %u above meta %zu",pos,reg->metautop)
     cel = bin[pos];
 
-    if (cel == Nocel) {
-      for (c = 0; c <= pos; c++) {
+    if (unlikely(cel == Nocel)) {
+      for (c = 0; c <= min(pos,64); c++) {
         cel = bin[c];
         do_ylog(0,loc,Fln,Info,0,"bin %u cel %u",c,cel);
       }
@@ -818,29 +818,25 @@ static Hot ub4 slab_newcel(region *reg,enum Loc loc)
 
     ycheck(Nocel,loc,cel >= celcnt,"region %.01llu cel %u >= cnt %u",reg->uid,cel,reg->celcnt)
     reg->stat.binallocs = binallocs + 1;
-
-    rv = slab_markused(reg,cel,2,Fln);
-    if (likely(rv == 0)) return cel;
-  } // bin
-
-  // from initial slab
-  cel = reg->inipos;
-  if (unlikely(cel == celcnt)) {
-    ydbg3(loc,"reg %u ini %u == cnt seq %zu",reg->id,celcnt,reg->stat.iniallocs)
-    reg->fln = Fln;
-    return Nocel;
+    set = 2;
+  } else { // from ini
+    cel = reg->inipos;
+    if (unlikely(cel == celcnt)) { // full
+      ydbg3(loc,"reg %u ini %u == cnt seq %zu",reg->id,celcnt,reg->stat.iniallocs)
+      reg->fln = Fln;
+      return Nocel;
+    }
+    reg->inipos = cel + 1;
+    reg->stat.iniallocs++;
+    set = 0;
   }
 
-  rv = slab_markused(reg,cel,0,Fln);
+  rv = slab_markused(reg,cel,set,Fln);
   if (unlikely(rv != 0)) {
     ydbg2(Fln,loc,"region %u no mark",reg->id)
     reg->fln = Fln;
     return Nocel;
   }
-
-  reg->inipos = cel + 1;
-  reg->stat.iniallocs++;
-
   return cel;
 }
 
@@ -862,10 +858,10 @@ static Hot void *slab_alloc(heapdesc *hd,region *reg,ub4 ulen,ub4 align,enum Loc
   ypush(hd,Fln)
   cellen = reg->cellen;
   inipos = reg->inipos;
+
   ycheck(nil,loc,ulen == 0,"len %u tag %.01u",ulen,tag)
   ycheck(nil,loc,ulen > cellen,"len %u above %u",ulen,cellen)
-
-  ycheck(nil,loc,reg->aged != 0,"region %.01llu age %u",reg->uid,reg->aged)
+  ycheck(nil,loc,reg->aged != 0,"region %.01llu age %u.%u",reg->uid,reg->age,reg->aged)
 
   ypush(hd,Fln)
 
@@ -874,13 +870,14 @@ static Hot void *slab_alloc(heapdesc *hd,region *reg,ub4 ulen,ub4 align,enum Loc
     ystats(reg->stat.Allocs)
 #if Yal_enable_stats >= 2
     ub4 abit = ctz(ulen);
-    sat_inc(reg->stat.aligns + abit);
+    ub4 acnt = reg->stat.aligns[abit] & Hi31;
+    reg->stat.aligns[abit] = acnt + 1;
 #endif
     ypush(hd,Fln)
     ip = slab_newalcel(reg,ulen,align,cellen Tagarg(tag) );
     vg_mem_undef(ip,ulen)
     return (void *)ip;
-  } // malloc / calloc / aligned_alloc
+  } // aligned_alloc
 
   ypush(hd,Fln)
   cel = slab_newcel(reg,loc);
@@ -1035,7 +1032,6 @@ static Hot ub4 slab_frecel(heap *hb,region *reg,ub4 cel,ub4 cellen,ub4 celcnt,ub
   ub4 pos;
   ub4 *meta,*bin;
   bool rv;
-  celset_t set;
 
   ycheck(0,Lfree,cel >= celcnt,"region %u cel %u above %u",reg->id,cel,celcnt)
 
@@ -1058,9 +1054,10 @@ static Hot ub4 slab_frecel(heap *hb,region *reg,ub4 cel,ub4 cellen,ub4 celcnt,ub
   pos++;
   reg->binpos = pos;
 
-  set = slab_chkfree(reg,cel);
+#if Yal_enable_check > 1
+  celset_t set = slab_chkfree(reg,cel);
   ycheck(0, Lfree,set != 2,"region %.01llu gen %u.%u.%u cel %u set %u",reg->uid,reg->gen,hb->id,reg->id,cel,set)
-  reg->prvcel = cel;
+#endif
 
   ystats(reg->stat.frees);
   if (pos == reg->inipos) {

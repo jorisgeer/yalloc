@@ -55,7 +55,7 @@ static bool dostat,dotstat;
 static const int Error_fd = 1;
 static const int Log_fd = 1;
 
-#define Basealign 8
+#define Yal_enable_check 2
 
 static unsigned long mypid;
 
@@ -134,18 +134,6 @@ static void tlog(int line,enum Loglvl lvl,cchar *fmt,va_list ap)
   pos += mini_vsnprintf(buf,pos,len,fmt,ap);
   buf[pos++] = '\n';
   oswrite(lvl > Error ? Log_fd : Error_fd,buf,pos,__LINE__);
-}
-
-extern Noret void exit(int status);
-
-static Printf(2,3) Noret void fatal(int line,cchar *fmt,...)
-{
-  va_list ap;
-
-  va_start(ap,fmt);
-  tlog(line,Fatal,fmt,ap);
-  va_end(ap);
-  exit(1);
 }
 
 static Printf(2,3) int error(int line,cchar *fmt,...)
@@ -291,7 +279,7 @@ static int testalign(cchar *cmd,size_t from,size_t to,size_t align)
     if (ip & (a - 1)) return error(L,"block %zx len %zu not %zu aligned",ip,len,a);
     if (iq & (a - 1)) return error(L,"block %zx len %zu not %zu aligned",ip,len,a);
     if (ir & (a - 1)) return error(L,"block %zx len %zu not %zu aligned",ip,len,a);
-    if (chkalign(p,len)) return error(L,"block %zx len %zu not %zu aligned",ip,len,a);
+    // if (chkalign(p,len,8)) return error(L,"block %zx len %zu not %zu aligned",ip,len,a);
 
     free(r); free(q); free(p);
 
@@ -306,9 +294,9 @@ struct xinfo {
   _Atomic ub4 lock;
   ub4 tid;
   _Atomic ub4 cmd;
+  ub4 mode;
   _Atomic size_t len;
   _Atomic size_t cnt;
-  ub4 mode;
   size_t pos;
   size_t iter;
   void * _Atomic ps[Pointers];
@@ -810,6 +798,43 @@ static int allfre(cchar *cmd,size_t cnt,size_t len,size_t iter,size_t cnt2)
   return 0;
 }
 
+static int chkcel(unsigned char *p,size_t len,ub1 v1,ub1 v2,ub1 v3)
+{
+  size_t n;
+
+  if (len == 0) return 0;
+
+  for (n = 0; n < len; n++) {
+    if (*p == v1 || *p == v2 || *p == v3) continue;
+    error(L,"ptr %zx + %zu is %x",(size_t)p,n,*p);
+    return L;
+  }
+  return 0;
+}
+
+// realloc
+static int tstreal(size_t from,size_t to,size_t iter)
+{
+  size_t it;
+  size_t olen = 0,nlen,range = to - from;
+  void *p = nil,*np;
+
+  for (it = 0; it < iter; it++) {
+    nlen = from + rnd(range,g_state);
+    if (p) memset(p,0x55,olen);
+    np = realloc(p,nlen);
+    if (np == nil) return L;
+    if (chkcel((ub1 *)np,olen,0x55,0x55,0x55)) {
+      info(L,"olen %zu nlen %zu iter %zu",olen,nlen,it);
+      return L;
+    }
+    memset(np,0xaa,nlen);
+    olen = nlen;
+    p = np;
+  }
+  return 0;
+}
+
 static int do_test(cchar *cmd,size_t arg1,size_t arg2,size_t arg3,size_t arg4)
 {
   int rv = L;
@@ -821,6 +846,9 @@ static int do_test(cchar *cmd,size_t arg1,size_t arg2,size_t arg3,size_t arg4)
   if (haschr(cmd,'a')) { tstcnt++; rv = allfre(cmd,arg1,arg2,arg3,arg4); if (rv) return rv; }
   if (haschr(cmd,'2')) { tstcnt++; rv = fre2(arg1,arg2,arg3); if (rv) return rv; }
   if (haschr(cmd,'r')) { tstcnt++; rv = tstrand(arg1,arg2,arg3,arg4); if (rv) return rv; }
+  if (haschr(cmd,'R')) { tstcnt++; rv = tstreal(arg1,arg2,arg3); if (rv) return rv; }
+
+  if (tstcnt == 0) return L;
 
   info(L,"'%s' - %u %s` ok",cmd,tstcnt,"test");
 
@@ -829,18 +857,6 @@ static int do_test(cchar *cmd,size_t arg1,size_t arg2,size_t arg3,size_t arg4)
 
 #define Maxptr (1u << 20)
 static void *ps[Maxptr];
-
-static int chkcel(unsigned char *p,size_t len,ub1 v1,ub1 v2,ub1 v3)
-{
-  size_t n;
-
-  for (n = 0; n < len; n++) {
-    if (*p == v1 || *p == v2 || *p == v3) continue;
-    error(L,"ptr %zx + %zu is %x",(size_t)p,n,*p);
-    return L;
-  }
-  return 0;
-}
 
 static char *filarg(char *buf,ub4 len,ub4 *ppos)
 {

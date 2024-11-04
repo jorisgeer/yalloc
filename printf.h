@@ -4,7 +4,12 @@
    All C11 features are recognised and all except multibye / wide chars implemented
  */
 
-extern unsigned int snprintf_mini(char *dst,unsigned int ofs,unsigned int len,const char *fmt,...) Printf(4,5);
+#ifdef Printf
+  extern unsigned int snprintf_mini(char *dst,unsigned int ofs,unsigned int len,const char *fmt,...) Printf(4,5);
+#else
+  extern unsigned int snprintf_mini(char *dst,unsigned int ofs,unsigned int len,const char *fmt,...);
+#endif
+
 // unlike snprintf, starting at offset 'ofs', always null-terminating and returning the actual length
 
 #ifdef va_start
