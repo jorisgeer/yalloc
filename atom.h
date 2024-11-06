@@ -35,9 +35,9 @@
  #if __has_builtin(__atomic_load)
   #define Have_atomics
 
-  #define Cas(cmp,exp,des) __atomic_compare_exchange_n(&(cmp),&(exp),(des),1,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE)
+  #define Cas(cmp,exp,des) __atomic_compare_exchange_n(&(cmp),&(exp),(des),0,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE)
   #define cas(cmp,exp,des) __atomic_compare_exchange_n(&(cmp),&(exp),(des),1,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE)
-  #define Casa(cmp,exp,des) __atomic_compare_exchange_n((cmp),(exp),(des),1,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE)
+  #define Casa(cmp,exp,des) __atomic_compare_exchange_n((cmp),(exp),(des),0,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE)
   #define casa(cmp,exp,des) __atomic_compare_exchange_n((cmp),(exp),(des),1,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE)
 
   #define Atomad(a,b,o) __atomic_fetch_add(&(a),(b),o)

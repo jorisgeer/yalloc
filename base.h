@@ -26,6 +26,8 @@
    #define _Thread_local // -V1059 PVS override-reserved
   #endif
 
+  #define _Atomic volatile
+
 #else // c11+
 
  #ifndef __STDC_NO_ATOMICS__
@@ -141,8 +143,4 @@ typedef const char cchar;
    #define Noret
    #define _Thread_local // -V1059 PVS override-reserved
  #endif
-#endif
-
-#if defined _FORTIFY_SOURCE && _FORTIFY_SOURCE > 0
-//  #warning "_FORTIFY_SOURCE is defined"
 #endif

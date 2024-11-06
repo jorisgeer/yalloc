@@ -188,7 +188,7 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 tick)
 
       setregion(hb,(xregion *)reg,reg->user,reg->len,0,Lfree,Fln);
 
-      ycheck(nil,0,reg->inuse == 0,"region %.01llu not in use",reg->uid)
+      ycheck(1,0,reg->inuse == 0,"region %.01llu not in use",reg->uid)
       reg->inuse = 0;
 
       // add to sized list

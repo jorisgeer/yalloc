@@ -658,7 +658,7 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
 
     if (mhb) { // mini
       mheapcnt++;
-      bumpstats(fd,&one,mhb,1,print);
+      bumpstats(fd,&one,mhb,1,print != 0);
       sum.miniallocs += one.miniallocs;
       sum.minifrees += one.minifrees;
     }

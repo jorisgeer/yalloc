@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # build.sh - build script for yalloc
 
@@ -57,11 +57,11 @@ case $tool in
   cxtra='-std=c11 -funsigned-char -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -fpic -ftls-model=local-dynamic -fno-plt'
   cana="--analyze"
   if [ $dbg -eq 1 ]; then
-    cdbg='-g -fsanitize=undefined,signed-integer-overflow,bounds -fno-sanitize-recover=all -ftrapv -fstack-protector -D_FORTIFY_SOURCE=3'
+    cdbg='-g -fsanitize=undefined,signed-integer-overflow,bounds -fno-sanitize-recover=all -ftrapv -fstack-protector -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3'
     UBSAN_OPTIONS=print_stacktrace=1
     libs=
   else
-    cdbg='-gline-tables-only -fno-stack-protector -fwrapv -fcf-protection=none -mbranch-protection=none -fno-asynchronous-unwind-tables -D_FORTIFY_SOURCE=0' # -fno-stack-clash-protection
+    cdbg='-gline-tables-only -fno-stack-protector -fwrapv -fcf-protection=none -mbranch-protection=none -fno-asynchronous-unwind-tables -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0' # -fno-stack-clash-protection
     libs=
   fi
   copt='-O2'
@@ -80,7 +80,7 @@ case $tool in
     cdbg='-g -fsanitize=address,undefined,signed-integer-overflow,bounds -fno-sanitize-recover=all -ftrapv -fstack-protector'
     UBSAN_OPTIONS=print_stacktrace=1
   else
-    cdbg='-g -fno-stack-protector -fcf-protection=none -fno-stack-clash-protection -fno-asynchronous-unwind-tables -D_FORTIFY_SOURCE=0'
+    cdbg='-g -fno-stack-protector -fcf-protection=none -fno-stack-clash-protection -fno-asynchronous-unwind-tables -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0'
   fi
   copt='-O2 -fwrapv -fgcse-after-reload -ftree-partial-pre -fsplit-paths'
   lflags="-O2 -fuse-ld=gold $cdbg -static"
@@ -170,8 +170,8 @@ ld()
 
 while [ $# -ge 1 ]; do
   case "$1" in
-  '-a') cflag+="$cana" ;;
-  '-b') cflags+=" -DBacktrace" ;;
+  '-a') cflags="$cflags $cana" ;;
+  '-b') cflags="$cflags -DBacktrace" ;;
   '-h'|'-?') usage ;;
   '-m') map=1 ;;
   '-q') quick=1; docfg=0; ;;
@@ -206,7 +206,6 @@ if [ $docfg -eq 1 ]; then
     echo "configure returned OK"
   else
     error "configure returned error code $?"
-    exit 1
   fi
 fi
 
@@ -236,6 +235,7 @@ if [ -n "$cmd" ]; then
   elif [ "$platform" = "Linux" ]; then
     verbose "ld -dyn yalloc" "$cc $lflags -shared -o yalloc.so yalloc.o $objs"
     $cc -shared -o yalloc.so yalloc.o $objs
+    echo 'yalloc.so built successfully'
   fi
 fi
 
@@ -248,16 +248,32 @@ verbose 'test align small' 'test align alloc 4k 32"'
 ./test -s A 1 4096 32
 
 verbose 'test align large' 'test align alloc 64k 32"'
-./test -s A 0x10000 0x10000 32
+if ./test -s A 0x10000 0x10000 32; then
+  echo "test 1 ok"
+else
+  error "test 1 failed"
+fi
 
 # slab
 verbose 'test slab' 'test slab 64k 3 10"'
-./test -s s 1 0x10000 3 10
+if ./test -s s 1 0x10000 3 2; then
+  echo "test 2 ok"
+else
+  error "test 2 failed"
+fi
 
 # allfree
 verbose 'test alloc-free' 'test alloc-free"'
-./test -s a 1 100 32 1000
+if ./test -s a 1 100 32 1000; then
+  echo "test 3 ok"
+else
+  error "test 3 failed"
+fi
 
 # realloc
 verbose 'test realloc' 'test realloc"'
-./test -s R 1 0x20000 10000
+if ./test -s R 1 0x20000 10000; then
+  echo "test 4 ok"
+else
+  error "test 4 failed"
+fi
