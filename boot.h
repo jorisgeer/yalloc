@@ -170,24 +170,9 @@ static void init_check(void)
 #endif
 }
 
-static int newlogfile(cchar *name[],cchar *suffix,ub4 id)
-{
-  char fname[256];
-  int fd;
-
-  snprintf_mini(fname,0,255,"%.32s%.32s-%u%.32s",name[0] ? name[0] : "",suffix,id,name[1] ? name[1] : "");
-  minidiag(Fln,Lnone,Info,0,"writing to %.256s",fname);
-  fd = oscreate(fname);
-  if (fd == -1) fd = 2;
-  return fd;
-}
-
 static void init_env(void)
 {
   unsigned long pid = ospid();
-
-  if (Yal_log_fd == -1) Yal_log_fd = newlogfile(Yal_log_file,"",1);
-  if (Yal_err_fd == -1) Yal_err_fd = newlogfile(Yal_err_file,"",1);
 
   Atomset(global_pid,pid,Monone);
 

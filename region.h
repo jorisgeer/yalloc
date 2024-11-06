@@ -473,6 +473,8 @@ static region *newregion(heap *hb,ub4 order,size_t len,size_t metaulen,ub4 celle
   ub4 ord = order;
   ub4 claseq,gen;
   ub4 ohid = hid;
+  ub4 rbinlen,rbininc;
+  ub4 *rembin;
   ub4 shift;
   ub4 iter;
   ub4 from;
@@ -520,7 +522,7 @@ static region *newregion(heap *hb,ub4 order,size_t len,size_t metaulen,ub4 celle
         sp->noregions++;
         sp->curnoregions++;
         uid = (sp->useregions + sp->newregions + sp->noregions) * 2;
-        ydbg1(Fln,Lnone,"use region %.01llu -> %u.%llu len %zu` gen %u.%u.%u cel %u for %zu`,%u",reg->uid,hid,uid,reg->len,reg->gen,hid,reg->id,reg->cellen,len,cellen);
+        ydbg2(Fln,Lnone,"use region %.01llu -> %u.%llu len %zu` gen %u.%u.%u cel %u for %zu`,%u",reg->uid,hid,uid,reg->len,reg->gen,hid,reg->id,reg->cellen,len,cellen);
         break;
       }
       ureg = ureg->frenxt;
@@ -579,7 +581,7 @@ static region *newregion(heap *hb,ub4 order,size_t len,size_t metaulen,ub4 celle
     ycheck(nil,0,didcas == 0,"region %.01llu from %u",reg->uid,from)
     vg_drd_wlock_acq(reg)
 
-    ycheck(nil,0,reg->typ != Rslab,"region %u typ %s",reg->id,regnames[reg->typ]);
+    ycheck(nil,0,reg->typ != Rslab,"region %u typ %s",reg->id,regnames[reg->typ])
 
     olen = reg->len;
     ouser = (void *)reg->user;
@@ -593,6 +595,9 @@ static region *newregion(heap *hb,ub4 order,size_t len,size_t metaulen,ub4 celle
     nxt = reg->nxt;
     claseq = reg->claseq;
     gen = reg->gen;
+    rbinlen = reg->rbinlen;
+    rbininc = reg->rbininc;
+    rembin = Atomget(reg->rembin,Moacq);
 
     slabstats(reg,&hb->stat,nil,0,0,0,0,0); // accumulate stats from previous user
 
@@ -601,11 +606,16 @@ static region *newregion(heap *hb,ub4 order,size_t len,size_t metaulen,ub4 celle
 
     memset(reg,0,sizeof(region));
 
+    reg->fln = Fln;
+
     reg->typ = Rnone;
     reg->gen = gen + 1;
     reg->claseq = claseq;
     reg->nxt = nxt;
     reg->clr = 1; // if set, calloc() needs to clear.
+    reg->rbinlen = rbinlen;
+    reg->rbininc = rbininc;
+    Atomset(reg->rembin,rembin,Morel);
 
   } else { // new
     olen = omlen = 0;
@@ -631,7 +641,7 @@ static region *newregion(heap *hb,ub4 order,size_t len,size_t metaulen,ub4 celle
     else {
       preg = hb->regprv;
       vg_mem_def(preg,sizeof(region))
-      ycheck(nil,0,preg->typ != Rslab,"region %u typ %s",preg->id,regnames[preg->typ]);
+      ycheck(nil,0,preg->typ != Rslab,"region %u typ %s",preg->id,regnames[preg->typ])
       preg->nxt = reg;
       vg_mem_noaccess(preg,sizeof(region))
       hb->regprv = reg;
@@ -800,7 +810,7 @@ static mpregion *newmpregion(heap *hb,size_t len,enum Loc loc,ub4 fln)
       hb->mpreglst = hb->mpregtrim = hb->mpregprv = reg;
     } else {
       preg = hb->mpregprv;
-      ycheck(nil,0,preg->typ != Rmmap,"region %u typ %s",preg->id,regnames[preg->typ]);
+      ycheck(nil,0,preg->typ != Rmmap,"region %u typ %s",preg->id,regnames[preg->typ])
       preg->nxt = reg;
       hb->mpregprv = reg;
     }
@@ -818,7 +828,7 @@ static mpregion *newmpregion(heap *hb,size_t len,enum Loc loc,ub4 fln)
   reg->frenxt = reg->freprv = nil;
 
   // reuse
-  ycheck(nil,0,reg->hb != hb,"mpregion %u heap %zx vs %zx",rid,(size_t)reg->hb,(size_t)hb);
+  ycheck(nil,0,reg->hb != hb,"mpregion %u heap %zx vs %zx",rid,(size_t)reg->hb,(size_t)hb)
   sp->usempregions++;
   olen = reg->len;
   ydbg2(Fln,Lnone,"use xregion %zx %u.%u for size %zu` from %zu`",(size_t)reg,hid,reg->id,len,olen);

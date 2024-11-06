@@ -177,7 +177,7 @@ static const unsigned long mmap_limit = (1ul << Mmap_threshold);
  #error "Page needs to be power of two of Pagesize"
 #endif
 
-static const ub4 Pagesize = 1u << Page;
+#define Pagesize (1u << Page)
 static const ub4 Pagesize1 = Pagesize - 1;
 
 #define Stdalign1 (Stdalign - 1)
@@ -215,6 +215,17 @@ static const ub4 Pagesize1 = Pagesize - 1;
 #include "printf.h"
 
 // -- diagnostics --
+
+static int newlogfile(cchar *name[],cchar *suffix,ub4 id,unsigned long pid)
+{
+  char fname[256];
+  int fd;
+
+  snprintf_mini(fname,0,255,"%.32s%.32s-%u-%lu%.32s",name[0] ? name[0] : "",suffix,id,pid,name[1] ? name[1] : "");
+  fd = oscreate(fname);
+  if (fd == -1) fd = 2;
+  return fd;
+}
 
 enum File { Falloc,Fatom,Fbist,Fboot,Fbump,Fdbg,Fdiag,Ffree,Fheap,Fmini,Frealloc,Fregion,Fslab,Fstat,Fstd,Fyalloc,Fcount };
 static cchar * const filenames[Fcount] = {
@@ -281,15 +292,18 @@ static Printf(5,6) ub4 minidiag(ub4 fln,enum Loc loc,enum Loglvl lvl,ub4 id,char
   if (pos < 255) buf[pos++] = '\n';
 
   if (lvl > Error) {
-    fd = fd2 = Yal_log_fd;
+    fd = Yal_log_fd;
+    if (fd == -1) fd = Yal_log_fd = newlogfile(Yal_log_file,"",0,pid);
     if (fd == -1) return pos;
+    fd2 = fd;
   } else {
     fd = Yal_err_fd;
+    if (fd == -1) fd = Yal_err_fd = newlogfile(Yal_err_file,"",0,pid);
     if (fd == -1) fd = 2;
     fd2 = Yal_Err_fd;
   }
   oswrite(fd,buf,pos,__LINE__);
-  if (fd2 != fd) oswrite(fd2,buf,pos,__LINE__);
+  if (fd2 != -1 && fd2 != fd) oswrite(fd2,buf,pos,__LINE__);
   if (loc == Lsig) {
     return pos;
   }
@@ -459,6 +473,7 @@ struct Align(16) st_region { // slab region. allocated as pool from heap
   _Atomic ub4 remref;
 
   ub4 rbinpos;
+  ub4 rbinlen,rbininc;
 
   ub4 aged;
   ub4 inuse;
@@ -471,16 +486,16 @@ struct Align(16) st_region { // slab region. allocated as pool from heap
   struct regstat stat;
 
   size_t metautop; // as required
-  ub8 filler;
 };
 typedef struct st_region region;
 
 // local buffering for remote free
 struct remote {
   region *reg;
+  ub8 uid;
   ub4 *bin;
-  ub4 cnt;
-  ub4 filler;
+  ub4 pos,cnt,inc;
+  ub4 celcnt;
 };
 
 struct rembuf {
@@ -548,7 +563,9 @@ struct Align(16) st_heap {
 
   struct yal_stats stat;
 
-  Ub8 filler;
+  ub4 rmeminc;
+
+  char filler[12];
 
   // bump allocator
   struct st_bregion bumpregs[Bumpregions];
@@ -664,6 +681,8 @@ static Hot heapdesc *getheapdesc(enum Loc loc)
 
   id = Atomad(global_tid,1,Moacqrel);
 
+  if (id == 1) init_env();
+
   fln = Fyalloc << 16;
   minidiag(fln|__LINE__,loc,Debug,id,"new base heap size %u.%u",len,(ub4)sizeof(struct hdstats));
   len = doalign4(len,L1line);
@@ -701,7 +720,6 @@ static Hot heapdesc *getheapdesc(enum Loc loc)
 
   if (didcas == 0) hd->stat.nolink++; // not essential
 
-  if (unlikely(id == 1)) init_env();
   hd->id = id;
   hd->trace = global_trace;
   return hd;

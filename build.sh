@@ -52,7 +52,7 @@ time=$(date -u '+%H%M')
 case $tool in
   'clang' | 'icx')
   cc=clang
-  cdiag='-Wall -Wextra -Wunused -Wno-unused-command-line-argument -Wsign-conversion -Wchar-subscripts -Werror=format -Werror=return-type -Wno-c2x-compat -Wno-poison-system-directories'
+  cdiag='-Wall -Wextra -Wunused -Wno-unused-command-line-argument -Wsign-conversion -Wchar-subscripts -Werror=format -Werror=return-type -Wno-poison-system-directories'
   cfmt='-fno-caret-diagnostics -fno-color-diagnostics -fno-diagnostics-show-option -fno-diagnostics-fixit-info -fno-diagnostics-show-note-include-stack -fno-show-column'
   cxtra='-std=c11 -funsigned-char -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -fpic -ftls-model=local-dynamic -fno-plt'
   cana="--analyze"
@@ -72,7 +72,7 @@ case $tool in
 
   'gcc')
   cc=gcc
-  cdiag='-Wall -Wextra -Wshadow -Wundef -Wunused -Wformat-overflow=2 -Wformat-truncation=2 -Wpadded -Winline -Werror=stack-usage=35000'
+  cdiag='-Wall -Wextra -Wshadow -Wundef -Wunused -Wformat-overflow=2 -Wformat-truncation=2 -Winline -Werror=stack-usage=35000'
   cfmt='-fmax-errors=60 -fno-diagnostics-show-caret -fno-diagnostics-show-option -fno-diagnostics-color -fcompare-debug-second'
   cxtra='-std=c11 -funsigned-char -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -fpic -ftls-model=local-dynamic -fno-plt'
   cana="-fanalyzer"

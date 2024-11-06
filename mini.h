@@ -21,7 +21,7 @@ static void *mini_alloc(heapdesc *hd,ub4 len,ub4 ulen,ub4 align,enum Loc loc,ub4
   bool didcas;
 
   ord = 32 - clz(len);
-  ycheck(nil,loc,ord >= 16 + 4,"mini len %u above %u",len,1u<< 20);
+  ycheck(nil,loc,ord >= 16 + 4,"mini len %u above %u",len,1u<< 20)
 
   if (ord < Miniord && ord > 4) {
     cnt = hd->minicnts[ord - 4];

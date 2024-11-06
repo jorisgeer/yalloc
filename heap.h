@@ -10,12 +10,15 @@
 
 #define Logfile Fheap
 
-static void slab_reset(region *reg);
+static bool slab_reset(region *reg);
 
 static void heap_init(heap *hb)
 {
   static_assert(Clascnt < 65536,"Clascnt < 64K");
   static_assert(Page + Dir1 + Dir2 + Dir3 == Vmbits,"VM size not covered by dir");
+  static_assert( (Rmeminc & (Rmeminc - 1)) == 0,"Rmeminc not power of two");
+
+  hb->rmeminc = max(Rmeminc,Pagesize);
 
   hb->stat.id = hb->id;
   hb->stat.minrelen = Hi64;
@@ -41,7 +44,7 @@ static heap *newheap(heapdesc *hd,enum Loc loc,ub4 fln)
   void *vbase;
   size_t base;
   heap *hb,*orghb;
-  ub4 iter,iters = 20,zero;
+  ub4 iter,zero;
   bool didcas;
 
   ub4 len;
@@ -69,9 +72,9 @@ static heap *newheap(heapdesc *hd,enum Loc loc,ub4 fln)
   }
   ydbg2(fln,loc,"new heap %u for %u base %u regs %u+%u dir %up + %up = %u` tag %.01u",hid,id,hlen,rlen,rxlen,dlen,llen,len,fln);
 
-  if (hid > tidcnt) {
+  if (hid > tidcnt + 1) {
     errorctx(Fln,Lnone,"base %u",id);
-    do_ylog(Diagcode,loc,fln,Warn,1,"heap %u above tidcnt %u",hid,tidcnt);
+    ydbg1(fln,loc,"heap %u above tidcnt %u",hid,tidcnt)
   }
   vbase = osmmap(len);
   if (vbase == nil) return nil;
@@ -104,7 +107,7 @@ static heap *newheap(heapdesc *hd,enum Loc loc,ub4 fln)
   ycheck(nil,loc,didcas == 0,"new heap %u from %u",hid,zero)
   vg_drd_wlock_acq(hb)
 
-  iter = iters;
+  iter = 20;
 
   // create list of all heaps for reassign
   do {
@@ -115,8 +118,7 @@ static heap *newheap(heapdesc *hd,enum Loc loc,ub4 fln)
 
   if (didcas == 0) {
     hd->stat.nolink++;
-    errorctx(Fln,loc,"%u iters",iters);
-    do_ylog(Diagcode,loc,fln,Warn,1,"base %u new heap %u not linked",id,hid);
+    do_ylog(Diagcode,loc,fln,Info,0,"base %u new heap %u not linked",id,hid);
   }
   return hb;
 }
@@ -166,7 +168,7 @@ static void *getrbinmem(heap *hb,ub4 len)
   ub4 *mem = hb->rbinmem;
   ub4 pos = hb->rbmempos;
   ub4 end = hb->rbmemlen;
-  ub4 inc,meminc = max(Rmeminc,Pagesize);
+  ub4 inc,meminc = hb->rmeminc;
 
   len = doalign4(len,8);
 
@@ -177,16 +179,11 @@ static void *getrbinmem(heap *hb,ub4 len)
     mem = hb->rbinmem = osmmap(inc * 4);
     hb->stat.rbinallocs++;
     hb->rbmemlen = inc;
+    if (meminc < Hi24) hb->rmeminc = meminc << 1;
+    hb->stat.xbufbytes += inc * 4;
   }
   hb->rbmempos = pos + len;
   return mem + pos;
-}
-
-static void putrbinmem(heap *hb,ub4 len)
-{
-  ub4 pos = hb->rbmempos;
-
-   hb->rbmempos -= min(pos,len);
 }
 
 static struct rembuf *newrem(heap *hb)

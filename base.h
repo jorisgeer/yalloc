@@ -82,9 +82,9 @@ typedef const char cchar;
 #endif
  #pragma clang diagnostic error "-Wunused-value"
  #pragma clang diagnostic error "-Wformat"
-// #pragma clang diagnostic ignored "-Wpadded"
+#pragma clang diagnostic ignored "-Wpadded"
 // #pragma clang diagnostic ignored "-Wunused-function"
-// #pragma clang diagnostic ignored "-Wdeclaration-after-statement"
+ #pragma clang diagnostic ignored "-Wdeclaration-after-statement"
 // #pragma clang diagnostic ignored "-Wreserved-identifier"
 // #pragma clang diagnostic ignored "-Wc2x-compat"
 // #pragma clang diagnostic ignored "-Wunused-parameter"
@@ -109,7 +109,7 @@ typedef const char cchar;
  #pragma GCC diagnostic error "-Wunused-value"
 // #pragma GCC diagnostic ignored "-Wunused-variable"
 // #pragma GCC diagnostic ignored "-Wunused-parameter"
-// #pragma GCC diagnostic ignored "-Wpadded"
+ #pragma GCC diagnostic ignored "-Wpadded"
 // #pragma GCC diagnostic ignored "-Wattributes"
 #else
  #define Isclang 0

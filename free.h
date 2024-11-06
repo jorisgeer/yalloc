@@ -156,19 +156,22 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 tick)
     from = 0; didcas = Cas(reg->lock,from,1);
     if (didcas == 0) { reg = nxreg; continue; }
     vg_drd_wlock_acq(reg)
+    reg->fln = Fln;
 
     uid = reg->uid;
     rid = reg->id;
 
     if (age == 1) { // to check
-      isempty = (reg->rbinpos + reg->binpos == reg->inipos);
+      isempty = (reg->binpos == reg->inipos);
       if (isempty) {
         ref = Atomget(reg->remref,Moacq);
-        ycheck(1,Lfree,ref != 0,"reg %.01llu ref %u",uid,ref)
+        ycheck(1,Lfree,ref != 0,"reg %.01llu ref %u pos %u,%u",uid,ref,reg->binpos,reg->rbinpos)
+        ycheck(1,Lfree,reg->inipos == 0,"reg %.01llu ref %u binpos %u",uid,ref,reg->binpos)
         hb->stat.trimregions[0]++;
         reg->age = 2; // next time ageing starts
       }
-      from = 1; didcas = Cas(reg->lock,from,0);
+      reg->fln = Fln;
+      Atomset(reg->lock,0,Morel);
       vg_drd_wlock_rel(reg)
       reg = nxreg;
       continue;
@@ -181,7 +184,7 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 tick)
     order = reg->order;
 
     if (aged == 0 && age >= ages[0]) { // arrange for recycling todo re-check emptiness
-      ydbg1(Fln,Lfree,"recycle slab region %.01llu gen %u.%u.%u len %zu ",uid,reg->gen,hid,rid,reg->len);
+      ydbg2(Fln,Lfree,"recycle slab region %.01llu gen %u.%u.%u len %zu ",uid,reg->gen,hid,rid,reg->len);
 
       setregion(hb,(xregion *)reg,reg->user,reg->len,0,Lfree,Fln);
 
@@ -208,7 +211,7 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 tick)
       clasmsk &= ~msk;
       if (claspos == hb->claspos[clas]) { // active ?
         claspos = clasmsk ? ctzl(clasmsk) : 0;
-       ycheck(1,0,claspos >= Clasregs,"reg %u clas %u pos %u",xreg->id,clas,claspos);
+       ycheck(1,0,claspos >= Clasregs,"reg %u clas %u pos %u",xreg->id,clas,claspos)
         hb->claspos[clas] = (ub2)claspos;
       }
       ydbg3(Lnone,"reg %.01lu clas %u pos %u msk %lx",uid,clas,claspos,clasmsk);
@@ -234,12 +237,12 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 tick)
     if (sp->curnoregions > Region_alloc) lim = 1024; // reduce trim if too much redo happens
     if (age >= lim && aged == 2) { // trim : delete user and meta
       if (sp->noregions > Region_alloc) { // todo check
-        from = 1; didcas = Cas(reg->lock,from,0);
+        Atomset(reg->lock,0,Morel);
         vg_drd_wlock_rel(reg)
-        ycheck(1,Lnone,didcas == 0,"region %.01llu age %u locked %u",uid,age,from)
+        reg->fln = Fln;
         break;
       }
-      ydbg1(Fln,Lfree,"trim slab region %.01llu gen %u.%u.%u len %zu",uid,reg->gen,hid,rid,reg->len);
+      ydbg2(Fln,Lfree,"trim slab region %.01llu gen %u.%u.%u len %zu",uid,reg->gen,hid,rid,reg->len);
       ycheck(1,Lnone,reg->aged < 2,"region %.01llu age %u not  recycling %u",uid,age,reg->aged)
 
       // prepare to unmap
@@ -273,9 +276,9 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 tick)
       reg->aged = 3;
     }
 
-    from = 1; didcas = Cas(reg->lock,from,0);
+    Atomset(reg->lock,0,Morel);
     vg_drd_wlock_rel(reg)
-    ycheck(1,Lnone,didcas == 0,"region %.01llu age %u locked %u",uid,age,from)
+    reg->fln = Fln;
     reg = nxreg;
   } // each reg
 
@@ -396,11 +399,8 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 tick)
 
   hb->mpregtrim = mreg ? mreg : hb->mpreglst;
 
-  from = 1;
-  didcas = Cas(hb->lock,from,0); // actual munmap is unlocked
+  Atomset(hb->lock,0,Morel); // actual munmap is unlocked
   vg_drd_wlock_rel(hb)
-
-  ycheck(0,Lfree,didcas == 0,"heap %u lock %u",hb->id,from)
 
   for (i = 0; i < rbpos; i++) {
     if (lens[i]) osunmem(Fln,hd,(void *)bases[i],lens[i],"trim");
@@ -553,6 +553,7 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,struct p
     local = 0;
     xhb = reg->hb;
     if (xhb) { // no mini
+      ydbg3(Fln,loc,"lock heap %u",xhb->id)
       from = 0; didcas = Cas(xhb->lock,from,1);
       if (didcas) {
         vg_drd_wlock_acq(xhb)
@@ -589,7 +590,7 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,struct p
       if (unlikely(bincnt == 1) && creg->inipos == celcnt) { // was probably full
         clas = creg->clas;
         claspos = creg->claspos;
-        ycheck(Nolen,loc,claspos >= 32,"reg %u clas %u pos %u",creg->id,clas,claspos);
+        ycheck(Nolen,loc,claspos >= 32,"reg %u clas %u pos %u",creg->id,clas,claspos)
         clasmsk = hb->clasmsk[clas];
         clasmsk |= (1ul << claspos); // re-include in alloc candidate list
         ydbg3(loc,"reg %.01lu clas %u pos %u msk %lx",creg->uid,clas,claspos,clasmsk);
@@ -621,6 +622,7 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,struct p
     } // size
 
     // remote
+
     xpct = 0; reglocked = Cas(reg->lock,xpct,1);
 
     if (unlikely(reglocked == 0)) { // buffer, needs heap
@@ -647,6 +649,7 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,struct p
     len4 = slab_free_rreg(hd,hb,creg,ip,tag,loc);
     Atomset(reg->lock,0,Morel);
     vg_drd_wlock_rel(reg)
+    creg->fln = Fln;
     if (likely(len4 != 0)) return len4;
 
     hd->stat.invalid_frees++;
@@ -710,11 +713,12 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,struct p
 static Hot size_t yfree_heap(heapdesc *hd,void *p,size_t reqlen,struct ptrinfo *pi,enum Loc loc,ub4 tag)
 {
   size_t retlen;
+  size_t bufs,batch,left;
   heap *hb = hd->hb;
   ub4 from;
   bool didcas = 0;
   bool totrim;
-  ub4 frees;
+  ub4 frees,iter;
 
   // common: regular local heap
   if (likely(hb != nil)) {
@@ -722,7 +726,6 @@ static Hot size_t yfree_heap(heapdesc *hd,void *p,size_t reqlen,struct ptrinfo *
     if (unlikely(didcas == 0)) hb = nil;
     else {
       vg_drd_wlock_acq(hb)
-      // Atomset(hb->locfln,Fln,Morel);
     }
   } // nil hb
   hd->locked = didcas;
@@ -741,14 +744,23 @@ static Hot size_t yfree_heap(heapdesc *hd,void *p,size_t reqlen,struct ptrinfo *
 
   if (likely(totrim == 0)) {
     Atomset(hb->lock,0,Morel);
-    // ycheck(Nolen,loc,didcas == 0,"heap %u unlock %u",hb->id,from)
-    // Atomset(hb->lock,0,Morel);
     vg_drd_wlock_rel(hb)
     return retlen;
   }
 
   from = Atomget(hb->lock,Moacq);
   ycheck(Nolen,loc,from != 1,"heap %u unlock %u",hb->id,from)
+
+  bufs = hb->stat.xfreebuf;
+  batch = hb->stat.xfreebatch;
+
+  if (bufs - batch > Buffer_flush) {
+    iter = 1;
+    do {
+      left = slab_unbuffer(hb,loc);
+    } while (left > Buffer_flush && --iter);
+    ywarn(loc,left > (1ul << 18),"heap %u unbuffer left %zu from %zu - %zu",hb->id,left,bufs,batch)
+  }
 
   free_trim(hd,hb,frees); // unlocks
   return retlen;

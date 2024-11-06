@@ -26,7 +26,7 @@ static bool newbump(heap *hb,ub4 hid,bregion *reg,ub4 len,ub4 regpos,enum Rtype 
   len = doalign4(len * (regpos + 1),Pagesize);
   len = min(len, 65536 * Stdalign);
 
-  ycheck(1,loc,len < Pagesize,"%s region size %u page %u",regnames[typ],len,Pagesize);
+  ycheck(1,loc,len < Pagesize,"%s region size %u page %u",regnames[typ],len,Pagesize)
 
   celcnt = len / Stdalign;
   tagorg = celcnt / 2; // in ub4

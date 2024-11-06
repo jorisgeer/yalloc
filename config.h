@@ -8,11 +8,11 @@
 
 // --- diagnostics / error handling ---
 
-  // output fds, -1 for file
-  static int Yal_log_fd = 1; // trace and diag
-  static int Yal_err_fd = 1; // errors
+  // output fds, -1 for file except Err_fd
+  static int Yal_log_fd = -1; // trace and diag
+  static int Yal_err_fd = -1; // errors
   static int Yal_Err_fd = 2; // aux errors
-  static int Yal_stats_fd = 1; // stats
+  static int Yal_stats_fd = -1; // stats
 
   // thread id appended
   static const char *Yal_log_file[] =  { "yal-log-heap",".log" };
@@ -69,7 +69,7 @@
   // enable semi stack trace. Adds minor overhead
   #define Yal_enable_stack 0
 
-  #define Yal_log_level 6 // 1 assert 2 error 3 warn 4 info 5 trace 6 vrb 7 dbg
+  #define Yal_log_level 5 // 1 assert 2 error 3 warn 4 info 5 trace 6 vrb 7 dbg
 
   #define Yal_dbg_level 0 // enable detailed debug logging. Levels 1..3
 
@@ -122,6 +122,9 @@ static const unsigned long Mmap_retainlimit = 1ul << 30; // directly release mem
 // --- slab ---
 #define Cel_nolen 64 // Do not store user aka net length per cell below this block len
 
+#define Rbinbuf 64 // Initial remote freelist
+#define Buffer_flush 256 // Item threshold to flush remote freelist
+
 // -- bump region (within heap) --
 #define Bumplen 0x4000
 #define Bumpmax 256
@@ -135,7 +138,7 @@ static const unsigned long Mmap_retainlimit = 1ul << 30; // directly release mem
 #define Regmem_inc 32
 #define Xregmem_inc (64 * 4)
 
-#define Rmeminc 4096
+#define Rmeminc 0x4000
 
 // number of directories
 #define Dirmem_init 8

@@ -34,7 +34,7 @@ struct yal_stats {
   size_t findregions;
   size_t locks,clocks;
   size_t xfreebuf; // unconditional
-  size_t xfreesum,xfreebatch,xfreebatch1,xfreedropped,rbinallocs;
+  size_t xfreesum,xfreebatch,xfreebatch1,xfreedropped,rbinallocs,xbufbytes;
 
   size_t invalid_frees;
   size_t invalid_reallocs;

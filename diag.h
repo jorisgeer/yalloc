@@ -107,12 +107,14 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
   msgcnt = Atomad(g_msgcnt,1,Moacqrel);
   if (lvl > Error) {
     fd = Yal_log_fd;
+    if (fd == -1) fd = Yal_log_fd = newlogfile(Yal_log_file,"",tid,pid);
     if (msgcnt == 0) {
       upos = snprintf_mini(headbuf,0,255,"\n%18s %-4s %-5s %-4s %-3s %-1s %-7s msg\n","file/line","seq","pid","tid","dia","","api");
       pos = underline(buf,len,headbuf,upos);
     }
   } else {
     fd = Yal_err_fd;
+    if (fd == -1) fd = Yal_err_fd = newlogfile(Yal_err_file,"",tid,pid);
     errcnt = Atomad(g_errcnt,1,Moacqrel);
     if (errcnt == 0) {
       pos = snprintf_mini(buf,0,len,"\n-- %lu -- yalloc detected error\n",pid);
@@ -233,15 +235,23 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
 
 #if Yal_enable_check
 
-#if Isgcc || Isclang
+ #if Isgcc || Isclang
   #define ycheck(rv,loc,expr,fmt,...) if (__builtin_expect ( (expr),0) ) { do_ylog(Diagcode,loc,Fln,Assert,0,fmt,__VA_ARGS__); return(rv); }
+  #define ywarn(loc,expr,fmt,...) if (__builtin_expect ( (expr),0) ) do_ylog(Diagcode,loc,Fln,Warn,0,fmt,__VA_ARGS__);
  #else
   #define ycheck(rv,loc,expr,fmt,...) if ( (expr) ) { do_ylog(Diagcode,loc,Fln,Assert,0,fmt,__VA_ARGS__); return(rv); }
+  #define ywarn(loc,expr,fmt,...) if ( (expr) ) do_ylog(Diagcode,loc,Fln,Warn,0,fmt,__VA_ARGS__);
  #endif
-  #define ycheck0(loc,expr,fmt,...) if (unlikely (expr) ) do_ylog(Diagcode,loc,Fln,Assert,0,fmt,__VA_ARGS__);
+
 #else
   #define ycheck(rv,loc,expr,fmt,...)
-  #define ycheck0(loc,expr,fmt,...)
+  #define ywarn(loc,expr,fmt,...)
+#endif
+
+#if Yal_enable_check > 1
+ #define ycheck1(rv,loc,expr,fmt,...) if ( (expr) ) { do_ylog(Diagcode,loc,Fln,Assert,0,fmt,__VA_ARGS__); return(rv); }
+#else
+ #define ycheck1(rv,loc,expr,fmt,...)
 #endif
 
 #if Yal_enable_stack
@@ -325,7 +335,7 @@ static ub4 trace_enable(ub4 ena)
   ub4 rv = global_trace;
   heapdesc *hd = getheapdesc(Lnone);
 
-  minidiag(Fln,Lnone,Info,0,"trace %u -> %u",rv,ena);
+  minidiag(Fln,Lnone,Vrb,0,"trace %u -> %u",rv,ena);
   hd->trace = ena;
   global_trace = ena | 8;
   return rv;

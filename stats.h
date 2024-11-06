@@ -439,8 +439,8 @@ static Cold size_t yal_mstats_heap(int fd,heap *hb,yalstats *ret,bool print,ub4 
       }
     }
     if (xfreebuf | xfreebatch | xfreebatch1 | xmapfrees) {
-      pos += snprintf_mini(buf,pos,len,"  inter-thread free slab %-7zu` map %-7zu` buffer %zu` max %zu` batch %zu` + %zu` - %zu mmap %zu\n",
-        xfreebuf + xfreebatch1,xmapfrees,xfreebuf,xmaxbin,xfreebatch,xfreebatch1,sp->xfreedropped,sp->rbinallocs);
+      pos += snprintf_mini(buf,pos,len,"  inter-thread free slab %-7zu` map %-7zu` buffer %zu` max %zu` batch %zu` + %zu` - %zu = %zu`b mmap %zu\n",
+        xfreebuf + xfreebatch1,xmapfrees,xfreebuf,xmaxbin,xfreebatch,xfreebatch1,sp->xfreedropped,sp->xbufbytes,sp->rbinallocs);
     }
     if (bumpallocs | bumpfrees) pos += snprintf_mini(buf,pos,len,"  bump alloc %-3zu free %-3zu\n",bumpallocs,bumpfrees);
     if (miniallocs | minifrees) pos += snprintf_mini(buf,pos,len,"  mini alloc %-3zu free %-3zu\n",miniallocs,minifrees);
@@ -521,6 +521,7 @@ static void sumup(yalstats *sum,yalstats *one)
   sum->xfreebatch1 += one->xfreebatch1;
   sum->xfreedropped += one->xfreedropped;
   sum->rbinallocs += one->rbinallocs;
+  sum->xbufbytes += one->xbufbytes;
 
   sum->locks += one->locks;
   sum->clocks += one->clocks;
@@ -556,8 +557,10 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
 
   heap *hb;
   bregion *mhb;
+  unsigned long pid = Atomget(global_pid,Monone);
   size_t invfrees;
-  ub4 heapcnt = 0,mheapcnt = 0;
+  ub4 hnew,huse;
+  ub4 tidcnt,heapcnt = 0,mheapcnt = 0;
   bool didopen = 0;
   ub4 zero = 0;
   bool didcas = 0;
@@ -585,12 +588,16 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
     memset(hd,0,sizeof(heapdesc));
   }
 
+  tidcnt = Atomget(global_tid,Monone) - 1u;
+
   if (print) { // prevent mutiple threads printing simultaneoulsy : redirect to file if needed
     didcas = Cas(oneprint,zero,1);
-    if (didcas) fd = Yal_stats_fd;
-    if (fd == -1) {
-      fd = newlogfile(Yal_stats_file,allthreads ? "-all" : "",hd->id);
-      if (fd != 2) didopen = 1;
+    if (didcas) {
+      fd = Yal_stats_fd;
+      if (fd == -1) {
+        fd = newlogfile(Yal_stats_file,allthreads ? "-all" : "",hd->id,pid);
+        if (fd != 2) didopen = 1;
+      }
     }
   }
   if (allthreads == 0) {
@@ -610,7 +617,7 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
   if (print) {
     *buf = '\n';
     pos = diagfln(buf,1,len,Fln);
-    pos += snprintf_mini(buf,pos,len,"%-2u                yalloc stats for %u %s` and %u %s`\n\n",hd->id,Atomget(global_tid,Monone) - 1u,"thread",Atomget(global_hid,Monone) - 1u,"heap");
+    pos += snprintf_mini(buf,pos,len,"%-2u                yalloc stats for %u %s` and %u %s`\n\n",hd->id,tidcnt,"thread",Atomget(global_hid,Monone) - 1u,"heap");
     oswrite(fd,buf,pos,Fln);
     pos = 0;
   }
@@ -618,6 +625,9 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
   xhd = Atomget(global_heapdescs,Monone);
   while (xhd) {
     ds = &xhd->stat;
+
+    hnew = ds->newheaps;
+    huse = ds->useheaps;
 
   // tallied outside of heap
     sum.munmaps += ds->munmaps;
@@ -631,15 +641,15 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
     invfrees = ds->invalid_frees;
     sum.invalid_frees += invfrees;
 
-    sum.newheaps += ds->newheaps;
-    sum.useheaps += ds->useheaps;
+    sum.newheaps += hnew;
+    sum.useheaps += huse;
 
     sum.getheaps += ds->getheaps;
     sum.nogetheaps += ds->nogetheaps;
     sum.nogetheap0s += ds->nogetheap0s;
 
     if (print && (opts & Yal_stats_detail) ) {
-      pos += snprintf_mini(buf,pos,len,"heap base %u new %u  used %u get %zu noget %zu,%zu\n",xhd->id,ds->newheaps,ds->useheaps,ds->getheaps,ds->nogetheaps,ds->nogetheap0s);
+      if (hnew | huse) pos += snprintf_mini(buf,pos,len,"heap base %u new %u  used %u get %zu noget %zu,%zu\n",xhd->id,hnew,huse,ds->getheaps,ds->nogetheaps,ds->nogetheap0s);
       if (pos > 2048) { oswrite(fd,buf,pos,Fln); pos = 0; }
     }
     if (invfrees) pos += snprintf_mini(buf,pos,len,"  invalid-free %-4zu error %-3zu\n",invfrees,ds->errors);
@@ -685,7 +695,7 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
   struct bootmem *bootp;
   ub4 bootallocs,bootnolocks = 0;
 
-  if (print) minidiag(Fln,Lstats,Info,hd->id,"\n--- yalloc %s stats totals over %u %s` and %u %s` --- %s tag %.01u\n",yal_version,heapcnt,"heap",mheapcnt,"miniheap",desc,tag);
+  if (print) minidiag(Fln,Lstats,Info,hd->id,"\n--- yalloc %s stats totals over %u %s` and %u %s` in %u %s` --- %s tag %.01u\n",yal_version,heapcnt,"heap",mheapcnt,"miniheap",tidcnt,"thread",desc,tag);
 
   yal_mstats_heap(fd,nil,&sum,print != 0,opts | 0x80,tag,desc,Fln); // totals
 

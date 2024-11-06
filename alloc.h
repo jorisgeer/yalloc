@@ -213,7 +213,7 @@ static Hot void *alloc_heap(heapdesc *hd,heap *hb,size_t reqlen,size_t ulen,ub4 
 #endif
 
   pos = hb->claspos[clas];
-  ycheck(nil,loc,pos >= Clasregs,"clas %u pos %u",clas,pos);
+  ycheck(nil,loc,pos >= Clasregs,"clas %u pos %u",clas,pos)
   ydbg2(Fln,loc,"clas %u pos %u msk %lx %lx",clas,pos,hb->clasmsk[clas],fremsk);
 
   iter = Clasregs * 2 + 2;
@@ -233,7 +233,7 @@ static Hot void *alloc_heap(heapdesc *hd,heap *hb,size_t reqlen,size_t ulen,ub4 
           if (hb->claslens[nxclas] < alen) continue;
           nxclasregs = hb->clasregs + nxclas * Clasregs;
           nxpos = hb->claspos[nxclas];
-          ycheck(nil,loc,nxpos >= Clasregs,"clas %u pos %u",clas,nxpos);
+          ycheck(nil,loc,nxpos >= Clasregs,"clas %u pos %u",clas,nxpos)
           reg = nxclasregs[nxpos];
           if (reg) { // use a larger one
             vg_mem_def(reg,sizeof(region))
@@ -432,10 +432,8 @@ static Hot void *yal_heapdesc(heapdesc *hd,size_t len,size_t ulen,ub4 align,enum
   p = yal_heap(hd,hb,len,ulen,align,loc,tag); // regular
   // hb = hd->hb;  // hb may have changed
 
-  from = 1;
-  didcas = Cas(hb->lock,from,0);
+  Atomset(hb->lock,0,Morel);
   vg_drd_wlock_rel(hb)
-  ycheck(nil,loc,didcas == 0,"heap %u lock %u",hb->id,from)
 
   ycheck(nil,loc,p == nil,"p nil for len %zu",len)
   return p;
@@ -470,6 +468,7 @@ static void *ymalloc(size_t len,ub4 tag)
 
   if (likely(hb != nil)) { // simplified case
     from = 0; didcas = Cas(hb->lock,from,1);
+
     if (likely(didcas != 0)) {
       ystats(hd->stat.getheaps)
       // Atomset(hb->locfln,Fln,Morel);
@@ -486,7 +485,7 @@ static void *ymalloc(size_t len,ub4 tag)
           ycheck(nil,Lalloc,reg->clas != clas,"region %.01llu clas %u len %zu vs %u %u",reg->uid,clas,len,reg->clas,reg->cellen)
           ycheck(nil,Lalloc,reg->cellen < len,"region %.01llu clas %u len %u vs %zu",reg->uid,clas,reg->cellen,len)
           reg->age = 0; // todo replace with re-check at trim
-          ydbg2(Fln,Lalloc,"len %zu",len)
+          ydbg3(Fln,Lalloc,"len %zu",len)
 
           p = slab_malloc(reg,(ub4)len,tag);
 
@@ -518,7 +517,7 @@ static void *ymalloc(size_t len,ub4 tag)
     ydbg2(Fln,Lalloc,"len %zu",len)
     ystats(hd->stat.nogetheaps)
   } // heap
-  ydbg2(Fln,Lalloc,"len %zu",len)
+  ydbg3(Fln,Lalloc,"len %zu",len)
   return yal_heapdesc(hd,len,len,1,Lalloc,tag);
 }
 
@@ -572,7 +571,7 @@ static void *yalloc_align(size_t align, size_t len,ub4 tag)
     reg = yal_mmap(hd,hb,alen,len,align,Lallocal,Fln);
     if (reg == nil) return nil;
     aip = reg->user + reg->align;
-    from = 1; didcas = Cas(hb->lock,from,0);
+    Atomset(hb->lock,0,Morel);
     vg_drd_wlock_rel(hb)
     ytrace(0,hd,Lallocal,"-mallocal(%zu`,%zu) = %zx tag %.01u",len,align,aip,tag);
     return (void *)aip;
@@ -594,7 +593,7 @@ static void *yalloc_align(size_t align, size_t len,ub4 tag)
   if (p == nil) return p;
   ip = (size_t)p;
   aip = doalign8(ip,align);
-  ycheck(nil,Lallocal,ip != aip,"p %zx vs %zx",ip,aip);
+  ycheck(nil,Lallocal,ip != aip,"p %zx vs %zx",ip,aip)
 #endif
 
   return p;
