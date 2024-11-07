@@ -162,7 +162,7 @@ static void init_check(void)
   envs = getenv(Yal_check_envvar);
 #endif
   if (envs) val = atou(envs);
-  Atomset(global_check,val,Monone);
+  global_check = val;
 
 #if Yal_enable_check
   page = ospagesize();

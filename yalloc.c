@@ -629,7 +629,7 @@ typedef struct st_heapdesc heapdesc;
 
 static ub4 global_stats_opt; // set from Yal_stats_envvar
 static ub4 global_trace = Yal_trace_default;
-static _Atomic ub4 global_check = Yal_check_default;
+static ub4 global_check = Yal_check_default;
 
 static heapdesc * _Atomic global_freehds;
 

@@ -15,9 +15,8 @@ struct ptrinfo { // malloc_usable_size
   xregion *reg;
   size_t len;
   ub4 cel;
-  ub4 local;
   ub4 fln;
-  ub4 filler;
+  bool local;
 };
 
 // free large block
@@ -236,7 +235,7 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 tick)
     if (sometimes(curregs,Region_interval)) sp->curnoregions = 0;
     if (sp->curnoregions > Region_alloc) lim = 1024; // reduce trim if too much redo happens
     if (age >= lim && aged == 2) { // trim : delete user and meta
-      if (sp->noregions > Region_alloc) { // todo check
+      if (sp->noregions > Region_alloc) { // avoid too frequent trim-alloc cycles
         Atomset(reg->lock,0,Morel);
         vg_drd_wlock_rel(reg)
         reg->fln = Fln;
@@ -580,6 +579,7 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,struct p
     celcnt = creg->celcnt;
     if (likely(local && reqlen != Nolen)) {
       ycheck(Nolen,loc,hb == nil,"nil hb for reg %u",reg->id)
+      ycheck(Nolen,loc,hb != reg->hb,"hb %u vs %u for reg %u",hb->id,reg->hb->id,reg->id)
       ytrace(1,hd,loc,"ptr+%zx len %u %2zu",ip,cellen,creg->stat.frees)
 
       bincnt = slab_free(hb,creg,ip,cellen,celcnt,tag); // put in recycling bin
@@ -643,10 +643,15 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,struct p
       return Nolen;
     } // reg not locked
 
+    xpct = Atomget(reg->lock,Moacq);
+    ycheck(1,loc,xpct != 1,"reg %u from %u %u",reg->id,xpct,reglocked)
+
     vg_drd_wlock_acq(reg)
 
     ytrace(1,hd,loc,"ptr+%zx len %u %2zu",ip,cellen,creg->stat.frees)
+
     len4 = slab_free_rreg(hd,hb,creg,ip,tag,loc);
+
     Atomset(reg->lock,0,Morel);
     vg_drd_wlock_rel(reg)
     creg->fln = Fln;

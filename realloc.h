@@ -70,7 +70,7 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
   bool local;
 
   xreg = pi->reg;
-  local = pi->local != 0;
+  local = pi->local;
   ulen = pi->len;
 
   ycheck( (void *)__LINE__,Lreal,xreg == nil,"realloc(%zx,%zu) nil region",ip,newulen)

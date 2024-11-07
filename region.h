@@ -473,7 +473,7 @@ static region *newregion(heap *hb,ub4 order,size_t len,size_t metaulen,ub4 celle
   ub4 ord = order;
   ub4 claseq,gen;
   ub4 ohid = hid;
-  ub4 rbinlen,rbininc;
+  ub4 rbinlen;
   ub4 *rembin;
   ub4 shift;
   ub4 iter;
@@ -596,7 +596,6 @@ static region *newregion(heap *hb,ub4 order,size_t len,size_t metaulen,ub4 celle
     claseq = reg->claseq;
     gen = reg->gen;
     rbinlen = reg->rbinlen;
-    rbininc = reg->rbininc;
     rembin = Atomget(reg->rembin,Moacq);
 
     slabstats(reg,&hb->stat,nil,0,0,0,0,0); // accumulate stats from previous user
@@ -614,7 +613,6 @@ static region *newregion(heap *hb,ub4 order,size_t len,size_t metaulen,ub4 celle
     reg->nxt = nxt;
     reg->clr = 1; // if set, calloc() needs to clear.
     reg->rbinlen = rbinlen;
-    reg->rbininc = rbininc;
     Atomset(reg->rembin,rembin,Morel);
 
   } else { // new

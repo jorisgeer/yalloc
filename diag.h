@@ -82,7 +82,7 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
   ub4 errcnt,msgcnt;
   char *xbuf = nil;
 
-  check = Atomget(global_check,Moacq);
+  check = global_check;
   if ( (check & 1) == 0) return pos; // ignore
 
   heapdesc *hd = thread_heap;
@@ -158,7 +158,6 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
     if (lvl <= Error) hd->stat.errors++;
   }
 
-  check = Atomget(global_check,Moacq);
   if ( (check & 2) == 0) return pos; // ignore
 
   if (lvl == Nolvl) return pos;

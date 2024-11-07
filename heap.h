@@ -175,7 +175,7 @@ static void *getrbinmem(heap *hb,ub4 len)
   if (pos + len > end) { // won't fit
     pos = 0;
     inc = max(meminc,len);
-    inc = doalign4(inc,meminc);
+    inc = doalign4(inc,Pagesize / 4);
     mem = hb->rbinmem = osmmap(inc * 4);
     hb->stat.rbinallocs++;
     hb->rbmemlen = inc;

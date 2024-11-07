@@ -748,7 +748,7 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
     memset(&usg,0,sizeof(usg));
     osrusage(&usg);
 
-    tpos = table(tbuf,0,256,7,8,"user msec",usg.utime,"sys msec",usg.stime,"max rss",usg.maxrss,"soft page",usg.minflt,"hard page",usg.maxflt,"vol ctx",usg.volctx,"ctx",usg.ivolctx,nil);
+    tpos = table(tbuf,0,256,7,8,"user msec",usg.utime,"sys msec",usg.stime,"max rss",usg.maxrss,"spage",usg.minflt,"page",usg.maxflt,"vol cswitch",usg.volctx,"cswitch",usg.ivolctx,nil);
     pos += snprintf_mini(buf,pos,len,"\n  %.*s\n",tpos,tbuf);
 
     pos += snprintf_mini(buf,pos,len,"\n  -- end of yalloc stats -- \n\n");

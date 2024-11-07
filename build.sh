@@ -142,7 +142,7 @@ cc()
   tgt="$1"
   src="$2"
 
-  verbose "$cc -c $src" "$cc -c $cflags $src"
+  verbose "cc -c $src" "$cc -c $cflags $src"
   $cc -c $cflags -DDate=$date -DTime=1$time $src
   if [ "$tgt" = "$target" ]; then
     exit 0

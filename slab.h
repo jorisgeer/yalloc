@@ -339,6 +339,7 @@ static ub4 slab_remalloc(region *reg)
 #if Yal_enable_check
   ub4 ref = Atomget(reg->remref,Moacq);
   if (unlikely(ref == 0)) { error(Lalloc,"reg %.01llu ref %u",reg->uid,ref) }
+  if (unlikely(rpos >= reg->rbinlen)) { error(Lalloc,"reg %.01llu rbin %u above %u",reg->uid,rpos,reg->rbinlen) }
 #endif
 
   reg->rbinpos = 0; // empty remote bin
@@ -400,7 +401,7 @@ static ub4 cel2rbin(heap *hb,region *reg,ub4 cel,ub4 celcnt,enum Loc loc)
   bin = Atomget(reg->rembin,Moacq);
   if (unlikely(bin == nil)) {
     ycheck(1,loc,rpos != 0,"reg %.01llu pos %unil rbin",reg->uid,rpos)
-    cnt = reg->rbininc = Rbinbuf;
+    cnt = Rbinbuf;
   } else {
     cnt = doalign4(rpos + Rbinbuf,Rbinbuf );
   }
@@ -409,7 +410,7 @@ static ub4 cel2rbin(heap *hb,region *reg,ub4 cel,ub4 celcnt,enum Loc loc)
     reg->rbininc = inc * 2;
     cnt = max(cnt,inc);
     cnt = doalign4(cnt + Rbinbuf,Rbinbuf );
-    if (cnt > 1u << 16) { ydbg1(Fln,loc,"rbin %u -> %u",reg->rbinlen,cnt) }
+    if (cnt > 1u << 16) { ydbg2(Fln,loc,"rbin %u -> %u",reg->rbinlen,cnt) }
     if (hb) bin2 = getrbinmem(hb,cnt);
     else bin2 = bootalloc(Fln,0,Lrfree,cnt * 4);
     if (bin2 == nil) return 1;
@@ -452,7 +453,7 @@ static ub4 cels2rbin(heap *hb,ub4 *bin,region *reg,ub4 cnt,enum Loc loc)
   rbin = Atomget(reg->rembin,Moacq);
   if (unlikely(rbin == nil)) {
     ycheck(1,loc,rpos != 0,"reg %.01llu pos %unil rbin",reg->uid,rpos)
-    rcnt = reg->rbininc = doalign4(cnt + Rbinbuf,Rbinbuf);
+    rcnt = doalign4(cnt + Rbinbuf,Rbinbuf);
   } else {
     rcnt = doalign4(rpos + cnt + Rbinbuf,Rbinbuf);
   }
@@ -461,7 +462,7 @@ static ub4 cels2rbin(heap *hb,ub4 *bin,region *reg,ub4 cnt,enum Loc loc)
     reg->rbininc = inc * 2;
     rcnt = max(rcnt,inc);
     rcnt = doalign4(rcnt + Rbinbuf,Rbinbuf );
-    if (cnt > 1u << 16) { ydbg1(Fln,loc,"rbin %u -> %u",reg->rbinlen,rcnt) }
+    if (cnt > 1u << 16) { ydbg2(Fln,loc,"rbin %u -> %u",reg->rbinlen,rcnt) }
     rbin2 = getrbinmem(hb,rcnt);
     if (rbin2 == nil) {
       return cnt;
@@ -568,7 +569,7 @@ static size_t slab_unbuffer(heap *hb,enum Loc loc)
         from = 0; didcas = Cas(reg->lock,from,1);
         if (didcas == 0) {
           nocas++;
-          if (nocas > 100) ydbg1(reg->fln,loc,"busy region %.01llu from %u gen %u cnt %-2u hid %u clas %u seq %u",reg->uid,hb->id,reg->gen,cnt,hid,clas,seq)
+          if (nocas > 100) { ydbg2(reg->fln,loc,"busy region %.01llu from %u gen %u cnt %-2u hid %u clas %u seq %u",reg->uid,hb->id,reg->gen,cnt,hid,clas,seq) }
           continue;
         }
         vg_drd_wlock_acq(reg)
@@ -619,6 +620,9 @@ static ub4 slab_free_rreg(heapdesc *hd,heap *hb,region *reg,size_t ip,ub4 tag,en
   ub4 cel,cellen,celcnt;
   yalstats *hs;
   bool rv;
+  ub4 from = Atomget(reg->lock,Moacq);
+
+  ycheck(1,loc,from != 1,"reg %u from %u",reg->id,from)
 
   cellen = reg->cellen;
   celcnt = reg->celcnt;
