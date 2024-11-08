@@ -73,7 +73,7 @@ static heap *newheap(heapdesc *hd,enum Loc loc,ub4 fln)
   ydbg2(fln,loc,"new heap %u for %u base %u regs %u+%u dir %up + %up = %u` tag %.01u",hid,id,hlen,rlen,rxlen,dlen,llen,len,fln);
 
   if (hid > tidcnt + 1) {
-    errorctx(Fln,Lnone,"base %u",id);
+    errorctx(Fln,Lnone,"base %u",id)
     ydbg1(fln,loc,"heap %u above tidcnt %u",hid,tidcnt)
   }
   vbase = osmmap(len);

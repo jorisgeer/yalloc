@@ -126,8 +126,8 @@ static void setgregion(heap *hb,xregion *reg,size_t bas,size_t len,bool add,enum
         from = nil;
         didcas = Casa(dir3 + pos3,&from,xreg);
         if (unlikely(didcas == 0)) {
-          errorctx(fln,loc,"reg %zx base %lx len %lu`",(size_t)reg,bas,len);
-          error2(loc,Fln,"heap %u %s region %u still mapped to %zx %u",hb ? hb->id : 0,regname(reg),reg->id,(size_t)from,from->id);
+          errorctx(fln,loc,"reg %zx base %lx len %lu`",(size_t)reg,bas,len)
+          error2(loc,Fln,"heap %u %s region %u still mapped to %zx %u",hb ? hb->id : 0,regname(reg),reg->id,(size_t)from,from->id)
         }
       } while (++pos3 < posend);
     } else {
@@ -135,8 +135,8 @@ static void setgregion(heap *hb,xregion *reg,size_t bas,size_t len,bool add,enum
         from = reg;
         didcas = Casa(dir3 + pos3,&from,xreg);
         if (unlikely(didcas == 0)) {
-          errorctx(fln,loc,"reg %zx base %lx len %lu`",(size_t)reg,bas,len);
-          error2(loc,Fln,"heap %u %s region %u was not mapped %zx",hb ? hb->id : 0,regname(reg),reg->id,(size_t)from);
+          errorctx(fln,loc,"reg %zx base %lx len %lu`",(size_t)reg,bas,len)
+          error2(loc,Fln,"heap %u %s region %u was not mapped %zx",hb ? hb->id : 0,regname(reg),reg->id,(size_t)from)
         }
       } while (++pos3 < posend);
     }
@@ -241,8 +241,8 @@ static Hot xregion *findregion(heap *hb,size_t ip,enum Loc loc)
   size_t base = reg->user;
   size_t len = reg->len;
 
-  if (ip < base) { error(loc,"region %u.%u p %zx is %zu` below base %zx",reg->hid,reg->id,ip,base - ip,base); return nil; } // internal error
-  if (ip > base + len) { error(loc,"region %u p %zx above base %zx + %zu",reg->id,ip,base,len); return nil; } // possible user error
+  if (ip < base) { error(loc,"region %u.%u p %zx is %zu` below base %zx",reg->hid,reg->id,ip,base - ip,base) return nil; } // internal error
+  if (ip > base + len) { error(loc,"region %u p %zx above base %zx + %zu",reg->id,ip,base,len) return nil; } // possible user error
 #endif
 
   return reg;
@@ -284,8 +284,8 @@ static xregion *findgregion(enum Loc loc,size_t ip)
   reg = Atomgeta(dir3 + pos3,Moacq);
 
   if (unlikely(reg == nil)) {
-    if (ip1 & ~Dir1msk) error(loc,"ptr %zx is %zu` outside %u bit VM space",ip,ip - Vmsize,Vmbits);
     errorctx(0,loc,"no region at pos %u,%u,%u",pos1,pos2,pos3)
+    if (ip1 & ~Dir1msk) error(loc,"ptr %zx is %zu` outside %u bit VM space",ip,ip - Vmsize,Vmbits)
     return nil;
   }
 
@@ -294,8 +294,8 @@ static xregion *findgregion(enum Loc loc,size_t ip)
   size_t base = reg->user;
   size_t len = reg->len;
 
-  if (ip < base) { error(loc,"region %u.%u p %zx is %zu` below base %zx",reg->hid,reg->id,ip,base - ip,base); return nil; } // internal error
-  if (ip > base + len) { error(loc,"region %u p %zx above base %zx + %zu",reg->id,ip,base,len); return nil; } // possible user error
+  if (ip < base) { error(loc,"region %u.%u p %zx is %zu` below base %zx",reg->hid,reg->id,ip,base - ip,base) return nil; } // internal error
+  if (ip > base + len) { error(loc,"region %u p %zx above base %zx + %zu",reg->id,ip,base,len) return nil; } // possible user error
 #endif
 
   return reg;

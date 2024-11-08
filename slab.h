@@ -368,7 +368,7 @@ static ub4 slab_remalloc(region *reg)
     if (unlikely(didcas == 0)) {
       cfln = Getfln(reg,cel);
       errorctx(cfln,Lalloc,"pos %u/%u",c,rpos)
-      error2(Lalloc,Fln,"reg %.01llu cel %u is not free %u",reg->uid,cel,from);
+      error2(Lalloc,Fln,"reg %.01llu cel %u is not free %u",reg->uid,cel,from)
       return Nocel;
     }
     Putfln(reg,cel,(Fln))
@@ -1159,7 +1159,7 @@ static Hot ub4 slab_frecel(heap *hb,region *reg,ub4 cel,ub4 cellen,ub4 celcnt,ub
   ycheck(0, Lfree,set != 2,"region %.01llu gen %u.%u.%u cel %u set %u",reg->uid,reg->gen,hb->id,reg->id,cel,set)
 #endif
 
-  ystats(reg->stat.frees);
+  ystats(reg->stat.frees)
   if (pos == reg->inipos) {
     reg->age = 1; // becomes empty
     ydbg3(Fln,Lnone,"empty region %.01llu gen %u.%u.%u cellen %u %zu %zu",reg->uid,reg->gen,hb->id,reg->id,cellen,hb->stat.xfreebuf,hb->stat.xfreebatch);

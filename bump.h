@@ -134,7 +134,7 @@ static void *bumpalloc(heap *hb,ub4 hid,bregion *regs,ub4 regcnt,ub4 len,ub4 ule
     tags = meta + reg->tagorg;
     tags[cel] = tag;
   }
-  ystats(reg->allocs);
+  ystats(reg->allocs)
   ydbg3(loc,"bumpregion %.01lu ptr %zx len %u cel %u tag %.01u state %u",reg->uid,ip,len,cel,tag,zero)
 
   if (loc == Lcalloc) { vg_mem_def(ip,ulen) }
@@ -148,7 +148,7 @@ static void *bump_alloc(heap *hb,ub4 len,ub4 ulen,ub4 align,enum Loc loc,ub4 tag
   return bumpalloc(hb,hb->id,hb->bumpregs,Bumpregions,len,ulen,align,loc,tag);
 }
 
-// returns len. hb may be nil. Region not locked
+// returns len. hb may be nil. Region not locked. size() if reqlen = Nolen
 static ub4 bump_free(heapdesc *hd,heap *hb,bregion *reg,size_t ip,size_t reqlen,ub4 fretag,enum Loc loc)
 {
   size_t base = reg->user;
@@ -169,12 +169,12 @@ static ub4 bump_free(heapdesc *hd,heap *hb,bregion *reg,size_t ip,size_t reqlen,
   if (hb && typ != Rmini) {
     if (unlikely(reg < hb->bumpregs)) {
       p = region_near(ip,buf,255);
-      errorctx(Fln,loc,"near %s %p",buf,p);
+      errorctx(Fln,loc,"near %s %p",buf,p)
       return error2(loc,Fln,"%s region %.01llu (%zx) not in heap %u (%zx)",regnames[typ],reg->uid,(size_t)reg,hb->id,(size_t)hb->bumpregs)
     }
     if (unlikely(reg > hb->bumpregs + Bumpregions)) {
       p = region_near(ip,buf,255);
-      errorctx(Fln,loc,"near %s %p",buf,p);
+      errorctx(Fln,loc,"near %s %p",buf,p)
       return error2(loc,Fln,"%s region %.01llu not in heap %u",regnames[typ],reg->uid,hb->id)
     }
   }
@@ -185,7 +185,7 @@ static ub4 bump_free(heapdesc *hd,heap *hb,bregion *reg,size_t ip,size_t reqlen,
     return 0;
   }
 
-  // locate cel to mark
+  // locate cel
   ofs = (ub4)(ip - base);
   if ( (ofs & Stdalign1) ) { error(loc,"invalid ptr %zx", ip) return 0; }
 
@@ -201,12 +201,12 @@ static ub4 bump_free(heapdesc *hd,heap *hb,bregion *reg,size_t ip,size_t reqlen,
   lens = (_Atomic ub2 *)meta;
   len = Atomget(lens[cel],Moacq) * Stdalign;
   frees = Atomget(reg->frees,Moacq);
-  ytrace(1,hd,loc,"ptr-%zx len %u bump %u",ip,len,frees)
 
   fres = (_Atomic ub1 *)(meta + reg->freorg);
-  if (unlikely(reqlen == Nolen)) {
+  if (unlikely(reqlen == Nolen)) { // size
     one = Atomgeta(fres + cel,Moacq);
     if (one == 1) {
+      ytrace(0,hd,loc,"-size(%zx) len %u bump %u",ip,len,frees)
       return len;
     }
     ypush(hd,Fln)
@@ -216,7 +216,7 @@ static ub4 bump_free(heapdesc *hd,heap *hb,bregion *reg,size_t ip,size_t reqlen,
   }
 
   one = 1;
-  didcas = Casa(fres + cel,&one,2); // check double free
+  didcas = Casa(fres + cel,&one,2); // mark for double free
   if (unlikely(didcas == 0)) {
     ypush(hd,Fln)
     if (reg->tagorg) {
@@ -247,6 +247,7 @@ static ub4 bump_free(heapdesc *hd,heap *hb,bregion *reg,size_t ip,size_t reqlen,
     reg->gen++;
   }
 #endif
+  ytrace(1,hd,loc,"-free(%zx) len %u bump %u",ip,len,frees)
   return len;
 }
 #undef Logfile

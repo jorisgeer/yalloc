@@ -39,7 +39,7 @@ static mpregion *yal_mmap(heapdesc *hd,heap *hb,size_t len,size_t ulen,size_t al
   from = 2;
   didcas = Cas(reg->set,from,1);
   if (didcas == 0) {
-    error(loc,"mmap region %u.%u len %zu gen %u is not free %u",reg->hid,reg->id,rlen,reg->gen,from);
+    error(loc,"mmap region %u.%u len %zu gen %u is not free %u",reg->hid,reg->id,rlen,reg->gen,from)
     return nil;
   }
 
@@ -534,7 +534,7 @@ static void *yalloc_align(size_t align, size_t len,ub4 tag)
   bool didcas;
   ub4 from;
 
-  ytrace(0,hd,Lallocal,"+ mallocal(%zu`,%zu) tag %.01u",len,align,tag);
+  ytrace(0,hd,Lallocal,"+ mallocal(%zu`,%zu) tag %.01u",len,align,tag)
 
   if (unlikely(align == 0)) align = 1;
 
@@ -549,7 +549,7 @@ static void *yalloc_align(size_t align, size_t len,ub4 tag)
   }
 
   if (unlikely(len >= mmap_limit || align >= mmap_limit / 4)) { // slab won't accomodate
-    ytrace(0,hd,Lallocal,"+ mallocal(%zu`,%zu) tag %.01u",len,align,tag);
+    ytrace(0,hd,Lallocal,"+ mallocal(%zu`,%zu) tag %.01u",len,align,tag)
     hb = hd->hb;
     if (hb) {
       from = 0; didcas = Cas(hb->lock,from,1);
@@ -573,7 +573,7 @@ static void *yalloc_align(size_t align, size_t len,ub4 tag)
     aip = reg->user + reg->align;
     Atomset(hb->lock,0,Morel);
     vg_drd_wlock_rel(hb)
-    ytrace(0,hd,Lallocal,"-mallocal(%zu`,%zu) = %zx tag %.01u",len,align,aip,tag);
+    ytrace(0,hd,Lallocal,"-mallocal(%zu`,%zu) = %zx tag %.01u",len,align,aip,tag)
     return (void *)aip;
   } // len or align large
 
@@ -582,7 +582,7 @@ static void *yalloc_align(size_t align, size_t len,ub4 tag)
 
   ypush(hd,Fln)
 
-  ytrace(0,hd,Lallocal,"+ mallocal(%zu`,%zu) tag %.01u",len,align,tag);
+  ytrace(0,hd,Lallocal,"+ mallocal(%zu`,%zu) tag %.01u",len,align,tag)
   if (len & (len - 1)) {
     ord = 32 - clz((ub4)len);
     len = 1ul << ord;

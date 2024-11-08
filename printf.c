@@ -448,7 +448,7 @@ static ub1 *ecnv(ub1 *end,double x,enum Fmt flags,ub1 casemsk,ub4 prec)
   *--end = eneg ? '-' : '+';
   *--end = 'E' | casemsk;
   ix = (ub8)xx;
-  if (xx - ix >= 0.5) ix++;
+  if (xx - (double)ix >= 0.5) ix++;
 
   end = ullcnv(end,ix);
 
@@ -476,7 +476,7 @@ static ub1 *fcnv(ub1 *end,double x,enum Fmt flags,ub1 casemsk,ub4 prec)
     if (exp + prec > 18) { *--end = '0'; return end; } // return ecnv(end,x,flags,prec);
     x *= tentab[exp + prec];
     ix = (ub8)x;
-    if (x - ix >= 0.5) ix++;
+    if (x - (double)ix >= 0.5) ix++;
     end = ullcnv(end,ix);
     while (exp) { *--end = '0'; exp--; } // 0.000 ...
     *--end = '.';
@@ -491,7 +491,7 @@ static ub1 *fcnv(ub1 *end,double x,enum Fmt flags,ub1 casemsk,ub4 prec)
     x *= tentab[prec - 1];
   }
   ix = (ub8)(x);
-  if (x - ix >= 0.5) ix++;
+  if (x - (double)ix >= 0.5) ix++;
   return ullcnv_dot(end,ix,prec);
 }
 

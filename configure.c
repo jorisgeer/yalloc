@@ -223,7 +223,6 @@ static ub4 genclasses(char *buf,ub4 pos,ub4 blen)
     } else { // pwr2
       ord = ctz(len);
       clas = ord + basclas - 6; // smal uses 8 and covers 6
-      alen = len;
       if (clas2len[clas] == 0) clas2len[clas] = len;
       else if (len != clas2len[clas]) fatal(L,"class %u len %u vs %u",clas,len,clas2len[clas]);
       // info(L,"clas %2u for len %5u ord %u",clas,len,ord);

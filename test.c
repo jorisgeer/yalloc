@@ -832,6 +832,7 @@ static int tstreal(size_t from,size_t to,size_t iter)
     olen = nlen;
     p = np;
   }
+  free(p);
   return 0;
 }
 
@@ -1046,7 +1047,7 @@ static int manual(int argc,char *argv[])
       len = v2;
       if (from >= Maxptr) continue;
       cp = (ub1 *)ps[from];
-      info(L,"set %p = %zu`",cp,v2);
+      info(L,"set %p = %zu`",(void *)cp,v2);
       for (c = 0; c < len; c++) cp[c] = (ub1)c;
 
     // check
@@ -1055,7 +1056,7 @@ static int manual(int argc,char *argv[])
       len = v2;
       if (from >= Maxptr) continue;
       cp = (ub1 *)ps[from];
-      info(L,"chk %p = %zu`",cp,v2);
+      info(L,"chk %p = %zu`",(void *)cp,v2);
       for (c = 0; c < len; c++) {
         if (cp[c] != (char)c) { error(L,"pos %zu val %u",c,cp[c]); return L; }
       }

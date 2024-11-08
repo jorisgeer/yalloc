@@ -94,8 +94,9 @@ typedef const char cchar;
 // #pragma clang diagnostic ignored "-Wunused-but-set-variable"
 
  #pragma clang diagnostic ignored "-Wcovered-switch-default"
- #if __has_warning("-Wunsafe-buffer-usage")
+ #if __clang_major__ > 17
   #pragma clang diagnostic ignored "-Wunsafe-buffer-usage"
+  #pragma clang diagnostic ignored "-Wdisabled-macro-expansion"
  #endif
 
 #elif defined __GNUC__ && __GNUC__ > 7 && !defined D_BetterC
@@ -122,6 +123,7 @@ typedef const char cchar;
  #define Packed8 __attribute__((packed))
  #define Fallthrough __attribute__ ((fallthrough));
  #define Printf(fmt,ap) __attribute__ ((format (printf,fmt,ap)))
+ #define Nonnull(arg,...) __attribute__ ((nonnull (arg,__VA_ARGS__)))
  #define Cold __attribute__ ((cold))
  #define Unused __attribute__ ((unused))
  #define Const __attribute__ ((const))
@@ -135,6 +137,7 @@ typedef const char cchar;
  #define Packed8
  #define Fallthrough
  #define Printf(fmt,ap)
+ #define Nonnull(arg,...)
  #define Cold
  #define Unused
  #define Const
