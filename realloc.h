@@ -227,7 +227,7 @@ static void *yrealloc(void *p,size_t oldlen,size_t newlen,ub4 tag)
 
   // realloc(p,0) = free(p) - deprecated since c17. see https://open-std.org/JTC1/SC22/WG14/www/docs/n2396.htm#dr_400
   if (unlikely(newlen == 0)) {
-    yfree_heap(hd,p,0,nil,Lreal,tag);
+    yfree_heap(hd,p,0,Lreal,tag);
     np = (void *)zeroblock;
     ytrace(0,hd,Lreal,"- realloc(nil,%zu) = %p",newlen,np)
     return np;
@@ -261,7 +261,7 @@ static void *yrealloc(void *p,size_t oldlen,size_t newlen,ub4 tag)
   memset(&pi,0,sizeof(pi));
 
   // find original block and its length
-  alen = free_heap(hd,hb,p,Nolen,&pi,Lsize,Fln,tag);
+  alen = size_heap(hd,hb,(size_t)p,&pi,Lsize,Fln,tag);
   if (unlikely(alen == Nolen)) { // not found. Note nil ptr already covered
     Atomset(hb->lock,0,Morel);
     vg_drd_wlock_rel(hb)

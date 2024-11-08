@@ -227,9 +227,9 @@ static int newlogfile(cchar *name[],cchar *suffix,ub4 id,unsigned long pid)
   return fd;
 }
 
-enum File { Falloc,Fatom,Fbist,Fboot,Fbump,Fdbg,Fdiag,Ffree,Fheap,Fmini,Frealloc,Fregion,Fslab,Fstat,Fstd,Fyalloc,Fcount };
+enum File { Falloc,Fatom,Fbist,Fboot,Fbump,Fdbg,Fdiag,Ffree,Fheap,Fmini,Frealloc,Fregion,Fsize,Fslab,Fstat,Fstd,Fyalloc,Fcount };
 static cchar * const filenames[Fcount] = {
-  "alloc.h","atom","bist.h","boot.h","bump.h","dbg.h","diag.h","free.h","heap.h","mini.h","realloc.h","region.h","slab.h","stats.h","std.h","yalloc.c"
+  "alloc.h","atom","bist.h","boot.h","bump.h","dbg.h","diag.h","free.h","heap.h","mini.h","realloc.h","region.h","size","slab.h","stats.h","std.h","yalloc.c"
 };
 
 enum Loglvl { Fatal,Assert,Error,Warn,Info,Trace,Vrb,Debug,Nolvl };
@@ -818,7 +818,9 @@ static ub4 slabstats(region *reg,struct yal_stats *sp,char *buf,ub4 pos,ub4 len,
 
 #include "slab.h"
 
+#include "size.h"
 #include "free.h"
+
 #include "alloc.h"
 #include "realloc.h"
 
