@@ -22,6 +22,12 @@
 #include <errno.h>
 #include <sys/stat.h> // stat
 
+#if defined __clang__ && defined __clang_major__ && ! defined D_BetterC
+ #if __clang_major__ > 17
+  #pragma clang diagnostic ignored "-Wunsafe-buffer-usage"
+ #endif
+#endif
+
 #ifdef Inc_os
   #define Vis static
   struct osstat {
@@ -136,13 +142,19 @@ Vis unsigned int ospagesize(void)
   else return (unsigned int)ret;
 }
 
+#ifdef __FreeBSD__
+  #define __BSD_VISIBLE 1 // for MAP_ANON
+#endif
+
  #include <sys/mman.h>
+
+#undef __BSD_VISIBLE
 
 Vis void *osmmap(size_t len)
 {
   void *p;
 
-#ifdef  MAP_ANON
+#if defined  MAP_ANON || defined PROT_WRITE
   int prot = PROT_READ | PROT_WRITE;
   int flags = MAP_PRIVATE | MAP_ANON;
   int fd = -1;

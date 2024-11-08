@@ -33,7 +33,7 @@ Preliminary 32-bit Linux test passes
 Some synthetic tests show high memory usage
 
 == Prerequisites
-- 64 or 32 bit Unix-like operating system with mmap() support. Linux and MacOs tested.
+- 64 or 32 bit Unix-like operating system with mmap() support. Linux, FreeBSD and MacOs tested.
 
 - C11 C compiler or C99 compiler with atomics support. If atomics are not available, free(p) and realloc(p,n) need to be called from the same thread malloc() was called.
 
