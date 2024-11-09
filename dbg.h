@@ -45,7 +45,7 @@ static void callstack(heapdesc *hd)
 #endif
 }
 
-#if Yal_signal
+#if Yal_signal && ! defined __FreeBSD__
 
 static struct sigaction g_orgsa;
 

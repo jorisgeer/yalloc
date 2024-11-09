@@ -47,7 +47,7 @@ static Hot size_t Nonnull(1,4) size_heap(heapdesc *hd,heap *hb,size_t ip,struct 
 
   if (unlikely(reg == nil)) {
 
-    ytrace(1,hd,loc,"size(%zx) tag %.01u",ip,tag)
+    ytrace(1,hd,loc,tag,0,"size(%zx) tag %.01u",ip,tag)
 
     // empty block ?
     if (unlikely(ip == (size_t)zeroblock)) {
@@ -56,7 +56,7 @@ static Hot size_t Nonnull(1,4) size_heap(heapdesc *hd,heap *hb,size_t ip,struct 
       for (ub4 i = 0; i < 8; i++) x8 |= zeroarea[i];
       if (unlikely(x8 != 0)) error(loc,"written to malloc(0) block (%zx) = %zx",ip,x8)
 #endif
-      ytrace(1,hd,loc,"size(%zx) len 0",ip)
+      ytrace(1,hd,loc,tag,0,"size(%zx) len 0",ip)
       return 0;
     }
 
@@ -116,7 +116,7 @@ static Hot size_t Nonnull(1,4) size_heap(heapdesc *hd,heap *hb,size_t ip,struct 
     ulen4 = cellen <= Cel_nolen ? cellen : slab_getlen(creg,cel,cellen);
     ycheck(Nolen,loc,ulen4 == 0,"region %u cel %u ulen 0 for %u",creg->id,cel,cellen)
     ycheck(Nolen,loc,ulen4 > cellen,"region %u cel %u ulen %u above %u",creg->id,cel,ulen4,cellen)
-    ytrace(0,hd,loc,"size(%zx) len %u for %u",ip,cellen,ulen4)
+    ytrace(0,hd,loc,tag,0,"size(%zx) len %u for %u",ip,cellen,ulen4)
     pi->reg = reg;
     pi->cel = cel;
     pi->len = ulen4;
@@ -178,7 +178,7 @@ static Hot Nonnull(1,2,3) size_t ysize_heap(heapdesc *hd,void *p,struct ptrinfo 
   } // nil hb
   hd->locked = didcas;
 
-  ytrace(0,hd,loc,"+ size(%zx) tag %.01u",ip,tag)
+  ytrace(0,hd,loc,tag,0,"+ size(%zx) tag %.01u",ip,tag)
   retlen = size_heap(hd,hb,ip,pi,loc,Fln,tag);
 
   if (hd->locked == 0) return retlen;
@@ -196,16 +196,16 @@ static Hot Nonnull(1,2,3) size_t ysize_heap(heapdesc *hd,void *p,struct ptrinfo 
 }
 
 // main entry
-size_t yal_getsize(void *p,ub4 tag)
+static size_t ysize(void *p,ub4 tag)
 {
   heapdesc *hd = getheapdesc(Lsize);
   struct ptrinfo pi;
   size_t len;
 
-  ytrace(0,hd,Lsize,"+ size(%zx) tag %.01u",(size_t)p,tag)
+  ytrace(0,hd,Lsize,tag,0,"+ size(%zx) tag %.01u",(size_t)p,tag)
 
   if (unlikely(p == nil)) {
-    ytrace(0,hd,Lsize,"size(nil) tag %.01u",tag)
+    ytrace(0,hd,Lsize,tag,0,"size(nil) tag %.01u",tag)
     return 0;
   }
   ypush(hd,Fln)
@@ -213,7 +213,7 @@ size_t yal_getsize(void *p,ub4 tag)
   pi.local = 0;
   len = ysize_heap(hd,p,&pi,Lsize,tag);
 
-  ytrace(0,hd,Lsize,"- size(%zx) = %zu for %zu tag %.01u",(size_t)p,len,pi.len,tag)
+  ytrace(0,hd,Lsize,tag,0,"- size(%zx) = %zu for %zu tag %.01u",(size_t)p,len,pi.len,tag)
   return len;
 }
 #undef Logfile

@@ -206,7 +206,7 @@ static ub4 bump_free(heapdesc *hd,heap *hb,bregion *reg,size_t ip,size_t reqlen,
   if (unlikely(reqlen == Nolen)) { // size
     one = Atomgeta(fres + cel,Moacq);
     if (one == 1) {
-      ytrace(0,hd,loc,"-size(%zx) len %u bump %u",ip,len,frees)
+      ytrace(0,hd,loc,fretag,frees,"-size(%zx) len %u bump",ip,len)
       return len;
     }
     ypush(hd,Fln)
@@ -247,7 +247,7 @@ static ub4 bump_free(heapdesc *hd,heap *hb,bregion *reg,size_t ip,size_t reqlen,
     reg->gen++;
   }
 #endif
-  ytrace(1,hd,loc,"-free(%zx) len %u bump %u",ip,len,frees)
+  ytrace(1,hd,loc,fretag,frees,"-free(%zx) len %u bump",ip,len)
   return len;
 }
 #undef Logfile

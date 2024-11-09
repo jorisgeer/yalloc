@@ -12,7 +12,7 @@
 #define Logfile Ffree
 
 // free large block
-static enum Status free_mmap(heapdesc *hd,heap *hb,mpregion *reg,size_t ap,size_t ulen,enum Loc loc,ub4 fln)
+static enum Status free_mmap(heapdesc *hd,heap *hb,mpregion *reg,size_t ap,size_t ulen,enum Loc loc,ub4 fln,ub4 tag)
 {
   mpregion *preg;
   size_t len = reg->len;
@@ -24,7 +24,7 @@ static enum Status free_mmap(heapdesc *hd,heap *hb,mpregion *reg,size_t ap,size_
 
   ydbg3(loc,"reg %2u.%-2u len %7zu mmap = %zx %u",reg->hid,reg->id,len,ip,Atomget(reg->set,Moacq))
 
-  ytrace(0,hd,loc,"free(%zx) len %zu` mmap",ap,len)
+  ytrace(0,hd,loc,tag,0,"free(%zx) len %zu` mmap",ap,len)
 
   from = 1;
   didcas = Cas(reg->set,from,2);
@@ -49,7 +49,7 @@ static enum Status free_mmap(heapdesc *hd,heap *hb,mpregion *reg,size_t ap,size_
     return St_error;
   }
 
-  ytrace(1,hd,loc,"ptr-%zx len %zu mmap",ip,len)
+  ytrace(1,hd,loc,tag,0,"ptr-%zx len %zu mmap",ip,len)
 
   if (len >= Mmap_retainlimit) { // release directly
     ydbg1(Fln,loc,"unmap region %u",reg->id)
@@ -436,7 +436,7 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,enum Loc
 
   if (unlikely(reg == nil)) {
 
-    ytrace(0,hd,loc,"free(%zx) tag %.01u",ip,tag)
+    ytrace(0,hd,loc,tag,0,"free(%zx)",ip)
 
     // empty block ?
     if (unlikely(p == (void *)zeroblock)) {
@@ -445,7 +445,7 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,enum Loc
       for (ub4 i = 0; i < 8; i++) x8 |= zeroarea[i];
       if (unlikely(x8 != 0)) error(loc,"written to malloc(0) block (%p) = %zx",p,x8)
 #endif
-      ytrace(1,hd,loc,"free(%zx) len 0",ip)
+      ytrace(1,hd,loc,tag,0,"free(%zx) len 0",ip)
       ystats(hd->stat.free0s)
       return 0;
     }
@@ -465,7 +465,7 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,enum Loc
     if (hd->mhb) {
       mhb = hd->mhb;
       if (ip >= mhb->user && ip < mhb->user + mhb->len) {
-       ytrace(1,hd,loc,"ptr+%zx",ip)
+       ytrace(1,hd,loc,tag,0,"ptr+%zx",ip)
         alen = bump_free(hd,nil,mhb,ip,reqlen,tag,loc);
         return alen ? alen : Nolen;
       }
@@ -516,7 +516,7 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,enum Loc
     if (likely(local)) {
       ycheck(Nolen,loc,hb == nil,"nil hb for reg %u",reg->id)
       ycheck(Nolen,loc,hb != reg->hb,"hb %u vs %u for reg %u",hb->id,reg->hb->id,reg->id)
-      ytrace(1,hd,loc,"ptr+%zx len %u %2zu",ip,cellen,creg->stat.frees)
+      ytrace(1,hd,loc,tag,creg->stat.frees,"ptr+%zx len %u",ip,cellen)
 
       bincnt = slab_free(hb,creg,ip,cellen,celcnt,tag); // put in recycling bin
       if (unlikely(bincnt == 0)) {
@@ -547,7 +547,7 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,enum Loc
         hd->hb = hb;
         hd->locked = 1;
       }
-      ytrace(1,hd,loc,"ptr+%zx len %u %2zu",ip,cellen,creg->stat.frees)
+      ytrace(1,hd,loc,tag,creg->stat.frees,"ptr+%zx len %u",ip,cellen)
       len4 = slab_free_rheap(hd,hb,creg,ip,tag,loc);
       if (likely(len4 != 0)) return len4;
 
@@ -563,7 +563,7 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,enum Loc
 
     vg_drd_wlock_acq(reg)
 
-    ytrace(1,hd,loc,"ptr+%zx len %u %2zu",ip,cellen,creg->stat.frees)
+    ytrace(1,hd,loc,tag,creg->stat.frees,"ptr+%zx len %u",ip,cellen)
 
     len4 = slab_free_rreg(hd,hb,creg,ip,tag,loc);
 
@@ -581,7 +581,7 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,enum Loc
 
   // mini or bump
   if (unlikely(typ == Rbump || typ == Rmini)) {
-    ytrace(1,hd,loc,"ptr+%zx",ip)
+    ytrace(1,hd,loc,tag,0,"ptr+%zx",ip)
     len4 = bump_free(hd,nil,(bregion *)reg,ip,reqlen,tag,loc);
     return len4 ? len4 : Nolen;
   }
@@ -589,7 +589,7 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,enum Loc
   // mmap
   if (unlikely(typ == Rmmap)) {
     mpreg = (mpregion *)reg;
-    ytrace(1,hd,loc,"ptr+%zx len %zu %2zu",ip,mpreg->len,hb ? hb->stat.mapfrees : 0)
+    ytrace(1,hd,loc,tag,hb ? hb->stat.mapfrees : 0,"ptr+%zx len %zu",ip,mpreg->len)
     rlen = reg->len - mpreg->align;
 
     // free mmap directly
@@ -597,7 +597,7 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,enum Loc
       hb->stat.mapfrees++;
       hb->stat.munmaps++;
     }
-    rv = free_mmap(hd,local ? hb : nil,mpreg,ip,reqlen,loc,Fln);
+    rv = free_mmap(hd,local ? hb : nil,mpreg,ip,reqlen,loc,Fln,tag);
     if (rv == St_error) {
       ypush(hd,Fln)
       if (hb) hd->stat.invalid_frees++;
@@ -633,7 +633,7 @@ static Hot size_t yfree_heap(heapdesc *hd,void *p,size_t reqlen,enum Loc loc,ub4
   } // nil hb
   hd->locked = didcas;
 
-  ytrace(0,hd,loc,"+ free(%zx) tag %.01u",(size_t)p,tag)
+  ytrace(0,hd,loc,tag,0,"+ free(%zx)",(size_t)p)
   retlen = free_heap(hd,hb,p,reqlen,loc,Fln,tag);
 
   if (hd->locked == 0) {

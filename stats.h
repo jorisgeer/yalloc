@@ -363,6 +363,7 @@ static Cold size_t yal_mstats_heap(int fd,heap *hb,yalstats *ret,bool print,ub4 
   size_t slaballocs = sp->slaballocs;
   size_t slabAllocs = sp->slabAllocs;
   size_t mapallocs = sp->mapallocs;
+  size_t mapAllocs = sp->mapAllocs;
   size_t callocs = sp->callocs;
   size_t alloc0s = sp->alloc0s;
   size_t reallocles = sp->reallocles;
@@ -446,7 +447,7 @@ static Cold size_t yal_mstats_heap(int fd,heap *hb,yalstats *ret,bool print,ub4 
     if (miniallocs | minifrees) pos += snprintf_mini(buf,pos,len,"  mini alloc %-3zu free %-3zu\n",miniallocs,minifrees);
 
     if (sp->newmpregions) {
-      tpos = table(tbuf,0,tlen,7,7,"alloc",mapallocs,"realloc",mapreallocs,"free",mapfrees,"rfree",mapxfrees,"minlen",mapminlen,"maxlen",mapmaxlen,nil);
+      tpos = table(tbuf,0,tlen,7,7,"alloc",mapallocs,"Allocs",mapAllocs,"realloc",mapreallocs,"free",mapfrees,"rfree",mapxfrees,"minlen",mapminlen,"maxlen",mapmaxlen,nil);
       pos += snprintf_mini(buf,pos,len,"\n-- mmap summary --\n  counts  %.*s\n",tpos,tbuf);
       tpos = table(tbuf,0,tlen,7,7,"new",sp->newmpregions,"use",sp->usempregions,"del",sp->delmpregions,"used",sp->xregion_cnt,"inuse",sp->inmapuse,nil);
       pos += snprintf_mini(buf,pos,len,"  regions %.*s\n",tpos,tbuf);
@@ -475,7 +476,9 @@ static void sumup(yalstats *sum,yalstats *one)
   ub4 i;
 
   sum->slaballocs += one->slaballocs;
+  sum->slabAllocs += one->slabAllocs;
   sum->mapallocs += one->mapallocs;
+  sum->mapAllocs += one->mapAllocs;
   sum->allocs += one->allocs;
   sum->alloc0s += one->alloc0s;
   sum->callocs += one->callocs;

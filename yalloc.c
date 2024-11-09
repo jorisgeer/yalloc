@@ -232,6 +232,10 @@ static cchar * const filenames[Fcount] = {
   "alloc.h","atom","bist.h","boot.h","bump.h","dbg.h","diag.h","free.h","heap.h","mini.h","realloc.h","region.h","size","slab.h","stats.h","std.h","yalloc.c"
 };
 
+#define Trcnames 256
+
+static cchar * trcnames[Trcnames] ;
+
 enum Loglvl { Fatal,Assert,Error,Warn,Info,Trace,Vrb,Debug,Nolvl };
 static cchar * const lvlnames[Nolvl + 1] = { "Fatal","Assert","Error","Warn","Info","Trace","Vrb","Debug"," " };
 
@@ -254,12 +258,15 @@ static Cold ub4 diagfln(char *buf,ub4 pos,ub4 len,ub4 fln)
   char fbuf[64];
   ub4 fn = fln >> 16;
   ub4 ln = fln & Hi16;
-  cchar *fnam;
+  cchar *fnam = nil,*pfx = "yal/";
 
-  if (fn < Fcount) {
-    fnam = filenames[fn];
-    snprintf_mini(fbuf,0,64,"yal/%s:%-4u",fnam,ln);
-  } else snprintf_mini(fbuf,0,64,"yal/(%u):%-4u",fn,ln);
+  if (fn < Fcount) fnam = filenames[fn];
+  else if (fn < Fcount + Trcnames) {
+    fnam = trcnames[fn - Fcount];
+    pfx = "";
+  }
+  if (fnam) snprintf_mini(fbuf,0,64,"%s%.8s:%-4u",pfx,fnam,ln);
+  else snprintf_mini(fbuf,0,64,"%s(%u):%-4u",pfx,fn,ln);
   pos += snprintf_mini(buf,pos,len,"%18s ",fbuf);
   return pos;
 }
@@ -851,37 +858,48 @@ void __je_bootstrap_free(void Unused * p) { } // no metadata or length
 
 void * yal_alloc(size_t size,unsigned int tag)
 {
-  return ymalloc(size,tag);
+  return ymalloc(size,tag + (Fcount << 16));
 }
 
 void * yal_calloc(size_t size,unsigned int tag)
 {
-  return yalloc(size,size,Lcalloc,tag);
+  return yalloc(size,size,Lcalloc,tag + (Fcount << 16));
 }
 
 void yal_free(void *p,unsigned int tag)
 {
-  yfree(p,0,tag);
+  yfree(p,0,tag + (Fcount << 16));
 }
 
 void * yal_realloc(void *p,size_t oldsize,size_t newsize,unsigned int tag)
 {
-  return yrealloc(p,oldsize,newsize,tag);
+  return yrealloc(p,oldsize,newsize,tag + (Fcount << 16));
 }
 
 void *yal_aligned_alloc(size_t align, size_t len,ub4 tag)
 {
-  return yalloc_align(align,len,tag);
+  return yalloc_align(align,len,tag + (Fcount << 16));
+}
+
+size_t yal_getsize(void *p,unsigned int tag)
+{
+  return ysize(p,tag + (Fcount << 16));
 }
 
 ub4 yal_options(enum Yal_options opt,size_t arg1,size_t arg2)
 {
   ub4 rv;
+  ub4 a1 = (ub4)arg1;
 
   switch (opt) {
     case Yal_diag_enable: return diag_enable(arg1,(ub4)arg2);
-    case Yal_trace_enable: return trace_enable((ub4)arg1);
-    case Yal_logmask: rv = ylog_mask; ylog_mask = (ub4)arg1; return rv;
+
+    case Yal_trace_enable: return trace_enable(a1);
+    case Yal_trace_name:
+       if (arg2 <= Pagesize || arg2 >= Vmsize) { do_ylog(Yal_diag_ill,Lnone,Fln,Warn,0,"unknown option '%d'",opt); return __LINE__; }
+       return trace_name(a1,(char *)arg2);
+
+    case Yal_logmask: rv = ylog_mask; ylog_mask = a1; return rv;
     default: do_ylog(Yal_diag_ill,Lnone,Fln,Warn,0,"unknown option '%d'",opt); return __LINE__;
   }
 }
@@ -890,8 +908,17 @@ ub4 yal_options(enum Yal_options opt,size_t arg1,size_t arg2)
 
 size_t malloc_usable_size(void * ptr)
 {
-  return yal_getsize(ptr,Fln);
+  return ysize(ptr,Fln);
 }
+
+#if defined __APPLE__ && defined __MACH__
+
+extern size_t malloc_size(const void * ptr); // todo malloc.h
+size_t malloc_size(const void * ptr)
+{
+  return ysize((void *)ptr,Fln);
+}
+#endif
 
 #if Yal_mallopt
 

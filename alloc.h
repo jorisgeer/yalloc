@@ -83,9 +83,15 @@ static mpregion *yal_mmap(heapdesc *hd,heap *hb,size_t len,size_t ulen,size_t al
   reg->typ = Rmmap;
 
   ydbg2(fln,loc,"region %2u.%-2u len %7zu mmap = %zx %u",reg->hid,reg->id,len,ip,Atomget(reg->set,Moacq))
+  if (loc == Lallocal) {
+    ystats(hb->stat.mapAllocs)
+  } else {
+    ystats(hb->stat.mapallocs)
+  }
+
   if (aip != ip) setregion(hb,(xregion *)reg,aip,Pagesize,1,loc,Fln);
   setregion(hb,(xregion *)reg,ip,Pagesize,1,loc,Fln); // only start needed.
-  ystats(hb->stat.mapallocs)
+
   return reg;
 }
 
@@ -174,8 +180,8 @@ static Hot void *alloc_heap(heapdesc *hd,heap *hb,size_t reqlen,size_t ulen,ub4 
       if (xreg == nil) return  nil;
       ip = xreg->user;
       aip = ip + xreg->align;
-      if (ip == aip) { ytrace(0,hd,loc,"-malloc(%zu`) mmap = %zx seq %zu tag %.01u",ulen,ip,hb->stat.mapallocs,tag) }
-      else { ytrace(0,hd,loc,"-mallocal(%zu`,%u) mmap = %zx (%zx) seq %zu tag %.01u",ulen,align,aip,ip,hb->stat.mapallocs,tag) }
+      if (ip == aip) { ytrace(0,hd,loc,tag,hb->stat.mapallocs,"-malloc(%zu`) mmap = %zx",ulen,ip) }
+      else { ytrace(0,hd,loc,tag,hb->stat.mapAllocs,"-mallocal(%zu`,%u) mmap = %zx (%zx)",ulen,align,aip,ip) }
       return (void *)ip;
     }
   } // mmap thresh
@@ -190,9 +196,8 @@ static Hot void *alloc_heap(heapdesc *hd,heap *hb,size_t reqlen,size_t ulen,ub4 
     p = bump_alloc(hb,len,ulen4,align,loc,tag);
     if (likely(p != nil)) {
 #if Yal_enable_trace
-      if (loc == Lallocal) { ytrace(0,hd,loc,"-allocal(%u,%u) = %zx (bump) tag %.01u",ulen4,align,(size_t)p,tag) }
-      else if (loc == Lcalloc) { ytrace(0,hd,loc,"-calloc(%u) = %zx (bump) tag %.01u",ulen4,(size_t)p,tag) }
-      else { ytrace(0,hd,loc,"-malloc(%u) = %zx (bump) tag %.01u",ulen4,(size_t)p,tag) }
+      if (loc == Lallocal) { ytrace(0,hd,loc,tag,0,"-allocal(%u,%u) = %zx (bump)",ulen4,align,(size_t)p) }
+      else { ytrace(0,hd,loc,tag,0,"-%calloc(%u) = %zx (bump)",loc == Lcalloc ? 'c' : 'm',ulen4,(size_t)p) }
 #endif
       return p;
     }
@@ -288,7 +293,7 @@ static Hot void *alloc_heap(heapdesc *hd,heap *hb,size_t reqlen,size_t ulen,ub4 
     p = slab_alloc(hd,reg,(ub4)ulen,(ub4)align,loc,tag);
 
     if (likely(p != nil)) {
-      ytrace(0,hd,loc,"-malloc(%zu`) = %zx tag %.01u",loc == Lalloc ? ulen : len,(size_t)p,tag)
+      ytrace(0,hd,loc,tag,0,"-malloc(%zu`) = %zx",loc == Lalloc ? ulen : len,(size_t)p)
       ydbg2(Fln,loc,"clas %u pos %u msk %lx",clas,pos,fremsk);
       vg_mem_noaccess(reg->meta,reg->metalen)
       vg_mem_noaccess(reg,sizeof(region))
@@ -373,7 +378,7 @@ static Hot void *yal_heapdesc(heapdesc *hd,size_t len,size_t ulen,ub4 align,enum
   // trivia: malloc(0)
   if (unlikely(ulen == 0)) {
     p = (void *)zeroblock;
-    ytrace(0,hd,loc,"alloc 0 = %zx tag %.01u",(size_t)p,tag)
+    ytrace(0,hd,loc,tag,0,"alloc 0 = %zx",(size_t)p)
     ystats(hd->stat.alloc0s)
     return p;
   }
@@ -383,7 +388,7 @@ static Hot void *yal_heapdesc(heapdesc *hd,size_t len,size_t ulen,ub4 align,enum
       ypush(hd,Fln)
       p = mini_alloc(hd,(ub4)len,(ub4)ulen,align,loc,tag); // initial bump allocator
       if (p) {
-        ytrace(0,hd,loc,"-malloc(%u) mini = %zx tag %.01u",(ub4)len,(size_t)p,tag)
+        ytrace(0,hd,loc,tag,0,"-malloc(%u) mini = %zx",(ub4)len,(size_t)p)
         return p;
       }
     }
@@ -427,7 +432,7 @@ static Hot void *yal_heapdesc(heapdesc *hd,size_t len,size_t ulen,ub4 align,enum
   } // heap or not
 
   ypush(hd,Fln);
-  ytrace(0,hd,loc,"+malloc(%zu`)   Tag %.01u",loc == Lallocal ? len : ulen,tag)
+  ytrace(0,hd,loc,tag,0,"+malloc(%zu`)",loc == Lallocal ? len : ulen)
 
   p = yal_heap(hd,hb,len,ulen,align,loc,tag); // regular
   // hb = hd->hb;  // hb may have changed
@@ -503,7 +508,7 @@ static void *ymalloc(size_t len,ub4 tag)
 
         if (unlikely(len == 0)) {
           p = (void *)zeroblock;
-          ytrace(0,hd,Lalloc,"alloc 0 = %zx  tag %.01u",(size_t)p,tag)
+          ytrace(0,hd,Lalloc,tag,0,"alloc 0 = %zx",(size_t)p)
           ystats(hb->stat.alloc0s)
           Atomset(hb->lock,0,Morel);
           return p;
@@ -534,7 +539,7 @@ static void *yalloc_align(size_t align, size_t len,ub4 tag)
   bool didcas;
   ub4 from;
 
-  ytrace(0,hd,Lallocal,"+ mallocal(%zu`,%zu) tag %.01u",len,align,tag)
+  ytrace(0,hd,Lallocal,tag,0,"+ mallocal(%zu`,%zu)",len,align)
 
   if (unlikely(align == 0)) align = 1;
 
@@ -549,7 +554,7 @@ static void *yalloc_align(size_t align, size_t len,ub4 tag)
   }
 
   if (unlikely(len >= mmap_limit || align >= mmap_limit / 4)) { // slab won't accomodate
-    ytrace(0,hd,Lallocal,"+ mallocal(%zu`,%zu) tag %.01u",len,align,tag)
+    ytrace(0,hd,Lallocal,tag,0,"+ mallocal(%zu`,%zu)",len,align)
     hb = hd->hb;
     if (hb) {
       from = 0; didcas = Cas(hb->lock,from,1);
@@ -573,7 +578,7 @@ static void *yalloc_align(size_t align, size_t len,ub4 tag)
     aip = reg->user + reg->align;
     Atomset(hb->lock,0,Morel);
     vg_drd_wlock_rel(hb)
-    ytrace(0,hd,Lallocal,"-mallocal(%zu`,%zu) = %zx tag %.01u",len,align,aip,tag)
+    ytrace(0,hd,Lallocal,tag,0,"-mallocal(%zu`,%zu) = %zx",len,align,aip)
     return (void *)aip;
   } // len or align large
 
@@ -582,7 +587,7 @@ static void *yalloc_align(size_t align, size_t len,ub4 tag)
 
   ypush(hd,Fln)
 
-  ytrace(0,hd,Lallocal,"+ mallocal(%zu`,%zu) tag %.01u",len,align,tag)
+  ytrace(0,hd,Lallocal,tag,0,"+ mallocal(%zu`,%zu)",len,align)
   if (len & (len - 1)) {
     ord = 32 - clz((ub4)len);
     len = 1ul << ord;

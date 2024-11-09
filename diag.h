@@ -102,14 +102,14 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
     }
     if (ctl == Diaerr) lvl = Error;
     if ( (1u << lvl) & ylog_mask) return 0;
-  }
+    msgcnt = Atomad(g_msgcnt,1,Moacqrel);
+  } else msgcnt = Atomget(g_msgcnt,Moacq);
 
-  msgcnt = Atomad(g_msgcnt,1,Moacqrel);
   if (lvl > Error) {
     fd = Yal_log_fd;
     if (fd == -1) fd = Yal_log_fd = newlogfile(Yal_log_file,"",tid,pid);
     if (msgcnt == 0) {
-      upos = snprintf_mini(headbuf,0,255,"\n%18s %-4s %-5s %-4s %-3s %-1s %-7s msg\n","file/line","seq","pid","tid","dia","","api");
+      upos = snprintf_mini(headbuf,0,255,"\n%18s %-4s %-5s %-4s %-3s %-1s %-8s msg\n","file/line","seq","pid","tid","dia","","api");
       pos = underline(buf,len,headbuf,upos);
     }
   } else {
@@ -122,17 +122,18 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
       pos = showdate(buf,pos,len);
       buf[pos++] = '\n';
     }
-    if (xbuf && *xbuf) {
-      if (prepend) pos += snprintf_mini(buf,pos,len,"%.255s",xbuf);
-      *xbuf = 0;
-    }
+  }
+  if (xbuf && *xbuf) {
+    if (prepend) pos += snprintf_mini(buf,pos,len,"%.255s",xbuf);
+    *xbuf = 0;
   }
 
   if (*fmt == '\n') buf[pos++] = *fmt++;
 
   if (fln) pos = diagfln(buf,pos,len,fln);
 
-  pos += snprintf_mini(buf,pos,len,"%-4u %-5lu %-4u %-3u ",msgcnt,pid,tid,did);
+  if (lvl != Nolvl) pos += snprintf_mini(buf,pos,len,"%-4u %-5lu %-4u %-3u ",msgcnt,pid,tid,did);
+  else pos += snprintf_mini(buf,pos,len,"%20c",' ');
 
   name = lvlnames[min(lvl,Nolvl)];
   buf[pos++] = *name;
@@ -199,9 +200,9 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
 #define ylogx(loc,fmt,...) do_ylog(0,loc,Fln,Info,0,fmt,__VA_ARGS__);
 
 #if Yal_enable_trace
-  #define ytrace(lvl,hd,loc,fmt,...) if (unlikely(hd->trace > lvl)) do_ylog(Yal_diag_count + __COUNTER__,loc,Fln,Trace,0,fmt,__VA_ARGS__);
+  #define ytrace(lvl,hd,loc,tag,seq,fmt,...) if (unlikely(hd->trace > lvl)) { errorctx((tag),Lnone,"seq %u",(ub4)(seq)) do_ylog(Yal_diag_count + __COUNTER__,loc,Fln,Trace,1,fmt,__VA_ARGS__); }
 #else
-  #define ytrace(lvl,hd,loc,fmt,...)
+  #define ytrace(lvl,hd,loc,tag,seq,fmt,...)
 #endif
 
 #if Yal_dbg_level > 0
@@ -338,6 +339,13 @@ static ub4 trace_enable(ub4 ena)
   hd->trace = ena;
   global_trace = ena | 8;
   return rv;
+}
+
+static ub4 trace_name(ub4 id,cchar *name)
+{
+  if (id >= Trcnames) return __LINE__;
+  trcnames[id] = name;
+  return 0;
 }
 
 static ub4 diag_enable(size_t dia,ub4 ena)

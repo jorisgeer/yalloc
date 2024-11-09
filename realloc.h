@@ -132,7 +132,7 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
       np = alloc_heap(hd,hb,newlen,newulen,1,Lreal,Fln);
       if (unlikely(np == nil)) return (void *)__LINE__;
       real_copy(p,np,newulen);
-      free_mmap(hd,local ? hb : nil,(mpregion *)xreg,ip,ulen,Lreal,Fln);
+      free_mmap(hd,local ? hb : nil,(mpregion *)xreg,ip,ulen,Lreal,Fln,tag);
       pi->fln = Fln;
       return np;
     } else if (typ == Rbump) {
@@ -217,11 +217,11 @@ static void *yrealloc(void *p,size_t oldlen,size_t newlen,ub4 tag)
 
   ypush(hd,Fln)
 
-  ytrace(0,hd,Lreal,"+ realloc(%zx,%zu) tag %.01u",(size_t)p,newlen,tag)
+  ytrace(0,hd,Lreal,tag,0,"+ realloc(%zx,%zu)",(size_t)p,newlen)
 
   if (unlikely(p == nil)) { // realloc(nil,n) = malloc(n)
     np = yal_heapdesc(hd,newlen,newlen,1,Lreal,tag);
-    ytrace(0,hd,Lreal,"- realloc(nil,%zu) = %zx",newlen,(size_t)np)
+    ytrace(0,hd,Lreal,tag,0,"- realloc(nil,%zu) = %zx",newlen,(size_t)np)
     return np;
   }
 
@@ -229,7 +229,7 @@ static void *yrealloc(void *p,size_t oldlen,size_t newlen,ub4 tag)
   if (unlikely(newlen == 0)) {
     yfree_heap(hd,p,0,Lreal,tag);
     np = (void *)zeroblock;
-    ytrace(0,hd,Lreal,"- realloc(nil,%zu) = %p",newlen,np)
+    ytrace(0,hd,Lreal,tag,0,"- realloc(nil,%zu) = %p",newlen,np)
     return np;
   }
 
@@ -237,7 +237,7 @@ static void *yrealloc(void *p,size_t oldlen,size_t newlen,ub4 tag)
     np = yal_heapdesc(hd,newlen,newlen,1,Lreal,tag);
     if (np == nil) return nil;
     real_copy(p,np,min(oldlen,newlen));
-    ytrace(0,hd,Lreal,"- realloc(%zx,%zu) = %zx",(size_t)p,newlen,(size_t)np)
+    ytrace(0,hd,Lreal,tag,0,"- realloc(%zx,%zu) = %zx",(size_t)p,newlen,(size_t)np)
     // todo free orig
     return np;
   }
@@ -267,22 +267,20 @@ static void *yrealloc(void *p,size_t oldlen,size_t newlen,ub4 tag)
     vg_drd_wlock_rel(hb)
     return (void *)__LINE__;
   }
-  ytrace(1,hd,Lsize," %p len %zu -> %zu tag %.01u",p,pi.len,newlen,tag)
+  ytrace(1,hd,Lsize,tag,0," %p len %zu -> %zu",p,pi.len,newlen)
 
   if (likely(alen != 0)) {
     ylostats(hb->stat.minrelen,newlen)
     yhistats(hb->stat.maxrelen,newlen)
     np = real_heap(hd,hb,p,alen,newlen,&pi,tag);
     //coverity[pass_freed_arg]
-#if Yal_enable_trace
-     if (unlikely(hd->trace != 0)) do_ylog(Yal_diag_count + __COUNTER__,Lreal,pi.fln,Trace,0,"- realloc(%zx,%zu) from %zu = %zx",(size_t)p,newlen,alen,(size_t)np);
-#endif
+     ytrace(0,hd,Lreal,tag,0,"- realloc(%zx,%zu) from %zu = %zx",(size_t)p,newlen,alen,(size_t)np)
   } else {
     np = alloc_heap(hd,hb,doalign8(newlen,Stdalign),newlen,1,Lreal,tag);
     Realclear(np,0,newlen)
 
     //coverity[pass_freed_arg]
-    ytrace(0,hd,Lreal,"- realloc(%zx,%zu) from %zu = %zx",(size_t)p,newlen,alen,(size_t)np)
+    ytrace(0,hd,Lreal,tag,0,"- realloc(%zx,%zu) from %zu = %zx",(size_t)p,newlen,alen,(size_t)np)
   }
 
   Atomset(hb->lock,0,Morel);
@@ -291,7 +289,7 @@ static void *yrealloc(void *p,size_t oldlen,size_t newlen,ub4 tag)
   ip = (size_t)np;
 
   if (likely( (ub4)ip >= Pagesize)) {
-    ytrace(1,hd,Lreal,"- %p len %zu",np,newlen)
+    ytrace(1,hd,Lreal,tag,0,"- %p len %zu",np,newlen)
     if (pi.len < newlen) {
       Realclear(np,pi.len,newlen)
     }

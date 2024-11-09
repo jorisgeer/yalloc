@@ -907,6 +907,8 @@ static int manual(int argc,char *argv[])
   int fd = -1;
   bool redir = 0;
 
+  yal_options(Yal_trace_name,0,(size_t)"test.c");
+
   while (1) {
     if (redir && fbpos < fblen) {
       arg = filarg(filbuf,fblen,&fbpos);
@@ -954,7 +956,7 @@ static int manual(int argc,char *argv[])
       cnt = v2;
       info(L,"alloc %zu` * %zu`b = %zu`b at %u",cnt,len,cnt * len,pos);
       for (c = 0; c < cnt; c++) {
-        p  = malloc(len);
+        p  = yal_alloc(len,L);
         if (p == nil) return L;
         if (arg[1] != '-') {
           if (chkcel(p,len,0,0x55,0xaa)) return L;
@@ -969,7 +971,7 @@ static int manual(int argc,char *argv[])
       cnt = v2;
       info(L,"calloc %zu` * %zu`b",cnt,len);
       for (c = 0; c < cnt; c++) {
-        p  = calloc(len,1);
+        p  = yal_calloc(len,L);
         if (p == nil) return L;
         if (arg[1] != '-') {
           if (chkcel(p,len,0,0,0)) return L;
@@ -990,7 +992,7 @@ static int manual(int argc,char *argv[])
       align = v3;
       info(L,"Alloc %zu` * %zu`b @%zu",cnt,len,align);
       for (c = 0; c < cnt; c++) {
-        p  = aligned_alloc(align,len);
+        p  = yal_aligned_alloc(align,len,L);
         if (p == nil) return L;
         if (chkcel(p,len,0,0x55,0xaa)) return L;
         if ((size_t)p & (align - 1)) return L;
@@ -1003,7 +1005,7 @@ static int manual(int argc,char *argv[])
       if (cmd == 'F') diadis(Yal_diag_dblfree);
       if (arg[1] == '=') {
         info(L,"free = %zx",v1);
-        free((void *)v1);
+        yal_free((void *)v1,L);
       }
       info(L,"free %zu .. %zu",v1,v2);
       for (c = v1; c <= v2; c++) {
@@ -1024,7 +1026,7 @@ static int manual(int argc,char *argv[])
       info(L,"realloc(%p,%zx`)",p,v2);
       len = malloc_usable_size(p);
       if (len == 0) return L;
-      np = realloc(p,newlen);
+      np = yal_realloc(p,len,newlen,L);
       info(L,"real(%p,%zu`) from %zu` = %p",p,newlen,len,np);
       ps[from] = np;
 
