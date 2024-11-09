@@ -46,7 +46,7 @@ fi
 date=$(date -u '+%Y%m%d')
 time=$(date -u '+%H%M')
 
-# clang >= 8 aug 19  '-mbranch-protection=none'
+# clang >= 8 aug 19  '-mbranch-protection=none'  aarch64 only
 # clang >= 7 '-fcf-protection=none'
 
 case $tool in
@@ -61,7 +61,7 @@ case $tool in
     UBSAN_OPTIONS=print_stacktrace=1
     libs=
   else
-    cdbg='-gline-tables-only -fno-stack-protector -fwrapv -fcf-protection=none -mbranch-protection=none -fno-asynchronous-unwind-tables -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0' # -fno-stack-clash-protection
+    cdbg='-gline-tables-only -fno-stack-protector -fwrapv -fcf-protection=none -fno-asynchronous-unwind-tables -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0' # -fno-stack-clash-protection
     libs=
   fi
   copt='-O2'
