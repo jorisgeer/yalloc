@@ -193,7 +193,6 @@ static void diaena(ub4 x)
   yal_options(Yal_diag_enable,x,1);
 }
 
-//coverity[-alloc]
 static int slabs(cchar *cmd,size_t from,size_t to,size_t cnt,size_t iter)
 {
   size_t len,alen,i,c;
@@ -220,7 +219,9 @@ static int slabs(cchar *cmd,size_t from,size_t to,size_t cnt,size_t iter)
       if (len == 0 && q != p) return error(L,"len 0 p %p q %p",p,q);
       iq = (size_t)q;
       ip =(size_t)p;
+      // coverity[leaked_storage]
       if (ip > iq && ip < iq + len) return L;
+      // coverity[leaked_storage]
       if (ip < iq && ip > iq - len) return L;
       alen = malloc_usable_size(p);
       if (alen < len) return L;
@@ -262,7 +263,9 @@ static int testalign(cchar *cmd,size_t from,size_t to,size_t align)
     iq = (size_t)q;
     ip =(size_t)p;
     ir =(size_t)r;
+    // coverity[leaked_storage]
     if (ip > iq && ip < iq + len) return L;
+    // coverity[leaked_storage]
     if (ip < iq && ip > iq - len) return L;
     alen = malloc_usable_size(p);
     if (alen < len) return L;
@@ -327,7 +330,6 @@ static int getlock(int ln,struct xinfo *ap,ub4 from,ub4 to)
   return iter ? 0 : ln;
 }
 
-//coverity[-alloc]
 static void *xfree_thread(void *arg)
 {
   struct xinfo *ap = (struct xinfo *)arg;
@@ -360,8 +362,9 @@ static void *xfree_thread(void *arg)
       for (c = 0; c < cnt; c++) {
         p = malloc(len);
         // info(L,"alloc %zu = %p",len,p);
-        if (c >= Pointers) continue;
-        Atomseta(ps + c,p,Morel);
+        if (c < Pointers) Atomseta(ps + c,p,Morel);
+       // coverity[overwrite_var]
+        p = nil;
       }
 
     // free
@@ -400,7 +403,6 @@ static void *xfree_thread(void *arg)
  - a .tid1. .tid2. .len. .count. -> allocate .count. blocks of .len. in .tid1. and export to .tid2.
  - f .tid1. .tid2. .pos. .count.  -> free .count. blocks from .pos. as allocated by .tid1.
  */
-//coverity[-alloc]
 static int xfree(cchar *cmd,size_t tidcnt,int argc,char *argv[])
 {
   char *arg;
@@ -487,6 +489,7 @@ static int xfree(cchar *cmd,size_t tidcnt,int argc,char *argv[])
     } else return L;
 
     rv = getlock(L,a1,1,2);
+    // coverity[RESOURCE_LEAK]
     if (rv) return rv;
 
     rv = getlock(L,a1,4,0);
@@ -548,7 +551,6 @@ static int xfree(cchar *cmd,size_t tidcnt,int argc,char *argv[])
   return 0;
 }
 
-//coverity[-alloc]
 static void *mt_alfre_thread(void *arg)
 {
   struct xinfo *ap = (struct xinfo *)arg;
@@ -582,9 +584,12 @@ static void *mt_alfre_thread(void *arg)
       l = rnd(len,state);
       for (c = 0; c < cc; c++) {
         p = malloc(l);
-        if (pos >= Pointers) continue;
-        Atomseta(ps + pos,p,Morel);
-        pos++;
+        if (pos < Pointers) {
+          Atomseta(ps + pos,p,Morel);
+          pos++;
+        }
+        // coverity[overwrite_var]
+        p = nil;
       }
     } else {
       pp = rnd(max(pos,1),state);
@@ -709,7 +714,6 @@ static int fre2(size_t small,size_t large,size_t noerr)
   return rv;
 }
 
-//coverity[-alloc]
 static int tstrand(size_t als,size_t fres,size_t hilen,size_t iter)
 {
   size_t it,len,newlen;
@@ -734,6 +738,7 @@ static int tstrand(size_t als,size_t fres,size_t hilen,size_t iter)
 
     if (err == 0) { // expected
       error(L,"%zx errors",err);
+      // coverity[leaked_storage]
       return L;
     }
     loadr = stats.loadr;
@@ -765,7 +770,6 @@ static int tstrand(size_t als,size_t fres,size_t hilen,size_t iter)
 static void *global_ptrs[Global_ptrs];
 
 // alloc many of one size, free the same, rinse, repeat
-//coverity[-alloc]
 static int allfre(cchar *cmd,size_t cnt,size_t len,size_t iter,size_t cnt2)
 {
   size_t i,n,c;
@@ -792,6 +796,7 @@ static int allfre(cchar *cmd,size_t cnt,size_t len,size_t iter,size_t cnt2)
   for (i = 0; i < cnt; i++) {
     p = ps[i];
     free(p);
+    // coverity[USE_AFTER_FREE]
     if (haserr(0,p,i,L)) return L;
   }
  }
@@ -891,7 +896,6 @@ static int doclose(int fd,int line) {
    A .len. .count. .align. - allocate aligned
    @ .file. redirect args from file
  */
-//coverity[-alloc]
 static int manual(int argc,char *argv[])
 {
   char cmd,*arg;
@@ -939,6 +943,7 @@ static int manual(int argc,char *argv[])
       fd = osopen(a1,&st);
       if (fd == -1) return L;
       if (st.len < 3) return doclose(fd,L);
+      // coverity[RESOURCE_LEAK]
       if (st.len >= sizeof(filbuf)) return doclose(fd,L);
       nr = osread(fd,filbuf,st.len);
       osclose(fd);
