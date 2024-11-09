@@ -89,7 +89,7 @@ Set environment variable `Yalloc_trace` to enable at runtime, or call `yal_optio
 
 === callsite reporting
 You can have file coordinates included in a trace by replacing `malloc(len)` with `yal_alloc(len,tag)`
-This tag can contain encoded file coordinates or a symbolic callsite label.
+This tag can contain encoded file coordinates or a symbolic callsite label. See `yal_options(Yal_trace_name,...)` for details
 If you also enable `Yal_enable_tag`, this callsite info is retained and shown at invalid free diagnostics.
 
 === valgrind

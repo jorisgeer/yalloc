@@ -292,7 +292,7 @@ static ub4 table(char *buf,ub4 pos,ub4 len,ub4 nwid,ub4 vwid,...)
 // returns errorcnt
 static Cold size_t yal_mstats_heap(int fd,heap *hb,yalstats *ret,bool print,ub4 opts,ub4 tag,cchar *desc,ub4 fln)
 {
-  yalstats *sp;
+  yalstats *sp = nil;
   yalstats dummy;
   size_t errs;
   ub4 hid = 0;
@@ -309,7 +309,8 @@ static Cold size_t yal_mstats_heap(int fd,heap *hb,yalstats *ret,bool print,ub4 
   } else if (hb) {
     sp = &hb->stat;
     hid = hb->id;
-  } else {
+  }
+  if (sp == nil) {
     sp = &dummy;
     memset(sp,0,sizeof(yalstats));
   }

@@ -457,7 +457,7 @@ static ub4 cels2rbin(heap *hb,ub4 *bin,region *reg,ub4 cnt,enum Loc loc)
   } else {
     rcnt = doalign4(rpos + cnt + Rbinbuf,Rbinbuf);
   }
-  if (rcnt > reg->rbinlen) {
+  if (rbin == nil || rcnt > reg->rbinlen) {
     inc = reg->rbininc ;
     reg->rbininc = inc * 2;
     rcnt = max(rcnt,inc);
