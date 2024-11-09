@@ -602,10 +602,12 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
         if (fd != 2) didopen = 1;
       }
     }
-  }
+    if (fd == -1) print = 0;
+  } // print
+
   if (allthreads == 0) {
     errs = yal_mstats_heap(fd,hd->hb,ret,print != 0,opts,tag,desc,Fln);
-    if (didopen) osclose(fd);
+    if (print && didopen) osclose(fd);
     if (didcas) Atomset(oneprint,0,Morel);
     return errs;
   }

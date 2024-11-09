@@ -114,7 +114,7 @@ static region *newslab(heap *hb,ub4 cellen,ub4 clas,ub4 claseq)
 
   reg->binorg = binorg;
   reg->lenorg = lenorg;
-  reg->tagorg = taglen ? tagorg : 0; //coverity[DEADCODE]
+  reg->tagorg = Yal_enable_tag ? tagorg : 0;
   reg->flnorg = flnlen ? flnorg : 0; //coverity[DEADCODE]
 
   // reg->metacnt = metacnt;

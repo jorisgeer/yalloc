@@ -301,12 +301,10 @@ static Printf(5,6) ub4 minidiag(ub4 fln,enum Loc loc,enum Loglvl lvl,ub4 id,char
   if (lvl > Error) {
     fd = Yal_log_fd;
     if (fd == -1) fd = Yal_log_fd = newlogfile(Yal_log_file,"",0,pid);
-    if (fd == -1) return pos;
     fd2 = fd;
   } else {
     fd = Yal_err_fd;
     if (fd == -1) fd = Yal_err_fd = newlogfile(Yal_err_file,"",0,pid);
-    if (fd == -1) fd = 2;
     fd2 = Yal_Err_fd;
   }
   oswrite(fd,buf,pos,__LINE__);

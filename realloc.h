@@ -150,7 +150,7 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
     if (newlen < 64) newlen *= 2;
     else newlen += (newlen >> 2); // * 1.25
 
-    if (likely(typ == Rslab || typ == Rnone)) {
+    if (likely(typ == Rslab)) {
       np = alloc_heap(hd,hb,newlen,newulen,1,Lreal,tag);
       if (unlikely(np == nil)) return (void *)__LINE__;
       if (unlikely(alen == 0)) {
