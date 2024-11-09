@@ -53,7 +53,8 @@ static Hot size_t Nonnull(1,4) size_heap(heapdesc *hd,heap *hb,size_t ip,struct 
     if (unlikely(ip == (size_t)zeroblock)) {
  #if Yal_enable_valgrind == 0
       size_t x8 = 0;
-      for (ub4 i = 0; i < 8; i++) x8 |= zeroarea[i];
+      ub4 i;
+      for (i = 0; i < 8; i++) x8 |= zeroarea[i];
       if (unlikely(x8 != 0)) error(loc,"written to malloc(0) block (%zx) = %zx",ip,x8)
 #endif
       ytrace(1,hd,loc,tag,0,"size(%zx) len 0",ip)

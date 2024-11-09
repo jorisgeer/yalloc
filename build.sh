@@ -36,6 +36,7 @@ if [ $tool = 'guess' ]; then
   if which gcc; then tool=gcc
   elif which clang; then tool=clang
   elif which icx; then tool=icx
+  elif which icc; then tool=icc
   elif which dmd; then tool=dmd
   elif which cc; then tool=cc
   else
@@ -70,7 +71,7 @@ case $tool in
 
 # a64 gcc >= 8 2018 -fcf-protection  -fno-stack-clash-protection'
 
-  'gcc')
+  'gcc' | 'icc')
   cc=gcc
   cdiag='-Wall -Wextra -Wshadow -Wundef -Wunused -Wformat-overflow=2 -Wformat-truncation=2 -Winline -Werror=stack-usage=35000'
   cfmt='-fmax-errors=60 -fno-diagnostics-show-caret -fno-diagnostics-show-option -fno-diagnostics-color -fcompare-debug-second'

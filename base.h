@@ -113,6 +113,7 @@ typedef const char cchar;
 // #pragma GCC diagnostic ignored "-Wunused-variable"
 // #pragma GCC diagnostic ignored "-Wunused-parameter"
  #pragma GCC diagnostic ignored "-Wpadded"
+ #pragma GCC diagnostic ignored "-Wendif-labels"
 // #pragma GCC diagnostic ignored "-Wattributes"
 #else
  #define Isclang 0

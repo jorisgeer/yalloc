@@ -442,7 +442,8 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,enum Loc
     if (unlikely(p == (void *)zeroblock)) {
  #if Yal_enable_valgrind == 0
       size_t x8 = 0;
-      for (ub4 i = 0; i < 8; i++) x8 |= zeroarea[i];
+      ub4 i;
+      for (i = 0; i < 8; i++) x8 |= zeroarea[i];
       if (unlikely(x8 != 0)) error(loc,"written to malloc(0) block (%p) = %zx",p,x8)
 #endif
       ytrace(1,hd,loc,tag,0,"free(%zx) len 0",ip)
