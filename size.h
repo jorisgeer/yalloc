@@ -149,7 +149,6 @@ static Hot size_t Nonnull(1,4) size_heap(heapdesc *hd,heap *hb,size_t ip,struct 
     }
     pi->reg = reg;
     pi->len = ulen;
-    pi->local = 0;
     return rlen;
   }
 
@@ -168,13 +167,29 @@ static Hot Nonnull(1,2,3) size_t ysize_heap(heapdesc *hd,void *p,struct ptrinfo 
   heap *hb = hd->hb;
   ub4 from;
   bool didcas = 0;
+  enum Tidstate tidstate = hd->tidstate;
 
   // common: regular local heap
   if (likely(hb != nil)) {
-    from = 0; didcas = Cas(hb->lock,from,1);
-    if (unlikely(didcas == 0)) hb = nil;
-    else {
-      vg_drd_wlock_acq(hb)
+    if (tidstate == Ts_mt) {
+      from = 0; didcas = Cas(hb->lock,from,1);
+      if (unlikely(didcas == 0)) {
+        ydbg2(Fln,loc,"unlock heap %u",hb->id)
+        hb = nil;
+      } else {
+        ydbg2(Fln,loc,"unlock heap %u",hb->id)
+        vg_drd_wlock_acq(hb)
+      }
+#if Yal_enable_stats > 1
+      if (likely(didcas != 0)) hd->stat.getheaps++;
+      else hd->stat.nogetheaps++;
+#endif
+    } else {
+      didcas = 1;
+#if Yal_enable_check > 1
+      from = Atomget(hb->lock,Moacq);
+      ycheck(Nolen,loc,from != 1,"heap %u unlock %u",hb->id,from)
+#endif
     }
   } // nil hb
   hd->locked = didcas;
@@ -186,20 +201,26 @@ static Hot Nonnull(1,2,3) size_t ysize_heap(heapdesc *hd,void *p,struct ptrinfo 
 
   hb = hd->hb; // note: may have changed
 
-#if Yal_enable_check
+#if Yal_enable_check > 1
   if (unlikely(hb == nil)) { error(loc,"size(%zx) - nil heap",ip) return retlen; }
+
   from = Atomget(hb->lock,Moacq);
   if (unlikely(from != 1)) { error(loc,"heap %u unlock %u",hb->id,from) return retlen; }
 #endif
 
-  Atomset(hb->lock,0,Morel);
+  if (tidstate != Ts_private) {
+    Atomset(hb->lock,0,Morel);
+    ydbg2(Fln,loc,"unlock heap %u",hb->id)
+    vg_drd_wlock_rel(hb)
+  }
+
   return retlen;
 }
 
 // main entry
 static size_t ysize(void *p,ub4 tag)
 {
-  heapdesc *hd = getheapdesc(Lsize);
+  heapdesc *hd = getheapdesc();
   struct ptrinfo pi;
   size_t len;
 

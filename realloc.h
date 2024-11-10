@@ -37,11 +37,15 @@ static void *real_mmap(heap *hb,bool local,mpregion *reg,size_t orglen,size_t ne
   if (align) {
     if (local) setregion(hb,(xregion *)reg,ip + align,Pagesize,0,Lreal,Fln);
     else setgregion(hb,(xregion *)reg,ip + align,Pagesize,0,Lreal,Fln);
+    reg->align = 0;
   }
+
   if (local) setregion(hb,(xregion *)reg,ip,Pagesize,0,Lreal,Fln);
   else setgregion(hb,(xregion *)reg,ip,Pagesize,0,Lreal,Fln);
 
   vg_mem_noaccess(ip,reg->len)
+
+  ydbg2(Fln,Lreal,"reg %u.%u remap %zu -> %zu,%zu local %u",hb->id,reg->id,orglen,newlen,newulen,local)
 
   newlen = doalign8(newlen,Pagesize);
 
@@ -206,7 +210,7 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
 // main realloc().
 static void *yrealloc(void *p,size_t oldlen,size_t newlen,ub4 tag)
 {
-  heapdesc *hd = getheapdesc(Lreal);
+  heapdesc *hd = getheapdesc();
   heap *hb;
   void *np;
   size_t alen,ip;
@@ -214,6 +218,7 @@ static void *yrealloc(void *p,size_t oldlen,size_t newlen,ub4 tag)
   struct ptrinfo pi;
   ub4 from;
   bool didcas;
+  enum Tidstate tidstate = hd->tidstate;
 
   ypush(hd,Fln)
 
@@ -247,8 +252,15 @@ static void *yrealloc(void *p,size_t oldlen,size_t newlen,ub4 tag)
   if (unlikely(hb == nil)) {
     hb = hd->hb = heap_new(hd,Lreal,Fln);
   } else {
-    from = 0;
-    didcas = Cas(hb->lock,from,1);
+    if (tidstate == Ts_mt) {
+      from = 0; didcas = Cas(hb->lock,from,1);
+#if Yal_enable_stats > 1
+      if (likely(didcas != 0)) hd->stat.getheaps++;
+      else hd->stat.nogetheaps++;
+#endif
+    } else {
+      didcas = 1;
+    }
     if (unlikely(didcas == 0)) {
       hb = hd->hb = heap_new(hd,Lreal,Fln);
     } else {
@@ -256,35 +268,39 @@ static void *yrealloc(void *p,size_t oldlen,size_t newlen,ub4 tag)
       // Atomset(hb->locfln,Fln,Morel);
     }
   }
-  if (hb == nil) return oom(Fln,Lreal,newlen,0);
+  if (unlikely(hb == nil)) return oom(Fln,Lreal,newlen,0);
 
   memset(&pi,0,sizeof(pi));
 
   // find original block and its length
+  ydbg2(Fln,0,"size %p len %zu",p,newlen)
   alen = size_heap(hd,hb,(size_t)p,&pi,Lsize,Fln,tag);
-  if (unlikely(alen == Nolen)) { // not found. Note nil ptr already covered
+  if (likely(alen != Nolen)) { // Note: nil ptr already covered
+    ytrace(1,hd,Lsize,tag,0," %p len %zu -> %zu local %u",p,pi.len,newlen,pi.local)
+
+    if (likely(alen != 0)) {
+      ylostats(hb->stat.minrelen,newlen)
+      yhistats(hb->stat.maxrelen,newlen)
+
+      np = real_heap(hd,hb,p,alen,newlen,&pi,tag);
+
+      //coverity[pass_freed_arg]
+       ytrace(0,hd,Lreal,tag,0,"- realloc(%zx,%zu) from %zu = %zx loc %.01u",(size_t)p,newlen,alen,(size_t)np,pi.fln)
+    } else {
+      np = alloc_heap(hd,hb,doalign8(newlen,Stdalign),newlen,1,Lreal,tag);
+      Realclear(np,0,newlen)
+
+      //coverity[pass_freed_arg]
+      ytrace(0,hd,Lreal,tag,0,"- realloc(%zx,%zu) from %zu = %zx",(size_t)p,newlen,alen,(size_t)np)
+    }
+  } else {
+    np = nil;
+  } // found or not
+
+  if (tidstate != Ts_private) {
     Atomset(hb->lock,0,Morel);
     vg_drd_wlock_rel(hb)
-    return (void *)__LINE__;
   }
-  ytrace(1,hd,Lsize,tag,0," %p len %zu -> %zu",p,pi.len,newlen)
-
-  if (likely(alen != 0)) {
-    ylostats(hb->stat.minrelen,newlen)
-    yhistats(hb->stat.maxrelen,newlen)
-    np = real_heap(hd,hb,p,alen,newlen,&pi,tag);
-    //coverity[pass_freed_arg]
-     ytrace(0,hd,Lreal,tag,0,"- realloc(%zx,%zu) from %zu = %zx",(size_t)p,newlen,alen,(size_t)np)
-  } else {
-    np = alloc_heap(hd,hb,doalign8(newlen,Stdalign),newlen,1,Lreal,tag);
-    Realclear(np,0,newlen)
-
-    //coverity[pass_freed_arg]
-    ytrace(0,hd,Lreal,tag,0,"- realloc(%zx,%zu) from %zu = %zx",(size_t)p,newlen,alen,(size_t)np)
-  }
-
-  Atomset(hb->lock,0,Morel);
-  vg_drd_wlock_rel(hb)
 
   ip = (size_t)np;
 

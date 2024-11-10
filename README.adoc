@@ -157,8 +157,10 @@ Each region contains a local and remote freelist, the latter allocated on demand
 Free or realloc from a different thread is handled by adding it to the owner region's remote freelist.
 A subsequent alloc request will inspect the local freelist first. Periodically, the remote freelist is checked and a nonblocking opportunistic lock is used to remove the entry.
 
+Single-threaded programs are detected by the absence of additional threads and the locking as described above is bypassed.
+
 For realloc(), the size can be obtained first. If a change is needed, a new block is allocated from the local heap, and the free of the original block is handled
-as with a free().
+as with a regular free().
 
 Double-free detection is done using atomic compare-swap, to detect double or concurrent free / realloc in the presence of multiple threads.
 This is independent from the freelist binning described above. Without such check, a doubly freed block would result in the same block being handed out by subsequent mallocs of a similar size.

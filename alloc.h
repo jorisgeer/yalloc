@@ -160,7 +160,7 @@ static Hot void *alloc_heap(heapdesc *hd,heap *hb,size_t reqlen,size_t ulen,ub4 
 
   clascnt = hb->clascnts[clas] & Hi31;
 
-  if (clascnt == 0) {
+  if (unlikely(clascnt == 0)) {
     hb->claslens[clas] = alen;
     hb->cfremsk[clas] = 0xfffffffful;
     ydbg2(Fln,Lnone,"clas %2u for len %5u`",clas,len);
@@ -374,6 +374,7 @@ static Hot void *yal_heapdesc(heapdesc *hd,size_t len,size_t ulen,ub4 align,enum
   bool didcas;
   ub4 from;
   bregion *breg;
+  enum Tidstate tidstate = hd->tidstate;
 
   // trivia: malloc(0)
   if (unlikely(ulen == 0)) {
@@ -394,10 +395,15 @@ static Hot void *yal_heapdesc(heapdesc *hd,size_t len,size_t ulen,ub4 align,enum
     }
     didcas = 0;
   } else {
-    from = 0;
     ydbg3(loc,"try heap %u",hb->id);
-    didcas = Cas(hb->lock,from,1);
-  }
+
+    if (tidstate == Ts_mt) {
+      from = 0; didcas = Cas(hb->lock,from,1);
+    } else {
+      didcas = 1;
+    }
+    ydbg2(Fln,loc,"try heap %u cas %u",hb->id,didcas)
+  } // hb or not
 
   heaps = hd->stat.getheaps;
   hd->stat.getheaps = heaps + 1;
@@ -437,8 +443,10 @@ static Hot void *yal_heapdesc(heapdesc *hd,size_t len,size_t ulen,ub4 align,enum
   p = yal_heap(hd,hb,len,ulen,align,loc,tag); // regular
   // hb = hd->hb;  // hb may have changed
 
-  Atomset(hb->lock,0,Morel);
-  vg_drd_wlock_rel(hb)
+  if (tidstate != Ts_private) {
+    Atomset(hb->lock,0,Morel);
+    vg_drd_wlock_rel(hb)
+  }
 
   ycheck(nil,loc,p == nil,"p nil for len %zu",len)
   return p;
@@ -447,7 +455,7 @@ static Hot void *yal_heapdesc(heapdesc *hd,size_t len,size_t ulen,ub4 align,enum
 // calloc
 static void *yalloc(size_t len,size_t ulen,enum Loc loc,ub4 tag)
 {
-  heapdesc *hd = getheapdesc(loc);
+  heapdesc *hd = getheapdesc();
   void *p;
 
   p = yal_heapdesc(hd,len,ulen,1,loc,tag);
@@ -462,7 +470,7 @@ static void *yalloc(size_t len,size_t ulen,enum Loc loc,ub4 tag)
 // malloc
 static void *ymalloc(size_t len,ub4 tag)
 {
-  heapdesc *hd = getheapdesc(Lalloc);
+  heapdesc *hd = getheapdesc();
   heap *hb = hd->hb;
   region *reg;
   void *p;
@@ -470,13 +478,22 @@ static void *ymalloc(size_t len,ub4 tag)
   ub4 clascnt;
   ub4 from;
   bool didcas;
+  enum Tidstate tidstate;
 
   if (likely(hb != nil)) { // simplified case
-    from = 0; didcas = Cas(hb->lock,from,1);
+    tidstate = hd->tidstate;
+    if (tidstate == Ts_mt) {
+      from = 0; didcas = Cas(hb->lock,from,1);
+#if Yal_enable_stats > 1
+      if (likely(didcas != 0)) hd->stat.getheaps++;
+      else hd->stat.nogetheaps++;
+#endif
+    } else {
+      didcas = 1;
+    }
 
     if (likely(didcas != 0)) {
-      ystats(hd->stat.getheaps)
-      // Atomset(hb->locfln,Fln,Morel);
+      ycheck1(nil,Lalloc,Atomget(hb->lock,Moacq) == 0,"heap %u is unlocked",hb->id)
 
       if (likely(len < Smalclas)) {
         clas = len2clas[len];
@@ -484,7 +501,7 @@ static void *ymalloc(size_t len,ub4 tag)
         if (likely(reg != nil)) {
           clascnt = hb->clascnts[clas] & Hi31;
           ycheck(nil,Lalloc,clascnt == 0,"clas %u count 0",clas)
-          ystats(hb->clascnts[clas])
+          hb->clascnts[clas] = clascnt + 1;
           vg_mem_def(reg,sizeof(region))
           vg_mem_def(reg->meta,reg->metalen)
           ycheck(nil,Lalloc,reg->clas != clas,"region %.01llu clas %u len %zu vs %u %u",reg->uid,clas,len,reg->clas,reg->cellen)
@@ -498,7 +515,10 @@ static void *ymalloc(size_t len,ub4 tag)
 #if Yal_enable_check > 1
             if (unlikely(chkalign(p,len,Stdalign) != 0)) error(Lalloc,"alloc(%zu) = %zx not aligns",len,(size_t)p)
 #endif
-            Atomset(hb->lock,0,Morel);
+            if (tidstate != Ts_private) {
+              Atomset(hb->lock,0,Morel);
+              vg_drd_wlock_rel(hb)
+            }
             vg_mem_noaccess(reg->meta,reg->metalen)
             vg_mem_noaccess(reg,sizeof(region))
             return p;
@@ -510,17 +530,24 @@ static void *ymalloc(size_t len,ub4 tag)
           p = (void *)zeroblock;
           ytrace(0,hd,Lalloc,tag,0,"alloc 0 = %zx",(size_t)p)
           ystats(hb->stat.alloc0s)
-          Atomset(hb->lock,0,Morel);
+          if (tidstate != Ts_private) {
+            Atomset(hb->lock,0,Morel);
+            vg_drd_wlock_rel(hb)
+          }
           return p;
         }
 
       } // small
+
       p = alloc_heap(hd,hb,len,len,1,Lalloc,tag);
-      Atomset(hb->lock,0,Morel);
+
+      if (tidstate != Ts_private) {
+        Atomset(hb->lock,0,Morel);
+        vg_drd_wlock_rel(hb)
+      }
       return p;
     } // locked
     ydbg2(Fln,Lalloc,"len %zu",len)
-    ystats(hd->stat.nogetheaps)
   } // heap
   ydbg3(Fln,Lalloc,"len %zu",len)
   return yal_heapdesc(hd,len,len,1,Lalloc,tag);
@@ -529,7 +556,7 @@ static void *ymalloc(size_t len,ub4 tag)
 // in contrast with c11, any size and pwr2 alignment is accepted
 static void *yalloc_align(size_t align, size_t len,ub4 tag)
 {
-  heapdesc *hd = getheapdesc(Lallocal);
+  heapdesc *hd = getheapdesc();
   heap *hb;
   mpregion *reg;
   void *p;
@@ -538,6 +565,7 @@ static void *yalloc_align(size_t align, size_t len,ub4 tag)
   ub4 ord;
   bool didcas;
   ub4 from;
+  enum Tidstate tidstate = hd->tidstate;
 
   ytrace(0,hd,Lallocal,tag,0,"+ mallocal(%zu`,%zu)",len,align)
 
@@ -557,11 +585,15 @@ static void *yalloc_align(size_t align, size_t len,ub4 tag)
     ytrace(0,hd,Lallocal,tag,0,"+ mallocal(%zu`,%zu)",len,align)
     hb = hd->hb;
     if (hb) {
-      from = 0; didcas = Cas(hb->lock,from,1);
-      if (didcas == 0) hb = nil;
-      else {
-        vg_drd_wlock_acq(hb)
-        // Atomset(hb->locfln,Fln,Morel);
+      if (tidstate == Ts_mt) {
+        from = 0; didcas = Cas(hb->lock,from,1);
+        if (likely(didcas != 0)) hd->stat.getheaps++;
+        else {
+          hd->stat.nogetheaps++;
+          hb = nil;
+        }
+      } else {
+        didcas = 1;
       }
     }
     if (hb == nil) {
@@ -576,8 +608,12 @@ static void *yalloc_align(size_t align, size_t len,ub4 tag)
     reg = yal_mmap(hd,hb,alen,len,align,Lallocal,Fln);
     if (reg == nil) return nil;
     aip = reg->user + reg->align;
-    Atomset(hb->lock,0,Morel);
-    vg_drd_wlock_rel(hb)
+
+    if (tidstate != Ts_private) {
+      Atomset(hb->lock,0,Morel);
+      vg_drd_wlock_rel(hb)
+    }
+
     ytrace(0,hd,Lallocal,tag,0,"-mallocal(%zu`,%zu) = %zx",len,align,aip)
     return (void *)aip;
   } // len or align large

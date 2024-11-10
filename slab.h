@@ -505,7 +505,7 @@ static ub4 cels2rbin(heap *hb,ub4 *bin,region *reg,ub4 cnt,enum Loc loc)
 }
 
 // unbuffer remote frees. Returns cells left
-static size_t slab_unbuffer(heap *hb,enum Loc loc)
+static size_t slab_unbuffer(heap *hb,enum Loc loc,ub4 frees)
 {
   struct rembuf *rb;
   struct remote *rem,*remp;
@@ -513,17 +513,16 @@ static size_t slab_unbuffer(heap *hb,enum Loc loc)
   region *reg;
   ub4 hid,clas,seq,clasofs;
   Ub8 clasmsk,Clasmsk,clasmsks,seqmsk,Seqmsk,hidmsk,Hidmsk;
-  yalstats *hs;
-  size_t bufs,batch,left;
-  ub4 nocas = 0;
+  yalstats *hs = &hb->stat;
+  size_t bufs = hs->xfreebuf;
+  size_t batch = hs->xfreebatch;
+  size_t left;
+  ub4 nocas = 0,noCas;
   ub4 urv;
   ub4 from;
   bool didcas;
+  bool effort = sometimes(frees,0xfff) || bufs - batch > 1024;
 
-  hs = &hb->stat;
-
-  bufs = hs->xfreebuf;
-  batch = hs->xfreebatch;
   ycheck(0,loc,bufs < batch,"frees %zu` batch %zu`",bufs,batch)
   left = bufs - batch;
 
@@ -552,7 +551,6 @@ static size_t slab_unbuffer(heap *hb,enum Loc loc)
         seqmsk &= ~(1ul << seq);
         ycheck(0,loc,seq >= Clasregs,"class %u seq %u",clas,seq)
         remp = rem + clas * Clasregs + seq;
-        ycheck(0,loc,remp == nil,"class %u seq %u nil bin",clas,seq)
         pos = remp->pos;
         cnt = remp->cnt;
         ycheck(0,loc,pos == 0,"class %u seq %u pos 0 nil cnt",clas,seq)
@@ -564,27 +562,34 @@ static size_t slab_unbuffer(heap *hb,enum Loc loc)
         ycheck(0,loc,reg->clas != clas,"class %u vs %u",clas,reg->clas)
         ycheck(0,loc,reg->claspos != seq,"class %u vs %u",seq,reg->claspos)
         ycheck1(0,loc,reg->uid != remp->uid,"reg %.01llu.%u vs %.01llu",reg->uid,reg->id,remp->uid)
-        if (pos < 4 && bufs - batch < 1024) continue;
+        if (pos < 4 && effort == 0) continue;
 
         from = 0; didcas = Cas(reg->lock,from,1);
-        if (didcas == 0) {
+        if (didcas) {
+          remp->nocas = 0;
+          vg_drd_wlock_acq(reg)
+
+          urv = cels2rbin(hb,remp->bin,reg,pos,loc);
+
+          Atomset(reg->lock,0,Morel);
+          vg_drd_wlock_rel(reg)
+
+          if (urv) {
+            ydbg2(reg->fln,loc,"skip region %.01llu from %u gen %u cnt %-2u hid %u clas %u seq %u",reg->uid,hb->id,reg->gen,cnt,hid,clas,seq)
+          }
+
+        } else {
           nocas++;
-          if (nocas > 100) { ydbg2(reg->fln,loc,"busy region %.01llu from %u gen %u cnt %-2u hid %u clas %u seq %u",reg->uid,hb->id,reg->gen,cnt,hid,clas,seq) }
-          continue;
-        }
-        vg_drd_wlock_acq(reg)
-        reg->fln = Fln;
-
-        urv = cels2rbin(hb,remp->bin,reg,pos,loc);
-
-        Atomset(reg->lock,0,Morel);
-        vg_drd_wlock_rel(reg)
-        reg->fln = Fln;
-
-        if (urv) {
-          ydbg2(reg->fln,loc,"busy region %.01llu from %u gen %u cnt %-2u hid %u clas %u seq %u",reg->uid,hb->id,reg->gen,cnt,hid,clas,seq)
-          continue;
-        }
+          noCas = remp->nocas;
+          if (nocas > 100) { ydbg2(reg->fln,loc,"busy region %.01llu from %u cnt %-2u hid %u clas %u seq %u no %u",reg->uid,hb->id,cnt,hid,clas,seq,noCas) }
+          if (noCas < Private_drop_threshold) {
+            remp->nocas = noCas + 1;
+            continue;
+          } else {
+            remp->nocas = 0;
+            hb->stat.xfreedropped += pos; // Private heap may be abandoned -> drop
+          }
+        } // cas or not
 
         // done, empty
         batch += pos;
@@ -594,6 +599,7 @@ static size_t slab_unbuffer(heap *hb,enum Loc loc)
         remp->inc = Rbinbuf;
         Seqmsk &= ~(1ul << seq);
       } while (seqmsk); // each seq
+
       rb->seq[clas] = Seqmsk;
       clasmsk &= ~(1ul << clas);
       if (Seqmsk == 0) Clasmsk &= ~(1ul << clas);

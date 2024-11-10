@@ -92,6 +92,7 @@ static enum Status free_mmap(heapdesc *hd,heap *hb,mpregion *reg,size_t ap,size_
 }
 
 // Mark empty regions for reuse, and free after a certain 'time'
+// returns lock state
 static bool free_trim(heapdesc *hd,heap *hb,ub4 tick)
 {
   region *reg,*startreg,*xreg,*nxreg,*nreg,*preg,**clasregs;
@@ -119,6 +120,8 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 tick)
   size_t metalens[Trim_scan+1];
   ub4 *ages;
   static ub4 effort_ages[] = { 2,3,4 };
+  enum Tidstate tidstate = hd->tidstate;
+  bool rv = 1;
 
   hid = hb->id;
 
@@ -313,7 +316,7 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 tick)
       ydbg2(Fln,Lfree,"region %u set %u",rid,set)
       // if (set == 1) { mreg = mpnxreg; continue; } // allocated
       hb->stat.trimregions[4]++;
-      if (set != 2) { error(Lfree,"region %u set %u",rid,set) return 1; }
+      if (set != 2) { error(Lfree,"region %u set %u",rid,set) return rv; }
     }
 
     Atomset(mreg->age,age + 1,Morel);
@@ -351,7 +354,7 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 tick)
       didcas = Cas(mreg->set,from,0);
       if (didcas == 0) {
         error(Lfree,"mmap region %u.%u set %u",hid,rid,from)
-        return 1;
+        return rv;
       }
       // prepare unmap
       bases[rbpos] = base;
@@ -390,8 +393,12 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 tick)
 
   hb->mpregtrim = mreg ? mreg : hb->mpreglst;
 
-  Atomset(hb->lock,0,Morel); // actual munmap is unlocked
-  vg_drd_wlock_rel(hb)
+  // actual munmap is unlocked
+  if (tidstate != Ts_private) {
+    Atomset(hb->lock,0,Morel);
+    vg_drd_wlock_rel(hb)
+    rv = 0;
+  }
 
   for (i = 0; i < rbpos; i++) {
     if (lens[i]) osunmem(Fln,hd,(void *)bases[i],lens[i],"trim");
@@ -399,7 +406,7 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 tick)
     if (metalens[i]) osunmem(Fln,hd,metas[i],metalens[i],"trim");
   }
 
-  return 0;
+  return rv;
 }
 
 /* First, find region. If not found, check remote heaps
@@ -488,8 +495,8 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,enum Loc
     // try to acquire owner heap
     local = 0;
     xhb = reg->hb;
-    if (xhb) { // no mini
-      ydbg3(Fln,loc,"lock heap %u",xhb->id)
+    if (xhb && hd->tidstate != Ts_private) { // no mini
+      ydbg2(Fln,loc,"lock heap %u",xhb->id)
       from = 0; didcas = Cas(xhb->lock,from,1);
       if (didcas) {
         vg_drd_wlock_acq(xhb)
@@ -621,15 +628,32 @@ static Hot size_t yfree_heap(heapdesc *hd,void *p,size_t reqlen,enum Loc loc,ub4
   heap *hb = hd->hb;
   ub4 from;
   bool didcas = 0;
-  bool totrim;
-  ub4 frees,iter;
+  bool totrim,locked;
+  size_t frees;
+  ub4 iter;
+  enum Tidstate tidstate = hd->tidstate;
 
   // common: regular local heap
   if (likely(hb != nil)) {
-    from = 0; didcas = Cas(hb->lock,from,1);
-    if (unlikely(didcas == 0)) hb = nil;
-    else {
-      vg_drd_wlock_acq(hb)
+    if (tidstate == Ts_mt) {
+      from = 0; didcas = Cas(hb->lock,from,1);
+      if (unlikely(didcas == 0)) {
+        ydbg2(Fln,loc,"unlock heap %u",hb->id)
+        hb = nil;
+      } else {
+        ydbg2(Fln,loc,"unlock heap %u",hb->id)
+        vg_drd_wlock_acq(hb)
+      }
+#if Yal_enable_stats > 1
+      if (likely(didcas != 0)) hd->stat.getheaps++;
+      else hd->stat.nogetheaps++;
+#endif
+    } else {
+      didcas = 1;
+#if Yal_enable_check > 1
+      from = Atomget(hb->lock,Moacq);
+      ycheck(Nolen,loc,from != 1,"heap %u unlock %u",hb->id,from)
+#endif
     }
   } // nil hb
   hd->locked = didcas;
@@ -642,13 +666,24 @@ static Hot size_t yfree_heap(heapdesc *hd,void *p,size_t reqlen,enum Loc loc,ub4
   }
   hb = hd->hb; // note: may have changed
 
-  frees = (ub4)hb->stat.frees++;
+#if Yal_enable_check > 1
+  if (unlikely(hb == nil)) { error(loc,"size(%zx) - nil heap",ip) return retlen; }
 
-  totrim = sometimes(frees,regfree_interval);
+  from = Atomget(hb->lock,Moacq);
+  if (unlikely(from != 1)) { error(loc,"heap %u unlock %u",hb->id,from) return retlen; }
+#endif
+
+  frees = hb->stat.frees;
+  hb->stat.frees = frees + 1;
+
+  totrim = sometimes((ub4)frees,regfree_interval);
 
   if (likely(totrim == 0)) {
-    Atomset(hb->lock,0,Morel);
-    vg_drd_wlock_rel(hb)
+    if (tidstate != Ts_private) {
+      Atomset(hb->lock,0,Morel);
+      ydbg2(Fln,loc,"unlock heap %u",hb->id)
+      vg_drd_wlock_rel(hb)
+    }
     return retlen;
   }
 
@@ -661,19 +696,26 @@ static Hot size_t yfree_heap(heapdesc *hd,void *p,size_t reqlen,enum Loc loc,ub4
   if (bufs - batch > Buffer_flush) {
     iter = 1;
     do {
-      left = slab_unbuffer(hb,loc);
+      left = slab_unbuffer(hb,loc,(ub4)frees);
     } while (left > Buffer_flush && --iter);
     ywarn(loc,left > (1ul << 18),"heap %u unbuffer left %zu from %zu - %zu",hb->id,left,bufs,batch)
   }
 
-  free_trim(hd,hb,frees); // unlocks
+  locked = free_trim(hd,hb,(ub4)frees); // normally unlocks
+  ydbg2(Fln,loc,"heap %u lock %u",hb->id,locked)
+  if (likely(locked == 0 || tidstate == Ts_private)) return retlen;
+
+  Atomset(hb->lock,0,Morel);
+  vg_drd_wlock_rel(hb)
+  ydbg2(Fln,loc,"unlock heap %u",hb->id)
+
   return retlen;
 }
 
 // main entry
 static Hot inline void yfree(void *p,size_t len,ub4 tag)
 {
-  heapdesc *hd = getheapdesc(Lfree);
+  heapdesc *hd = getheapdesc();
 
   if (unlikely(p == nil)) {
     ystats(hd->stat.freenils)

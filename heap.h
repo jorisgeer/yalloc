@@ -40,11 +40,11 @@ static heap *newheap(heapdesc *hd,enum Loc loc,ub4 fln)
 {
   ub4 id = hd->id;
   ub4 hid = Atomad(global_hid,1,Moacqrel);
-  ub4 tidcnt = Atomget(global_tid,Moacq) - 1;
+  ub4 tidcnt = Atomget(global_tid,Moacq);
   void *vbase;
   size_t base;
   heap *hb,*orghb;
-  ub4 iter,zero;
+  ub4 iter;
   bool didcas;
 
   ub4 len;
@@ -103,8 +103,7 @@ static heap *newheap(heapdesc *hd,enum Loc loc,ub4 fln)
   hb->stat.mmaps = 1;
 
   vg_drd_rwlock_init(hb)
-  zero = 0; didcas = Cas(hb->lock,zero,1); // Atomset(hb->lock,1,Morel); // give it locked
-  ycheck(nil,loc,didcas == 0,"new heap %u from %u",hid,zero)
+  Atomset(hb->lock,1,Morel); // give it locked
   vg_drd_wlock_acq(hb)
 
   iter = 20;
@@ -135,11 +134,13 @@ static heap *heap_new(heapdesc *hd,enum Loc loc,ub4 fln)
   while (hb) {
     zero = 0;
     didcas = Cas(hb->lock,zero,1);
+#if 1
     if (unlikely(didcas == 0)) {
       Pause
       zero = 0;
       didcas = Cas(hb->lock,zero,1);
     }
+#endif
     if (didcas) {
       vg_drd_wlock_acq(hb)
       Atomset(hb->locfln,Fln,Morel);

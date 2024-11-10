@@ -51,10 +51,11 @@
   #define Yal_enable_trace 1 // incurs minor overhead, unless enabled at run time
   #define Yal_trace_default 0
 
-  /* control tracing
+  /* control tracing bitmask
    1 - basic - one line per call
    2 - extended
    4 - use yal-diag.cfg for suppressions
+   8 - include callsite
   */
   #define Yal_trace_envvar "Yalloc_trace"
 
@@ -145,6 +146,10 @@ static const unsigned long Mmap_retainlimit = 1ul << 30; // directly release mem
 #define Dirmem 16
 
 // --- threading ---
+
+#define Yal_enable_private 1 // private heap for main thread
+static const unsigned int Private_drop_threshold = 1024;
+static const unsigned int Private_interval = 0xff; // pwr2 - 1
 
 #define L1line 128
 

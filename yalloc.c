@@ -500,6 +500,7 @@ struct remote {
   ub8 uid;
   ub4 *bin;
   ub4 pos,cnt,inc;
+  ub4 nocas;
   ub4 celcnt;
 };
 
@@ -600,26 +601,30 @@ struct hdstats {
 
 #define Miniord 16
 
+enum Tidstate { Ts_init,Ts_mt,Ts_private };
+
 struct st_heapdesc {
   struct st_heapdesc *nxt,*frenxt;
   struct st_heap *hb;
   struct st_bregion *mhb;
 
+  ub4 id;
+  ub4 ticker;
+  enum Tidstate tidstate;
+  ub4 locked;
+
+  ub4 trace,trcfln;
+  enum Status status;
+
   char *errbuf;
 
   ub4 errfln;
-  ub4 id;
-
-  enum Status status;
-  _Atomic ub4 lock;
-  ub4 locked;
-  ub4 trace;
 
   size_t getheaps,nogetheaps;
 
   struct hdstats stat;
 
-  ub1 minicnts[Miniord - 4];
+  ub1 minicnts[Miniord];
   ub4 minidir;
 
 #if Yal_enable_stack
@@ -671,25 +676,24 @@ static _Thread_local struct st_heapdesc *thread_heap;
 static struct st_heapdesc * _Atomic global_heapdescs;
 static struct st_heap * _Atomic global_heaps;
 
-static _Atomic ub4 global_tid = 1;
+static _Atomic ub4 global_tid;
 static _Atomic ub4 global_hid = 1;
 
-static Hot heapdesc *getheapdesc(enum Loc loc)
+static heapdesc *new_heapdesc(void)
 {
-  heapdesc *org,*hd = thread_heap;
+  heapdesc *org,*hd;
   ub4 id,iter;
   ub4 fln;
   ub4 len = sizeof(struct st_heapdesc);
   bool didcas;
 
-  if (likely(hd != nil)) return hd;
-
   id = Atomad(global_tid,1,Moacqrel);
 
-  if (id == 1) init_env();
+  if (id == 0) init_env();
+  id++;
 
   fln = Fyalloc << 16;
-  minidiag(fln|__LINE__,loc,Debug,id,"new base heap size %u.%u",len,(ub4)sizeof(struct hdstats));
+  minidiag(fln|__LINE__,Lnone,Debug,id,"new base heap size %u.%u",len,(ub4)sizeof(struct hdstats));
   len = doalign4(len,L1line);
 
   // reuse ?
@@ -701,6 +705,8 @@ static Hot heapdesc *getheapdesc(enum Loc loc)
       thread_heap = hd;
       thread_setclean(hd);
       hd->hb = nil;
+      if (Yal_enable_private) hd->tidstate = Ts_private;
+      else hd->tidstate = Ts_mt;
       return hd;
     }
   }
@@ -708,14 +714,17 @@ static Hot heapdesc *getheapdesc(enum Loc loc)
   // new
   hd = bootalloc(fln|__LINE__,id,Lnone,len);
   if (unlikely(hd == nil)) {
-    minidiag(fln|__LINE__,loc,Fatal,id,"cannot allocate heap descriptor %u",id);
+    minidiag(fln|__LINE__,Lnone,Fatal,id,"cannot allocate heap descriptor %u",id);
     _Exit(1);
   }
+
+  if (Yal_enable_private && id == 1) hd->tidstate = Ts_private;
+  else hd->tidstate = Ts_mt;
 
   thread_heap = hd;
   thread_setclean(hd);
 
-  iter = 10;
+  iter = 20;
 
   // create list of all heapdescs for stats
   do {
@@ -726,7 +735,39 @@ static Hot heapdesc *getheapdesc(enum Loc loc)
   if (didcas == 0) hd->stat.nolink++; // not essential
 
   hd->id = id;
-  hd->trace = global_trace;
+  hd->trace = global_trace & 3;
+  hd->trcfln = global_trace & 8;
+  return hd;
+}
+
+static Hot heapdesc *getheapdesc(void)
+{
+  heapdesc *hd = thread_heap;
+  heap *hb;
+  ub4 tic;
+  ub4 tidcnt;
+  bool some;
+
+  if (likely(hd != nil)) {
+    if (hd->tidstate != Ts_private) return hd;
+    tic = hd->ticker;
+    hd->ticker = tic + 1;
+    some = sometimes(tic,Private_interval);
+    if (likely(some == 0)) return hd;
+    tidcnt = Atomget(global_tid,Monone);
+    if (tidcnt == 1) return hd;
+    hd->tidstate = Ts_mt;
+    hb = hd->hb;
+    if (likely(hb != nil)) {
+      Atomset(hb->lock,0,Morel);
+    }
+#if Yal_dbg_level > 1
+    minidiag( (Fyalloc << 16) | __LINE__,loc,Debug,hd->id,"tidstate %u at %u",hd->tidstate,tidcnt);
+#endif
+    return hd;
+  }
+
+  hd = new_heapdesc();
   return hd;
 }
 
@@ -891,6 +932,7 @@ ub4 yal_options(enum Yal_options opt,size_t arg1,size_t arg2)
 
   switch (opt) {
     case Yal_diag_enable: return diag_enable(arg1,(ub4)arg2);
+    case Yal_stats_enable: return init_stats(a1);
 
     case Yal_trace_enable: return trace_enable(a1);
     case Yal_trace_name:
