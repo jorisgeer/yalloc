@@ -824,6 +824,8 @@ static int tstreal(size_t from,size_t to,size_t iter)
   size_t olen = 0,nlen,range = to - from;
   void *p = nil,*np;
 
+  info(L,"realloc(%zu` .. %zu` iters %zu",from,to,iter);
+
   for (it = 0; it < iter; it++) {
     nlen = from + rnd(range,g_state);
     if (p) memset(p,0x55,olen);
@@ -856,7 +858,7 @@ static int do_test(cchar *cmd,size_t arg1,size_t arg2,size_t arg3,size_t arg4)
 
   if (tstcnt == 0) return L;
 
-  info(L,"'%s' - %u %s` ok",cmd,tstcnt,"test");
+  // info(L,"'%s' - %u %s` ok",cmd,tstcnt,"test");
 
   return 0;
 }
@@ -1119,7 +1121,7 @@ int main(int argc,char *argv[])
   if (argc == 0) return usage();
   cmd = *argv++; argc--;
 
-  if (trclvl) yal_options(Yal_trace_enable,trclvl,0);
+  if (trclvl && trclvl != Hi32) yal_options(Yal_trace_enable,trclvl,0);
   inixor(g_state);
 
   for (i = 0; i < 16; i++) g_state[i] = xorshift64star();
@@ -1156,7 +1158,7 @@ int main(int argc,char *argv[])
   if (argc > 3) arg4 = atoul(argv[3]);
 
   if (argc) {
-    info(L,"%s %zu.%zx %zu.%zx %zu.%zx %zu.%zx",cmd,arg1,arg1,arg2,arg2,arg3,arg3,arg4,arg4);
+    // info(L,"%s %zu.%zx %zu.%zx %zu.%zx %zu.%zx",cmd,arg1,arg1,arg2,arg2,arg3,arg3,arg4,arg4);
     rv = do_test(cmd,arg1,arg2,arg3,arg4);
     if (rv) error(L,"test error on line %d",rv);
   }

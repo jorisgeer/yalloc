@@ -690,7 +690,9 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
   }
 
   size_t slaballocs = sum.slaballocs;
+  size_t slabAllocs = sum.slabAllocs;
   size_t mapallocs = sum.mapallocs;
+  size_t mapAllocs = sum.mapAllocs;
   size_t slabfrees = sum.slabfrees;
   size_t slabxfrees = sum.slabxfrees;
 
@@ -705,12 +707,12 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
 
   yal_mstats_heap(fd,nil,&sum,print != 0,opts | 0x80,tag,desc,Fln); // totals
 
-  if (slabfrees + slabxfrees > slaballocs) {
-    error2(Lnone,Fln,"allocs %zu frees %zu + %zu",slaballocs,slabfrees,slabxfrees)
+  if (slabfrees + slabxfrees > slaballocs + slabAllocs) {
+    error2(Lnone,Fln,"allocs %zu + %zu frees %zu + %zu",slaballocs,slabAllocs,slabfrees,slabxfrees)
   }
 
-  if (mapfrees + mapxfrees > mapallocs) {
-    error2(Lnone,Fln,"map allocs %zu frees %zu + %zu",mapallocs,mapfrees,mapxfrees)
+  if (mapfrees + mapxfrees > mapallocs + mapAllocs) {
+    error2(Lnone,Fln,"map allocs %zu + %zu frees %zu + %zu",mapallocs,mapAllocs,mapfrees,mapxfrees)
   }
 
   if (print) {

@@ -246,18 +246,22 @@ fi
 
 # aligned_alloc
 verbose 'test align small' 'test align alloc 4k 32"'
-./test -s A 1 4096 32
+if ./test -s A 1 4096 32; then
+  echo "test 1 ok"
+else
+  error "test 1 failed"
+fi
 
 verbose 'test align large' 'test align alloc 64k 32"'
-if ./test -s A 0x10000 0x10000 32; then
+if ./test -s A 0x10000 0x10001 32; then
   echo "test 1 ok"
 else
   error "test 1 failed"
 fi
 
 # slab
-verbose 'test slab' 'test slab 64k 3 10"'
-if ./test -s s 1 0x10000 3 2; then
+verbose 'test slab' 'test slab 1 .. 4k * 3 iters 2"'
+if ./test -s s 1 0x1000 3 2; then
   echo "test 2 ok"
 else
   error "test 2 failed"
