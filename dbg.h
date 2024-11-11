@@ -41,7 +41,7 @@ static void callstack(heapdesc *hd)
     if (fln) minidiag(fln,Lnone,Info,hd->id,"%u%s",pos,pos == cur ? " <--" : "");
   }
 #else
-  minidiag(0,Lnone,Info,hd ? hd->id : 0,"no callstack");
+  minidiag(0,Lnone,Debug,hd ? hd->id : 0,"no callstack");
 #endif
 }
 

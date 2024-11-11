@@ -181,10 +181,10 @@ static void init_env(void)
 
   Atomset(global_pid,pid,Monone);
 
-#ifdef __LINUX__
+#ifdef __linux__
   int fd = osopen("/proc/self/cmdline",nil);
 
-  if (fd) {
+  if (fd != -1) {
     osread(fd,global_cmdline,255);
     osclose(fd);
   }
