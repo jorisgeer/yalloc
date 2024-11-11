@@ -114,23 +114,28 @@ static void at_exit(void)
 
 static void setsigs(void); // dbg.h
 
-static void init_stats(void)
+static ub4 init_stats(ub4 uval)
 {
+  ub4 prv = global_stats_opt;;
 #if Yal_enable_stats
-  cchar *envs = nil;
-  ub4 val;
+  cchar *envs;
+  ub4 val = 0;
 
-  envs = getenv(Yal_stats_envvar);
-  if (envs == nil) return;
-
-  val = atou(envs);
+  if (uval != Hi32) val = uval;
+  else {
+    if (prv) return prv; // set earlier
+    envs = getenv(Yal_stats_envvar);
+    if (envs) val = atou(envs);
+  }
   if (val) {
-    minidiag(Fln,Lnone,Vrb,0,"stats %u",val);
+    minidiag(Fln,Lnone,Vrb,0,"stats %u,%u",val,uval);
     setsigs(); // also an exit point
     atexit(at_exit);
   }
+  prv = global_stats_opt;
   global_stats_opt = val;
 #endif
+  return prv;
 }
 
 static void init_trace(void)
@@ -188,7 +193,7 @@ static void init_env(void)
   setsigs();
   init_check();
   init_trace();
-  init_stats();
+  init_stats(Hi32);
   vg_mem_noaccess(zeroarea,sizeof(zeroarea))
 }
 #undef Fln

@@ -412,7 +412,7 @@ static Cold size_t yal_mstats_heap(int fd,heap *hb,yalstats *ret,bool print,ub4 
 #if Yal_enable_stats
     if (newregs) {
 
-      tpos = table(tbuf,0,tlen,7,8,"alloc",slaballocs,"alloc0",alloc0s,"calloc",callocs,"free",slabfrees,"free0",free0s,"freenil",freenils,"rfree",slabxfrees,"realloc",reallocles,"Realloc",reallocgts,"Alloc",slabAllocs,nil);
+      tpos = table(tbuf,0,tlen,7,8,"alloc",slaballocs,"alloc0",alloc0s,"calloc",callocs,"free",slabfrees,"free0",free0s,"freenil",freenils,"rfree",slabxfrees,"realloc",reallocles,"Realloc",reallocgts,"Alloc",slabAllocs,"size",sp->sizes,nil);
       pos += snprintf_mini(buf,pos,len,"\n-- slab summary --\n  counts  %.*s\n",tpos,tbuf);
 
       tpos = table(tbuf,0,tlen,7,8,"new",sp->newregions,"reuse",sp->useregions,"del",sp->delregions,"inuse",
@@ -592,7 +592,7 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
     memset(hd,0,sizeof(heapdesc));
   }
 
-  tidcnt = Atomget(global_tid,Monone) - 1u;
+  tidcnt = Atomget(global_tid,Monone);
 
   if (print) { // prevent mutiple threads printing simultaneoulsy : redirect to file if needed
     didcas = Cas(oneprint,zero,1);

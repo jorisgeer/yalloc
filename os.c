@@ -104,7 +104,7 @@ Vis unsigned int oswrite(int fd,const char *buf,size_t len,unsigned int fln)
     while (p < buf + len && *p) p++;
     if (p < buf + len) {
       write(2,"\nnil char ",10);
-      writeint(2,fln >> 16,0);
+      writeint(2,(fln >> 16) & 0xff,0);
       writeint(2,fln & 0xffff,0);
       writeint(2,(unsigned int)(p - buf),0);
       write(2,buf,len > 64 ? 64 : len);
@@ -115,10 +115,13 @@ Vis unsigned int oswrite(int fd,const char *buf,size_t len,unsigned int fln)
     nn = len < 65536 ? len : 65536;
     nw = write(fd,buf,nn);
     if (nw < 0) {
+      if ((fln & (1u << 31)) == 0) return 0;
       ec = errno;
       write(2,"\ncannot write to fd ",20);
-      writeint(2,(unsigned int)fd,0);
-      writeint(2,(unsigned int)ec,0);
+      writeint(2,(unsigned int)fd,fd < 0);
+      writeint(2,(unsigned int)ec,ec < 0);
+      writeint(2,(fln >> 16) & 0xff,0);
+      writeint(2,fln & 0xffff,0);
       return 0;
     }
     nn = (size_t)nw;

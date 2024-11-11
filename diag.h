@@ -64,7 +64,7 @@ static ub4 underline(char *dst,ub4 dlen,cchar *src,ub4 slen)
 
 // main diags printer
 //  file line did tid level caller msg
-static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl,bool prepend,cchar *fmt,...)
+static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl,ub4 prepend,cchar *fmt,...)
 {
   va_list ap;
   int fd;
@@ -107,6 +107,7 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
 
   if (lvl > Error) {
     fd = Yal_log_fd;
+    if (fd == -2) return 0;
     if (fd == -1) fd = Yal_log_fd = newlogfile(Yal_log_file,"",tid,pid);
     if (msgcnt == 0) {
       upos = snprintf_mini(headbuf,0,255,"\n%18s %-4s %-5s %-4s %-3s %-1s %-8s msg\n","file/line","seq","pid","tid","dia","","api");
@@ -163,14 +164,18 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
 
   if (lvl == Nolvl) return pos;
 
-  if (lvl > Error && Atomget(exiting,Moacq)) return pos;
+  if (lvl > Error) {
+    if (Atomget(exiting,Moacq)) return pos;
+  } else fln |= Bit31; // show error for closed fd
 
   n = oswrite(fd,buf,pos,Fln);
 
   if (n == 0) {
-    if (lvl > Error) Yal_err_fd = 2;
-    else Yal_log_fd = 2;
-    oswrite(2,buf,pos,Fln);
+    if (lvl > Error) Yal_log_fd = -2; // disable
+    else {
+      if (fd != 2) oswrite(2,buf,pos,Fln);
+      Yal_err_fd = 2;
+    }
   }
 
   if (lvl > Error) {
@@ -184,7 +189,7 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
   if (Cas(exiting,zero,1)) { // let only one thread call exit
     callstack(hd);
     if (global_stats_opt) yal_mstats(nil,global_stats_opt | Yal_stats_print,Fln,"diag-exit");
-    minidiag(Fln,loc,Error,tid,"\n--- %.255s exiting ---\n",global_cmdline);
+    minidiag(Fln,loc,Error,tid,"\n--- %.255s exit(1) ---\n",global_cmdline);
     _Exit(1);
   }
   return 0;
@@ -200,7 +205,7 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
 #define ylogx(loc,fmt,...) do_ylog(0,loc,Fln,Info,0,fmt,__VA_ARGS__);
 
 #if Yal_enable_trace
-  #define ytrace(lvl,hd,loc,tag,seq,fmt,...) if (unlikely(hd->trace > lvl)) { errorctx((tag),Lnone,"seq %u",(ub4)(seq)) do_ylog(Yal_diag_count + __COUNTER__,loc,Fln,Trace,1,fmt,__VA_ARGS__); }
+  #define ytrace(lvl,hd,loc,tag,seq,fmt,...) if (unlikely(hd->trace > lvl)) { errorctx((tag),Lnone,"seq %u",(ub4)(seq)) do_ylog(Yal_diag_count + __COUNTER__,loc,Fln,Trace,hd->trcfln,fmt,__VA_ARGS__); }
 #else
   #define ytrace(lvl,hd,loc,tag,seq,fmt,...)
 #endif
@@ -333,11 +338,12 @@ static Cold void diag_initrace(void)
 static ub4 trace_enable(ub4 ena)
 {
   ub4 rv = global_trace;
-  heapdesc *hd = getheapdesc(Lnone);
+  heapdesc *hd = getheapdesc();
 
   minidiag(Fln,Lnone,Vrb,0,"trace %u -> %u",rv,ena);
-  hd->trace = ena;
-  global_trace = ena | 8;
+  hd->trace = ena & 3;
+  hd->trcfln = ena & 8;
+  global_trace = ena | 16;
   return rv;
 }
 

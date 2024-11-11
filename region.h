@@ -154,7 +154,7 @@ static bool setregion(heap *hb,xregion *reg,size_t bas,size_t len,bool add,enum 
   xregion ****dir1,***dir2,**dir3;
   ub4 hid = hb->id;
 
-  ydbg2(fln,loc,"set %s region %u p %zx len %zu` %u",regname(reg),reg->id,bas,len,add);
+  ydbg2(fln,loc,"set %s region %u.%u p %zx len %zu` %u",regname(reg),hb->id,reg->id,bas,len,add);
 
 #if Yal_enable_check
 
@@ -241,7 +241,10 @@ static Hot xregion *findregion(heap *hb,size_t ip,enum Loc loc)
   size_t base = reg->user;
   size_t len = reg->len;
 
-  if (ip < base) { error(loc,"region %u.%u p %zx is %zu` below base %zx",reg->hid,reg->id,ip,base - ip,base) return nil; } // internal error
+  if (ip < base) { // internal error
+    error(loc,"region %u.%u p %zx is %zu` below base %zx",reg->hid,reg->id,ip,base - ip,base)
+    return nil;
+  }
   if (ip > base + len) { error(loc,"region %u p %zx above base %zx + %zu",reg->id,ip,base,len) return nil; } // possible user error
 #endif
 

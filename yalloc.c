@@ -306,6 +306,7 @@ static Printf(5,6) ub4 minidiag(ub4 fln,enum Loc loc,enum Loglvl lvl,ub4 id,char
     fd = Yal_err_fd;
     if (fd == -1) fd = Yal_err_fd = newlogfile(Yal_err_file,"",0,pid);
     fd2 = Yal_Err_fd;
+    fln |= Bit31; // show error for closed fd
   }
   oswrite(fd,buf,pos,__LINE__);
   if (fd2 != -1 && fd2 != fd) oswrite(fd2,buf,pos,__LINE__);

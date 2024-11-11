@@ -286,16 +286,17 @@ static ub4 genconfig(cchar *name,ub4 pagebits,char *nowtim)
 
   if (pagebits) {
     pagesize = 1u << pagebits; // user override
-    info(L,"  pagesize %u (overridden",pagesize);
+    info(L,"  pagesize %u (overridden),, VMsize %u bits",pagesize,vmbits);
   } else { // get from system
     pagesize = ospagesize();
     if (pagesize) {
       pagebits = ctz(pagesize);
-      info(L,"  pagesize %u (from os)",pagesize);
+      info(L,"  pagesize %u (from os), VMsize %u bits",pagesize,vmbits);
     } else {
       pagebits = Sys_page;
       pagesize = 1u << Sys_page;
-      warning(L,"Cannot get pagesize, using default %u: %m",pagesize);
+      warning(L,"Cannot get pagesize, using default: %m");
+      info(0,"  pagesize %u, VMsize %u bits",pagesize,vmbits);
     }
   }
 
@@ -311,7 +312,6 @@ static ub4 genconfig(cchar *name,ub4 pagebits,char *nowtim)
     else dirone++;
   }
 
-  info(0,"  pagesize %u VMsize %u bits",pagesize,vmbits);
   pos = header(buf,len,name,"generated config",nowtim);
   if (pos == 0) return 0;
 

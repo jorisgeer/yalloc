@@ -6,7 +6,7 @@
    SPDX-License-Identifier: GPL-3.0-or-later
 */
 
-static const char yal_version[] = "0.8.1-alpha.0";
+static const char yal_version[] = "0.8.2-alpha.0";
 
 #if Isgcc || Isclang // enable extensions conditionally
  #define Mallike __attribute__ ((malloc))

@@ -911,8 +911,6 @@ static int manual(int argc,char *argv[])
   int fd = -1;
   bool redir = 0;
 
-  yal_options(Yal_trace_name,0,(size_t)"test.c");
-
   while (1) {
     if (redir && fbpos < fblen) {
       arg = filarg(filbuf,fblen,&fbpos);
@@ -1087,7 +1085,7 @@ int main(int argc,char *argv[])
 {
   int rv = 0;
   size_t arg1 = 0,arg2 = 0,arg3 = 0,arg4 = 0;
-  ub4 tidcnt,i,iter;
+  ub4 tidcnt,i,iter,trclvl = Hi32,trcbit = 1;
   cchar *arg,*cmd = "";
   char opt;
   bool tstrnd = 0;
@@ -1095,6 +1093,8 @@ int main(int argc,char *argv[])
   if (argc < 2) return usage();
 
   mypid = ospid();
+
+  yal_options(Yal_trace_name,0,(size_t)"test.c");
 
   argc--; argv++;
   while (argc && argv[0] && *argv[0] == '-') {
@@ -1104,18 +1104,22 @@ int main(int argc,char *argv[])
     switch (opt) {
       case 'h': case '?':  return usage();
       case 'S': dotstat = 1; Fallthrough
-      case 's': dostat = 1; yal_mstats(nil,0,L,"init"); break;
-      case 't': yal_options(Yal_trace_enable,0,0); break;
-      case 'T': yal_options(Yal_trace_enable,arg[2] == 'T' ? 2 : 1,0); break;
+      case 's': dostat = 1;
+        yal_options(Yal_stats_enable,15,0);
+        yal_mstats(nil,0,L,"init");
+        break;
+      case 'T': if (trclvl == Hi32) trclvl = trcbit; else trclvl |= trcbit; trcbit <<= 1; break;
+      case 't': trclvl = 0; break;
       case 'R': tstrnd = 1; break;
       default: warning(L,"ignoring unknown option '%c'",opt);
     }
     argc--;
   }
 
-  if (argc == 0) return  usage();
+  if (argc == 0) return usage();
   cmd = *argv++; argc--;
 
+  if (trclvl) yal_options(Yal_trace_enable,trclvl,0);
   inixor(g_state);
 
   for (i = 0; i < 16; i++) g_state[i] = xorshift64star();

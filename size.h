@@ -181,8 +181,10 @@ static Hot Nonnull(1,2,3) size_t ysize_heap(heapdesc *hd,void *p,struct ptrinfo 
         vg_drd_wlock_acq(hb)
       }
 #if Yal_enable_stats > 1
-      if (likely(didcas != 0)) hd->stat.getheaps++;
-      else hd->stat.nogetheaps++;
+      if (likely(didcas != 0)) {
+        hd->stat.getheaps++;
+        hb->stat.sizes++;
+      } else hd->stat.nogetheaps++;
 #endif
     } else {
       didcas = 1;

@@ -26,6 +26,7 @@ struct yal_stats {
   size_t reallocles,reallocgts,mreallocles,mreallocgts;
   size_t miniallocs,bumpallocs;
   size_t frees,free0s,freenils,slabfrees,mapfrees,slabxfrees,xslabfrees,mapxfrees,xmapfrees,minifrees,bumpfrees;
+  size_t sizes;
   size_t bumpalbytes;
   size_t binallocs;
 
@@ -69,7 +70,7 @@ extern size_t yal_mstats(struct yal_stats *sp,unsigned int opts,unsigned int tag
 
 // diags and control
 enum Yal_diags { Yal_diag_none, Yal_diag_dblfree, Yal_diag_oom,Yal_diag_ill,Yal_diag_count };
-enum Yal_options { Yal_logmask, Yal_diag_enable, Yal_trace_enable, Yal_trace_name };
+enum Yal_options { Yal_logmask, Yal_diag_enable, Yal_stats_enable, Yal_trace_enable, Yal_trace_name };
 extern unsigned int yal_options(enum Yal_options opt,size_t arg1,size_t arg2);
 
 // provide callsite info
