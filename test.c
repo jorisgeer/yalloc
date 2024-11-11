@@ -824,7 +824,7 @@ static int tstreal(size_t from,size_t to,size_t iter)
   size_t olen = 0,nlen,range = to - from;
   void *p = nil,*np;
 
-  info(L,"realloc(%zu` .. %zu` iters %zu",from,to,iter);
+  info(L,"realloc(%zu` .. %zu`) iters %zu",from,to,iter);
 
   for (it = 0; it < iter; it++) {
     nlen = from + rnd(range,g_state);
