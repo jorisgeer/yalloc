@@ -1040,10 +1040,12 @@ static Hot void *slab_alloc( Unused heapdesc *hd,region *reg,ub4 ulen,ub4 align,
 
 #if Yal_enable_check > 1
     char *cp = (char *)p;
-    for (ub4 i = 0; i < ulen; i++) {
+    ub4 i,j;
+
+    for (i = 0; i < ulen; i++) {
       if (cp[i]) {
         do_ylog(0,0,Fln,Warn,0,"reg %.01llu gen %u cel %u ofs %u '%x' clr %u ini %u/%u",reg->uid,reg->gen,cel,i,cp[i],reg->clr,inipos,reg->inipos);
-        for (ub4 j = 0; j < min(ulen,256); j++) {
+        for (j = 0; j < min(ulen,256); j++) {
           do_ylog(0,0,Fln,Info,0,"reg %.01llu gen %u cel %u ofs %u '%x' clr %u ini %u/%u",reg->uid,reg->gen,cel,i,cp[j],reg->clr,inipos,reg->inipos);
         }
          error(loc,"reg %.01llu gen %u cel %u ofs %u '%x' clr %u ini %u/%u",reg->uid,reg->gen,cel,i,cp[i],reg->clr,inipos,reg->inipos)

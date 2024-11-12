@@ -1247,7 +1247,9 @@ static char *append(char *buf,char *s)
 
 static char *cnv4(char *buf,ub4 x)
 {
-  for (ub4 i = 0; i < 4; i++) { buf[3-i] = (x % 10) + '0'; x /= 10; }
+  ub4 i;
+
+  for (i = 0; i < 4; i++) { buf[3-i] = (x % 10) + '0'; x /= 10; }
   buf[4] = ' ';
   return buf + 5;
 }

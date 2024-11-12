@@ -17,6 +17,10 @@
 
 #define Diagcnts 600 // 256
 
+#ifndef __COUNTER__ // nonstandard gcc extension
+ #define __COUNTER__ 0
+#endif
+
 static const ub4 logitems;
 
 enum Diactl { Dianone,Diadis,Diaena,Diaerr };

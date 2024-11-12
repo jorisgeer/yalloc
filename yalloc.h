@@ -58,15 +58,17 @@ static const char yal_version[] = "0.8.2-alpha.0";
 #ifndef clz
   static Const int clz(unsigned int x)
   {
-    int n = 31;
+    int n = nn = 31;
+    if (x == 0) return 0;
     while ( (x & (1u << n)) == 0) n--;
-    return 32 - n;
+    return nn - n;
   }
   static Const int clzl(unsigned long x)
   {
-    int n = sizeof(long) * 8 - 1;
+    int n = nn = sizeof(long) * 8 - 1;
+    if (x == 0) return 0;
     while ( (x & (1ul << n)) == 0) n--;
-    return sizeof(long) * 8 - n;
+    return nn - n;
   }
 #endif
 
