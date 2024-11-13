@@ -50,7 +50,7 @@ x - xfree #threads list of 'a' tid1 tid2 len count or 'f' tid1 tid2 len count\n\
 m - manual list of  'a' len count or 'f' from to\n\
 \n";
 
-static bool dostat,dotstat;
+static ub4 dostat,dotstat;
 
 static const int Error_fd = 1;
 static const int Log_fd = 1;
@@ -769,7 +769,7 @@ static int tstrand(size_t als,size_t fres,size_t hilen,size_t iter)
 #define Global_ptrs 65536
 static void *global_ptrs[Global_ptrs];
 
-// alloc many of one size, free the same, rinse, repeat
+// 'a' alloc many of one size, free the same, rinse, repeat
 static int allfre(cchar *cmd,size_t cnt,size_t len,size_t iter,size_t cnt2)
 {
   size_t i,n,c;
@@ -1106,7 +1106,7 @@ int main(int argc,char *argv[])
     switch (opt) {
       case 'h': case '?':  return usage();
       case 'S': dotstat = 1; Fallthrough
-      case 's': dostat = 1;
+      case 's': dostat++;
         yal_options(Yal_stats_enable,15,0);
         yal_mstats(nil,0,L,"init");
         break;
@@ -1162,7 +1162,7 @@ int main(int argc,char *argv[])
     rv = do_test(cmd,arg1,arg2,arg3,arg4);
     if (rv) error(L,"test error on line %d",rv);
   }
-  showstats(L,1,"test");
+  if (dostat > 1) showstats(L,1,"test");
 
   if (rv == 0) info(L,"test OK");
   else warning(L,"test error at line %d",rv);

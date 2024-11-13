@@ -135,7 +135,7 @@ Vis unsigned int oswrite(int fd,const char *buf,size_t len,unsigned int fln)
 
 static const int reserve = 1;
 
-#if defined (__unix__) || (defined (__APPLE__) && defined (__MACH__))
+#if defined __unix__ || defined __HAIKU__ || (defined __APPLE__ && defined __MACH__)
 
 Vis unsigned int ospagesize(void)
 {
@@ -243,8 +243,8 @@ Vis int osmunmap(void *p,size_t len)
 
 Vis unsigned int ospagesize(void) { return 4096; } // a too-low pagesize never harms
 
-Vis void *osmmap(size_t len) { return nil; }
-Vis void *osmremap(void *p,size_t orglen,size_t newlen)
+Vis void *osmmap(size_t len) { return (void *)0; }
+Vis void *osmremap(void *p,size_t orglen,size_t ulen,size_t newlen)
 {
   return p;
 }
@@ -280,7 +280,8 @@ Vis int osrusage(struct osrusage *usg)
 #else
 Vis int osrusage(struct osrusage *usg)
 {
-  memset(usg,0,sizeof(struct osrusage));
+  usg->utime = usg->stime = usg->maxrss = usg->minflt = usg->maxflt = usg->volctx = usg->ivolctx = 0;
+
   return 0;
 }
 

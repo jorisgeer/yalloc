@@ -582,15 +582,15 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
 
   errs = 0;
 
-  if (ret) {
-    memset(ret,0,sizeof(yalstats));
-    ret->version = yal_version;
-  }
-
   if (hd == nil) {
     hd = &dummyhd;
     memset(hd,0,sizeof(heapdesc));
   }
+
+  if (ret) {
+    memset(ret,0,sizeof(yalstats));
+    ret->version = yal_version;
+  } else if (opts == 0) return hd->stat.invalid_frees;
 
   tidcnt = Atomget(global_tid,Monone);
 
@@ -703,8 +703,10 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
   struct bootmem *bootp;
   ub4 bootallocs,bootnolocks = 0;
 
-  if (print) minidiag(Fln,Lstats,Info,hd->id,"\n--- yalloc %s stats totals over %u %s` and %u %s` in %u %s` --- %s tag %.01u\n",yal_version,heapcnt,"heap",mheapcnt,"miniheap",tidcnt,"thread",desc,tag);
-
+  if (print) {
+      pos = diagfln(buf,0,len,Fln);
+      pos += snprintf_mini(buf,pos,len,"\n--- yalloc %s stats totals over %u %s` and %u %s` in %u %s` --- %s tag %.01u\n",yal_version,heapcnt,"heap",mheapcnt,"miniheap",tidcnt,"thread",desc,tag);
+  }
   yal_mstats_heap(fd,nil,&sum,print != 0,opts | 0x80,tag,desc,Fln); // totals
 
   if (slabfrees + slabxfrees > slaballocs + slabAllocs) {
