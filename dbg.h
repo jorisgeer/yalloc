@@ -107,6 +107,7 @@ static void setsigs(void)
   void *btbuf[4];
 
   backtrace(btbuf,4);  // make sure libgcc is loaded at handler time
+
 #endif
 
   memset(&sa,0,sizeof(sa));
@@ -121,3 +122,20 @@ static void setsigs(void)
 #else
  static void setsigs(void) {}
 #endif // Yal_signal
+
+#ifdef Hasasm
+
+static unsigned long asm_get_caller(void)
+{
+  unsigned long x;
+
+#ifdef __aarch64__
+	__asm__("mov %0, x30" : "=r"(x) );
+#endif
+	return x;
+}
+#define Caller() asm_get_caller()
+
+#else
+ #define Caller()
+#endif

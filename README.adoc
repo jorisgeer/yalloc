@@ -27,13 +27,13 @@ modest code size & complexity:: &tilde; 8 KLOC inclusive, compiling into &tilde;
 good performance:: compares well in many link:https://github.com/daanx/mimalloc-bench[benchmarks].
 
 == Status
-Early alpha, no outstanding issues. +
+Alpha, no outstanding issues. +
 Most benchmarks and tests work on 64-bit Linux and MacOS and show decent results.
 Preliminary 32-bit Linux test passes
 Some synthetic tests show high memory usage
 
 == Prerequisites
-- 64 or 32 bit Unix-like operating system with mmap() support. Linux, FreeBSD and MacOs tested.
+- 64 or 32 bit Unix-like operating system with mmap() support. Linux, FreeBSD, MacOs and Haiku tested.
 
 - C11 C compiler or C99 compiler with atomics support. If atomics are not available, free(p) and realloc(p,n) need to be called from the same thread malloc() was called.
 
@@ -53,11 +53,13 @@ If building otherwise, make sure first to run once :
 
 Essentially, you need to compile and run configure, then compile yalloc.c :
 
-  cc -c os.c printf.c
+  cc -c -fpic os.c printf.c
   cc -o configure configure.c *.o
   ./configure
-  cc -c yalloc.c
+  cc -c -fpic yalloc.c
   cc -shared -o yalloc.so *.o
+
+  if linking statically, -fpic is not needed. If pic is default and you omit this flag, make sure to add an equivalent of -ftls-model=local-dynamic
 
 == Using
 

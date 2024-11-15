@@ -455,7 +455,7 @@ static Hot void *yal_heapdesc(heapdesc *hd,size_t len,size_t ulen,ub4 align,enum
 // calloc
 static void *yalloc(size_t len,size_t ulen,enum Loc loc,ub4 tag)
 {
-  heapdesc *hd = getheapdesc();
+  heapdesc *hd = getheapdesc(Lcalloc);
   void *p;
 
   p = yal_heapdesc(hd,len,ulen,1,loc,tag);
@@ -470,7 +470,7 @@ static void *yalloc(size_t len,size_t ulen,enum Loc loc,ub4 tag)
 // malloc
 static void *ymalloc(size_t len,ub4 tag)
 {
-  heapdesc *hd = getheapdesc();
+  heapdesc *hd = getheapdesc(Lalloc);
   heap *hb = hd->hb;
   region *reg;
   void *p;
@@ -556,7 +556,7 @@ static void *ymalloc(size_t len,ub4 tag)
 // in contrast with c11, any size and pwr2 alignment is accepted
 static void *yalloc_align(size_t align, size_t len,ub4 tag)
 {
-  heapdesc *hd = getheapdesc();
+  heapdesc *hd = getheapdesc(Lallocal);
   heap *hb;
   mpregion *reg;
   void *p;

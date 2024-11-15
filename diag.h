@@ -342,7 +342,7 @@ static Cold void diag_initrace(void)
 static ub4 trace_enable(ub4 ena)
 {
   ub4 rv = global_trace;
-  heapdesc *hd = getheapdesc();
+  heapdesc *hd = getheapdesc(Lnone);
 
   minidiag(Fln,Lnone,Vrb,0,"trace %u -> %u",rv,ena);
   hd->trace = ena & 3;

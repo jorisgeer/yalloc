@@ -128,6 +128,7 @@ typedef const char cchar;
  #define Cold __attribute__ ((cold))
  #define Unused __attribute__ ((unused))
  #define Const __attribute__ ((const))
+ #define Hasasm
 
  #if __STDC_VERSION__ < 201112L // c99
    #define Noret __attribute__ ((noreturn))

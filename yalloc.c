@@ -604,7 +604,7 @@ struct hdstats {
 
 enum Tidstate { Ts_init,Ts_mt,Ts_private };
 
-struct st_heapdesc {
+struct Align(L1line) st_heapdesc {
   struct st_heapdesc *nxt,*frenxt;
   struct st_heap *hb;
   struct st_bregion *mhb;
@@ -680,47 +680,56 @@ static struct st_heap * _Atomic global_heaps;
 static _Atomic ub4 global_tid;
 static _Atomic ub4 global_hid = 1;
 
-static heapdesc *new_heapdesc(void)
+#include "dbg.h"
+
+#define Fln __LINE__| (Fyalloc << 16)
+
+static heapdesc *new_heapdesc(enum Loc loc)
 {
   heapdesc *org,*hd;
   ub4 id,iter;
-  ub4 fln;
   ub4 len = sizeof(struct st_heapdesc);
   bool didcas;
+  unsigned long caller = Caller();
+  static heapdesc firstbase;
 
-  id = Atomad(global_tid,1,Moacqrel);
+  id = Atomad(global_tid,1,Moacqrel) + 1;
 
-  if (id == 0) init_env();
-  id++;
+  if (id == 1) {
+    hd = &firstbase;
+    if (Yal_enable_private) hd->tidstate = Ts_private;
+    else hd->tidstate = Ts_mt;
+    thread_heap = hd;
+    thread_setclean(hd);
+    hd->id = id;
+    hd->trace = global_trace & 3;
+    hd->trcfln = global_trace & 8;
+    init_env();
+    minidiag(Fln,loc,Debug,id,"first base heap size %u.%u state %u caller %lx",len,(ub4)sizeof(struct hdstats),hd->tidstate,caller);
+    return hd;
+  }
 
-  fln = Fyalloc << 16;
-  minidiag(fln|__LINE__,Lnone,Debug,id,"new base heap size %u.%u",len,(ub4)sizeof(struct hdstats));
-  len = doalign4(len,L1line);
-
-  // reuse ?
+  // reuse ? (only when thread exit detectable)
   hd = Atomget(global_freehds,Moacq);
   if (hd) {
     org = hd->frenxt;
     didcas = Cas(global_freehds,hd,org);
     if (didcas) {
+      memset(hd,0,sizeof(heapdesc));
       thread_heap = hd;
       thread_setclean(hd);
-      hd->hb = nil;
-      if (Yal_enable_private) hd->tidstate = Ts_private;
-      else hd->tidstate = Ts_mt;
-      return hd;
+      minidiag(Fln,loc,Debug,id,"use base heap %u size %u.%u caller %lx",hd->id,len,(ub4)sizeof(struct hdstats),caller);
     }
+  } else { // new, common case
+    hd = bootalloc(Fln,id,loc,len);
+    minidiag(Fln,loc,Debug,id,"new base heap size %u.%u caller %lx",len,(ub4)sizeof(struct hdstats),caller);
   }
-
-  // new
-  hd = bootalloc(fln|__LINE__,id,Lnone,len);
   if (unlikely(hd == nil)) {
-    minidiag(fln|__LINE__,Lnone,Fatal,id,"cannot allocate heap descriptor %u",id);
+    minidiag(Fln,loc,Fatal,id,"cannot allocate heap descriptor %u len %u",id,len);
     _Exit(1);
   }
 
-  if (Yal_enable_private && id == 1) hd->tidstate = Ts_private;
-  else hd->tidstate = Ts_mt;
+  hd->tidstate = Ts_mt;
 
   thread_heap = hd;
   thread_setclean(hd);
@@ -741,7 +750,7 @@ static heapdesc *new_heapdesc(void)
   return hd;
 }
 
-static Hot heapdesc *getheapdesc(void)
+static Hot heapdesc *getheapdesc(enum Loc loc)
 {
   heapdesc *hd = thread_heap;
   heap *hb;
@@ -763,12 +772,12 @@ static Hot heapdesc *getheapdesc(void)
       Atomset(hb->lock,0,Morel);
     }
 #if Yal_dbg_level > 1
-    minidiag( (Fyalloc << 16) | __LINE__,loc,Debug,hd->id,"tidstate %u at %u",hd->tidstate,tidcnt);
+    minidiag(Fln,loc,Debug,hd->id,"tidstate %u at %u",hd->tidstate,tidcnt);
 #endif
     return hd;
   }
 
-  hd = new_heapdesc();
+  hd = new_heapdesc(loc);
   return hd;
 }
 
@@ -778,8 +787,7 @@ static cchar *regname(xregion *reg)
   return typ <= Rcount ? regnames[typ] : "??";
 }
 
-#include "dbg.h"
-
+#undef Fln
 #include "diag.h" // main diags
 
 // -- main heap init and access --

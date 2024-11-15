@@ -222,7 +222,7 @@ static Hot Nonnull(1,2,3) size_t ysize_heap(heapdesc *hd,void *p,struct ptrinfo 
 // main entry
 static size_t ysize(void *p,ub4 tag)
 {
-  heapdesc *hd = getheapdesc();
+  heapdesc *hd = getheapdesc(Lsize);
   struct ptrinfo pi;
   size_t len;
 

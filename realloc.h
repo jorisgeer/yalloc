@@ -210,7 +210,7 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
 // main realloc().
 static void *yrealloc(void *p,size_t oldlen,size_t newlen,ub4 tag)
 {
-  heapdesc *hd = getheapdesc();
+  heapdesc *hd = getheapdesc(Lreal);
   heap *hb;
   void *np;
   size_t alen,ip;

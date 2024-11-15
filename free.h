@@ -715,7 +715,7 @@ static Hot size_t yfree_heap(heapdesc *hd,void *p,size_t reqlen,enum Loc loc,ub4
 // main entry
 static Hot inline void yfree(void *p,size_t len,ub4 tag)
 {
-  heapdesc *hd = getheapdesc();
+  heapdesc *hd = getheapdesc(Lfree);
 
   if (unlikely(p == nil)) {
     ystats(hd->stat.freenils)
