@@ -48,11 +48,11 @@ void *calloc (size_t count, size_t size)
 
   if (sizeof(size_t ) < sizeof(long long)) { // e.g. 32-bit system
     unsigned long long nn = (unsigned long long)count * size;
-    if (unlikely( nn > Size_max)) return oom(Fln,Lcalloc,count,size);
+    if (unlikely( nn > Size_max)) return oom(nil,Fln,Lcalloc,count,size);
     len = (size_t)nn;
   } else { // common for 64-bit systems
     bool rv = sat_mul(count,size,&len);
-    if (unlikely(rv != 0)) return oom(Fln,Lcalloc,count,size);
+    if (unlikely(rv != 0)) return oom(nil,Fln,Lcalloc,count,size);
   }
 
 #if Yal_enable_stats && Yal_trigger_stats

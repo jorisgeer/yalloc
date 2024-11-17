@@ -607,7 +607,7 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,enum Loc
     }
     rv = free_mmap(hd,local ? hb : nil,mpreg,ip,reqlen,loc,Fln,tag);
     if (rv == St_error) {
-      ypush(hd,Fln)
+      ypush(hd,loc,Fln)
       if (hb) hd->stat.invalid_frees++;
       return Nolen;
     }
@@ -721,8 +721,9 @@ static Hot inline void yfree(void *p,size_t len,ub4 tag)
     ystats(hd->stat.freenils)
     return;
   }
-  ypush(hd,Fln)
+  ypush(hd,Lfree | Lapi,Fln)
   yfree_heap(hd,p,len,Lfree,tag);
+  ypush(hd,Lfree | Lapi,Fln)
 }
 
 #undef Logfile

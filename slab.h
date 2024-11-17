@@ -641,7 +641,7 @@ static ub4 slab_free_rreg(heapdesc *hd,heap *hb,region *reg,size_t ip,ub4 tag,en
   // mark
   rv = markfree(reg,cel,cellen,3,Fln,tag);
   if (unlikely(rv != 0)) {
-    ypush(hd,Fln)
+    ypush(hd,loc,Fln)
     return 0;
   }
 
@@ -692,7 +692,7 @@ static ub4 slab_free_rheap(heapdesc *hd,heap *hb,region *reg,size_t ip,ub4 tag,e
   // mark
   rv = markfree(reg,cel,cellen,3,Fln,tag);
   if (unlikely(rv != 0)) {
-    ypush(hd,Fln)
+    ypush(hd,loc,Fln)
     return 0;
   }
 
@@ -960,10 +960,10 @@ static Hot void *slab_alloc( Unused heapdesc *hd,region *reg,ub4 ulen,ub4 align,
   size_t ip;
   void *p;
 
-  ypush(hd,Fln)
+  ypush(hd,loc,Fln)
 
   ycheck(nil,loc,reg == nil,"nil reg len %u tag %.01u",ulen,tag)
-  ypush(hd,Fln)
+  ypush(hd,loc,Fln)
   cellen = reg->cellen;
   inipos = reg->inipos;
 
@@ -979,13 +979,13 @@ static Hot void *slab_alloc( Unused heapdesc *hd,region *reg,ub4 ulen,ub4 align,
     ub4 acnt = reg->stat.aligns[abit] & Hi31;
     reg->stat.aligns[abit] = acnt + 1;
 #endif
-    ypush(hd,Fln)
+    ypush(hd,loc,Fln)
     ip = slab_newalcel(reg,ulen,align,cellen Tagarg(tag) );
     vg_mem_undef(ip,ulen)
     return (void *)ip;
   } // aligned_alloc
 
-  ypush(hd,Fln)
+  ypush(hd,loc,Fln)
   cel = slab_newcel(reg,loc);
   if (unlikely(cel == Nocel)) {
     ydbg3(loc,"no cel in region %u seq %zu",reg->id,reg->stat.iniallocs)
@@ -1016,7 +1016,7 @@ static Hot void *slab_alloc( Unused heapdesc *hd,region *reg,ub4 ulen,ub4 align,
   ip = reg->user + (size_t)cel * cellen;
   p = (void *)ip;
 
-  ypush(hd,Fln)
+  ypush(hd,loc,Fln)
 
 #if 0 // no longer works with drd
   vg_p = vg_mem_isaccess( (char *)p,ulen);

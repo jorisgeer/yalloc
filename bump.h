@@ -209,7 +209,7 @@ static ub4 bump_free(heapdesc *hd,heap *hb,bregion *reg,size_t ip,size_t reqlen,
       ytrace(0,hd,loc,fretag,frees,"-size(%zx) len %u bump",ip,len)
       return len;
     }
-    ypush(hd,Fln)
+    ypush(hd,loc,Fln)
     if (one == 0) return error(loc,"bumpregion %.01llu ptr %zx len %u never allocated tag %.01u",reg->uid,ip,len,fretag)
     else if (one == 2) return free2(Fln,loc,(xregion *)reg,ip,len,fretag,"bump");
     else return error(loc,"bumpregion %.01llu ptr %zx len %u tag %.01u state %u",reg->uid,ip,len,fretag,one)
@@ -218,7 +218,7 @@ static ub4 bump_free(heapdesc *hd,heap *hb,bregion *reg,size_t ip,size_t reqlen,
   one = 1;
   didcas = Casa(fres + cel,&one,2); // mark for double free
   if (unlikely(didcas == 0)) {
-    ypush(hd,Fln)
+    ypush(hd,loc,Fln)
     if (reg->tagorg) {
       tags = meta + reg->tagorg;
       altag = tags[cel];

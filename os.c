@@ -48,7 +48,7 @@ static char *ucnv(char *end,unsigned int x)
 Vis int osopen(const char *name,struct osstat *sp)
 {
   struct stat st;
-  int fd = open(name,O_RDONLY);
+  int fd = open(name,O_RDONLY | O_CLOEXEC);
 
   if (fd == -1 || sp == NULL) return fd;
   if (fstat(fd,&st)) return fd;
@@ -59,7 +59,7 @@ Vis int osopen(const char *name,struct osstat *sp)
 
 Vis int oscreate(const char *name)
 {
-  int fd = open(name,O_CREAT | O_TRUNC | O_WRONLY,0644);
+  int fd = open(name,O_CREAT | O_TRUNC | O_WRONLY | O_CLOEXEC,0644);
   return fd;
 }
 

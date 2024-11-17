@@ -232,12 +232,14 @@ static size_t ysize(void *p,ub4 tag)
     ytrace(0,hd,Lsize,tag,0,"size(nil) tag %.01u",tag)
     return 0;
   }
-  ypush(hd,Fln)
+  ypush(hd,Lsize | Lapi,Fln)
+
   pi.len = 0;
   pi.local = 0;
   len = ysize_heap(hd,p,&pi,Lsize,tag);
 
   ytrace(0,hd,Lsize,tag,0,"- size(%zx) = %zu for %zu tag %.01u",(size_t)p,len,pi.len,tag)
+  ypush(hd,Lsize | Lapi,Fln)
   return len;
 }
 #undef Logfile

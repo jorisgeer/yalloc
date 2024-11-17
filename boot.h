@@ -116,7 +116,7 @@ static void setsigs(void); // dbg.h
 
 static ub4 init_stats(ub4 uval)
 {
-  ub4 prv = global_stats_opt;;
+  ub4 prv = global_stats_opt;
 #if Yal_enable_stats
   cchar *envs;
   ub4 val = 0;

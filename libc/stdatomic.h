@@ -1,5 +1,11 @@
 // stdatomic.h - dummy interface for yalloc analysis
 
+#if defined __clang__
+#pragma clang diagnostic ignored "-Watomic-implicit-seq-cst"
+#pragma clang diagnostic ignored "-Wincompatible-pointer-types"
+#elif defined __gcc__
+#endif
+
 enum Memorder { memory_order_relaxed, memory_order_acquire,memory_order_release,memory_order_acq_rel };
 
 static _Bool a_cas_u1(unsigned char *cmp,unsigned char *exp,unsigned char des)
@@ -14,7 +20,7 @@ static _Bool a_cas_p(void *_Atomic *cmp,void **exp,void *des)
 {
   if (*cmp == *exp) { *cmp = des; return 1; } else { *exp = *cmp; return 0; }
 }
-static _Bool a_cas_x(void **cmp,void **exp,void *des)
+static _Bool a_cas_x(void *_Atomic *cmp,void **exp,void *des)
 {
   if (*cmp == *exp) { *cmp = des; return 1; } else { *exp = *cmp; return 0; }
 }

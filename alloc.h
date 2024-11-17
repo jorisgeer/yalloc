@@ -26,14 +26,14 @@ static mpregion *yal_mmap(heapdesc *hd,heap *hb,size_t len,size_t ulen,size_t al
   ycheck(nil,Lalloc,align == 0 || (align & (align - 1)) != 0 ,"heap %u.%u mmap region has align %zu",hd->id,hb->id,align)
 
   if (unlikely(len >= Vmsize)) {
-    oom(fln,loc,len,0);
+    oom(hb,fln,loc,len,0);
     return nil;
   }
 
   alen = doalign8(len,Pagesize);
 
   reg = newmpregion(hb,alen,loc,fln);
-  if (reg == nil) return oom(fln,loc,ulen,0);
+  if (reg == nil) return oom(hb,fln,loc,ulen,0);
   rlen = reg->len;
 
   from = 2;
@@ -175,7 +175,7 @@ static Hot void *alloc_heap(heapdesc *hd,heap *hb,size_t reqlen,size_t ulen,ub4 
   if (unlikely(reqlen >= mmap_limit)) {
     if (clascnt <= Xclas_threshold || alen >= mmap_max_limit) {
       // ycheck(nil,loc,align > Pagesize,"len %zu` align %u",alen,align)
-      ypush(hd,Fln)
+      ypush(hd,loc,Fln)
       xreg = yal_mmap(hd,hb,reqlen,ulen,align,loc,Fln);
       if (xreg == nil) return  nil;
       ip = xreg->user;
@@ -192,7 +192,7 @@ static Hot void *alloc_heap(heapdesc *hd,heap *hb,size_t reqlen,size_t ulen,ub4 
   // bump ?
   threshold = max(Clas_threshold >> (ord / 2),3);
   if (unlikely(clascnt < threshold && len <= min(Bumplen,Bumpmax) )) { // size class not popular yet
-    ypush(hd,Fln)
+    ypush(hd,loc,Fln)
     p = bump_alloc(hb,len,ulen4,align,loc,tag);
     if (likely(p != nil)) {
 #if Yal_enable_trace
@@ -289,7 +289,7 @@ static Hot void *alloc_heap(heapdesc *hd,heap *hb,size_t reqlen,size_t ulen,ub4 
     ycheck(nil,loc,reg->inuse != 1,"region %.01llu clas %u cellen %u len %u.%u tag %.01u",reg->uid,clas,reg->cellen,alen,len,tag)
     ydbg2(Fln,loc,"clas %u pos %u msk %lx",clas,pos,fremsk);
 
-    ypush(hd,Fln)
+    ypush(hd,loc,Fln)
     p = slab_alloc(hd,reg,(ub4)ulen,(ub4)align,loc,tag);
 
     if (likely(p != nil)) {
@@ -357,7 +357,7 @@ static void *yal_heap(heapdesc *hd,heap *hb,size_t len,size_t ulen,ub4 align,enu
   if (st == St_error) return p;
 
   if (st == St_oom) {
-    oom(Fln,loc,len,0);
+    oom(hb,Fln,loc,len,0);
     return osmmap(len); // fallback
   }
 
@@ -386,7 +386,7 @@ static Hot void *yal_heapdesc(heapdesc *hd,size_t len,size_t ulen,ub4 align,enum
 
   if (unlikely(hb == nil)) { // no heap yet
     if (len <= min(Minilen,Minimax) && align <= Minimax) {
-      ypush(hd,Fln)
+      ypush(hd,loc,Fln)
       p = mini_alloc(hd,(ub4)len,(ub4)ulen,align,loc,tag); // initial bump allocator
       if (p) {
         ytrace(0,hd,loc,tag,0,"-malloc(%u) mini = %zx",(ub4)len,(size_t)p)
@@ -437,7 +437,7 @@ static Hot void *yal_heapdesc(heapdesc *hd,size_t len,size_t ulen,ub4 align,enum
     ydbg3(loc,"locked heap %u",hb->id);
   } // heap or not
 
-  ypush(hd,Fln);
+  ypush(hd,loc,Fln);
   ytrace(0,hd,loc,tag,0,"+malloc(%zu`)",loc == Lallocal ? len : ulen)
 
   p = yal_heap(hd,hb,len,ulen,align,loc,tag); // regular
@@ -458,11 +458,15 @@ static void *yalloc(size_t len,size_t ulen,enum Loc loc,ub4 tag)
   heapdesc *hd = getheapdesc(Lcalloc);
   void *p;
 
+  ypush(hd,Lalloc | Lapi,Fln);
+
   p = yal_heapdesc(hd,len,ulen,1,loc,tag);
 
 #if Yal_enable_check > 1
   if (unlikely(chkalign(p,len,Stdalign) != 0)) error(Lalloc,"alloc(%zu) = %zx not aligns",len,(size_t)p)
 #endif
+
+  ypush(hd,Lalloc | Lapi,Fln);
 
   return p;
 }
@@ -479,6 +483,8 @@ static void *ymalloc(size_t len,ub4 tag)
   ub4 from;
   bool didcas;
   enum Tidstate tidstate;
+
+  ypush(hd,Lalloc | Lapi,Fln);
 
   if (likely(hb != nil)) { // simplified case
     tidstate = hd->tidstate;
@@ -521,6 +527,7 @@ static void *ymalloc(size_t len,ub4 tag)
             }
             vg_mem_noaccess(reg->meta,reg->metalen)
             vg_mem_noaccess(reg,sizeof(region))
+            ypush(hd,Lalloc | Lapi,Fln);
             return p;
           }
           hb->smalclas[clas] = nil; // e.g. full
@@ -545,12 +552,15 @@ static void *ymalloc(size_t len,ub4 tag)
         Atomset(hb->lock,0,Morel);
         vg_drd_wlock_rel(hb)
       }
+      ypush(hd,Lalloc | Lapi,Fln);
       return p;
     } // locked
     ydbg2(Fln,Lalloc,"len %zu",len)
   } // heap
   ydbg3(Fln,Lalloc,"len %zu",len)
-  return yal_heapdesc(hd,len,len,1,Lalloc,tag);
+  p = yal_heapdesc(hd,len,len,1,Lalloc,tag);
+  ypush(hd,Lalloc | Lapi,Fln);
+  return p;
 }
 
 // in contrast with c11, any size and pwr2 alignment is accepted
@@ -566,6 +576,8 @@ static void *yalloc_align(size_t align, size_t len,ub4 tag)
   bool didcas;
   ub4 from;
   enum Tidstate tidstate = hd->tidstate;
+
+  ypush(hd,Lallocal | Lapi,Fln)
 
   ytrace(0,hd,Lallocal,tag,0,"+ mallocal(%zu`,%zu)",len,align)
 
@@ -615,13 +627,14 @@ static void *yalloc_align(size_t align, size_t len,ub4 tag)
     }
 
     ytrace(0,hd,Lallocal,tag,0,"-mallocal(%zu`,%zu) = %zx",len,align,aip)
+    ypush(hd,Lallocal | Lapi,Fln)
     return (void *)aip;
   } // len or align large
 
   // no special provisions needed
   if (unlikely(len == 0)) return nil;
 
-  ypush(hd,Fln)
+  ypush(hd,Lallocal,Fln)
 
   ytrace(0,hd,Lallocal,tag,0,"+ mallocal(%zu`,%zu)",len,align)
   if (len & (len - 1)) {
@@ -636,6 +649,7 @@ static void *yalloc_align(size_t align, size_t len,ub4 tag)
   aip = doalign8(ip,align);
   ycheck(nil,Lallocal,ip != aip,"p %zx vs %zx",ip,aip)
 #endif
+  ypush(hd,Lallocal | Lapi,Fln)
 
   return p;
 }
