@@ -202,15 +202,6 @@ static struct rembuf *newrem(heap *hb)
   return rb;
 }
 
-#if Yal_prep_TLS // assumes attributes are supported, not checked
-static void __attribute__((constructor)) __attribute__((used))  yal_before_TLS(void)
-{
-  yal_tls_inited = 0;
-  thread_heap = nil; // on some platforms, e.g. arm64-gcc-darwin, TLS is inited with malloc(). Trigger it before main
-  yal_tls_inited = 1;
-}
-#endif
-
 static ub4 newregorder(void)
 {
   ub4 mapcnt;

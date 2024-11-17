@@ -554,7 +554,7 @@ static void sumup(yalstats *sum,yalstats *one)
 size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
 {
   size_t errs;
-  heapdesc *hd = thread_heap;
+  heapdesc *hd = tid_gethd();
 #if Yal_enable_stats
   bool allthreads = (opts & Yal_stats_totals);
   ub4 print = opts & Yal_stats_print;
@@ -705,7 +705,7 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
 
   if (print) {
       pos = diagfln(buf,0,len,Fln);
-      pos += snprintf_mini(buf,pos,len,"\n--- yalloc %s stats totals over %u %s` and %u %s` in %u %s` --- %s tag %.01u\n",yal_version,heapcnt,"heap",mheapcnt,"miniheap",tidcnt,"thread",desc,tag);
+      pos += snprintf_mini(buf,pos,len,"\n%s\n--- yalloc %s stats totals over %u %s` and %u %s` in %u %s` --- %s tag %.01u\n",global_cmdline,yal_version,heapcnt,"heap",mheapcnt,"miniheap",tidcnt,"thread",desc,tag);
   }
   yal_mstats_heap(fd,nil,&sum,print != 0,opts | 0x80,tag,desc,Fln); // totals
 

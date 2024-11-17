@@ -72,6 +72,7 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
 {
   va_list ap;
   int fd;
+  heapdesc *hd;
   ub4 tid = 0;
   unsigned long pid = Atomget(global_pid,Monone);
   enum Diactl ctl;
@@ -89,7 +90,7 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
   check = global_check;
   if ( (check & 1) == 0) return pos; // ignore
 
-  heapdesc *hd = thread_heap;
+  hd = tid_gethd();
 
   if (hd) {
     xbuf = hd->errbuf;
@@ -170,7 +171,7 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
 
   if (lvl > Error) {
     if (Atomget(exiting,Moacq)) return pos;
-  } else fln |= Bit31; // show error for closed fd
+  } // else fln |= Bit31; // show error for closed fd
 
   n = oswrite(fd,buf,pos,Fln);
 
@@ -264,20 +265,26 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
 #endif
 
 #if Yal_enable_stack
- #define ypush(hd,fln) do_ypush(hd,(fln));
-static inline void do_ypush(heapdesc*hd,ub4 fln)
+ #define ypush(hd,loc,fln) do_ypush(hd,(loc),(fln));
+static inline void do_ypush(heapdesc*hd,enum Loc loc,ub4 fln)
 {
   ub4 pos;
 
   if (hd == nil) { minidiag(fln,0,Info,0,"no push %x",fln); return; }
 
+  if ((loc & Lapi)) {
+    hd->flnstack[0] = fln;
+    hd->locstack[0] = (ub1)loc & Lapimsk;
+    return;
+  }
   pos = hd->flnpos;
   hd->flnstack[pos] = fln;
-  hd->flnpos = pos < 15 ? pos + 1 : 0;
+  hd->locstack[pos] = (ub1)loc & Lapimsk;
+  hd->flnpos = pos < Yal_stack_len - 1 ? pos + 1 : 1;
 }
 
 #else
- #define ypush(hb,fln)
+ #define ypush(hb,loc,fln)
 #endif
 
 /* diag file has an entry per line to override default for a single diag code or range

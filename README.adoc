@@ -29,13 +29,16 @@ good performance:: compares well in many link:https://github.com/daanx/mimalloc-
 == Status
 Alpha, no outstanding issues. +
 Most benchmarks and tests work on 64-bit Linux and MacOS and show decent results.
-Preliminary 32-bit Linux test passes
-Some synthetic tests show high memory usage
+Linux system working with yalloc Integrated in musl C library.
+Preliminary 32-bit Linux test passes.
+Some synthetic tests show high memory usage.
 
 == Prerequisites
 - 64 or 32 bit Unix-like operating system with mmap() support. Linux, FreeBSD, MacOs and Haiku tested.
 
 - C11 C compiler or C99 compiler with atomics support. If atomics are not available, free(p) and realloc(p,n) need to be called from the same thread malloc() was called.
+
+- Either thread local store or pthreads.
 
 yalloc has minimal OS dependencies and, as expected, quite minimal standard library dependencies.
 For diagnostics and statistics formatting, a miniature self-contained printf is included.

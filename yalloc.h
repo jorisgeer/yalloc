@@ -55,6 +55,21 @@ static const char yal_version[] = "0.8.2-alpha.0";
 
 #endif // gcc or clang
 
+#ifdef __musl__libc__ // support integration into musl libc
+  #define malloc __libc_malloc_impl
+  #define calloc __libc_calloc
+  #define realloc __libc_realloc
+  #define free __libc_free
+
+  #define mmap __mmap
+  #define mremap __mremap
+
+  #undef Yal_psx_memalign
+  #define Yal_psx_memalign 0
+
+  void __malloc_donate(char *start, char *end) {}
+#endif
+
 #ifndef clz
   static Const int clz(unsigned int x)
   {

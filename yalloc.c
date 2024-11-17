@@ -214,6 +214,8 @@ static const ub4 Pagesize1 = Pagesize - 1;
 
 #include "printf.h"
 
+#define Yfln __LINE__| (Fyalloc << 16)
+
 // -- diagnostics --
 
 static int newlogfile(cchar *name[],cchar *suffix,ub4 id,unsigned long pid)
@@ -241,9 +243,10 @@ static cchar * const lvlnames[Nolvl + 1] = { "Fatal","Assert","Error","Warn","In
 
 enum Loc { Lnone,
   Lreal = 1,Lfree = 2,Lsize = 3,Lalloc = 4,Lallocal = 5,Lcalloc = 6,Lstats = 7,Ltest = 8,Lsig = 9,
-  Lmask = 15,Lremote = 16,
+  Lmask = 15, Lremote = 16,
   Lrreal = 1 + 16, Lrfree = 2 + 16,
-  Lrsize = 3 + 16 };
+  Lrsize = 3 + 16,
+  Lapimsk = 31, Lapi = 32 }; // API entry / exit
 static cchar * const locnames[Lmask + 1] = { " ","realloc","free","size","malloc","allocal","calloc","stats","test","signal","?","?","?","?","?","?" };
 
 static _Atomic ub4 g_errcnt;
@@ -306,10 +309,10 @@ static Printf(5,6) ub4 minidiag(ub4 fln,enum Loc loc,enum Loglvl lvl,ub4 id,char
     fd = Yal_err_fd;
     if (fd == -1) fd = Yal_err_fd = newlogfile(Yal_err_file,"",0,pid);
     fd2 = Yal_Err_fd;
-    fln |= Bit31; // show error for closed fd
+    // fln |= Bit31; // show error for closed fd
   }
-  oswrite(fd,buf,pos,__LINE__);
-  if (fd2 != -1 && fd2 != fd) oswrite(fd2,buf,pos,__LINE__);
+  oswrite(fd,buf,pos,Yfln);
+  if (fd2 != -1 && fd2 != fd) oswrite(fd2,buf,pos,Yfln);
   if (loc == Lsig) {
     return pos;
   }
@@ -595,9 +598,6 @@ struct hdstats {
 #if Yal_thread_exit // install thread exit handler to recycle heap descriptor
   #include <pthread.h>
   #include "thread.h"
-
-#else
-  #define Thread_clean_info int
 #endif
 
 #define Miniord 16
@@ -629,12 +629,15 @@ struct Align(L1line) st_heapdesc {
   ub4 minidir;
 
 #if Yal_enable_stack
-  ub4 flnstack[16];
+  ub4 flnstack[Yal_stack_len];
+  ub1 locstack[Yal_stack_len];
   ub4 flnpos;
-//  ub4 tag;
+  // ub4 tag;
 #endif
 
+#if Yal_thread_exit
   Thread_clean_info thread_clean_info;
+#endif
 };
 typedef struct st_heapdesc heapdesc;
 
@@ -651,7 +654,7 @@ static heapdesc * _Atomic global_freehds;
      heapdesc *hd = (heapdesc *)arg;
      heapdesc *prv = Atomget(global_freehds,Moacq);
 
-     // minidiag( (Fyalloc << 16) | __LINE__,Lnone,Info,0,"thread %u exit ",hd->id);
+     // minidiag(Yfln,Lnone,Info,0,"thread %u exit ",hd->id);
 
      hd->frenxt = prv;
      Cas(global_freehds,prv,hd);
@@ -662,7 +665,7 @@ static heapdesc * _Atomic global_freehds;
      Thread_clean_push(&hd->thread_clean_info,thread_cleaner, hd);
   }
 #else
-  static void thread_setclean(heapdesc *hd) { hd->thread_clean_info = 0; }
+  static void thread_setclean(heapdesc * Unused hd) { }
 #endif
 
 static size_t Align(16) zeroarea[16];
@@ -672,17 +675,87 @@ static size_t *zeroblock = zeroarea + 4; // malloc(0)
 
 // -- global heap structures and access
 
-static _Thread_local struct st_heapdesc *thread_heap;
-
 static struct st_heapdesc * _Atomic global_heapdescs;
 static struct st_heap * _Atomic global_heaps;
 
 static _Atomic ub4 global_tid;
 static _Atomic ub4 global_hid = 1;
 
-#include "dbg.h"
+#if Yal_tidmode == 2  // use pthread_self()
 
-#define Fln __LINE__| (Fyalloc << 16)
+ #ifdef __musl_libc__
+
+  #if Isgcc
+   #pragma GCC diagnostic ignored "-Wunused-value"
+  #elif Isclang
+   #pragma clang diagnostic ignored "-Wunused-value"
+  #endif
+
+  #include "pthread_impl.h" // assuming yalloc/* located at musl/src/malloc
+
+  static heapdesc *global_hds[Maxtid];
+
+  static inline heapdesc *tid_gethd(void)
+  {
+    heapdesc *hd;
+    int tid = pthread_self()->tid;
+
+    if (likely(tid < Maxtid)) {
+      hd = global_hds[tid];
+      return hd;
+    }
+    minidiag(Yfln,Lnone,Fatal,tid,"tid %u for %zx",tid,(size_t)pthread_self());
+    _Exit(1);
+  }
+
+  static inline void tid_sethd(heapdesc *hd)
+  {
+    int tid = pthread_self()->tid;
+
+    if (likely(tid < Maxtid)) {
+      global_hds[tid] = hd;
+      return;
+    }
+    minidiag(Yfln,Lnone,Fatal,tid,"tid %u for %zx",tid,(size_t)pthread_self());
+    _Exit(1);
+  }
+ #elif defined __GLIBC__
+  #error "TODO glibc for tidmode 2"
+ #else
+  #error "unsupported libc for tidmode 2"
+ #endif // libc variant
+
+#elif Yal_tidmode == 1 // use TLS
+
+ #ifdef __musl_libc__
+  #error "TODO tidmode 1 in musl"
+ #endif
+
+  static _Thread_local heapdesc *thread_heap;
+
+  static inline heapdesc *tid_gethd(void)
+  {
+    heapdesc *hd = thread_heap;
+    return hd;
+  }
+
+  static inline void tid_sethd(heapdesc *hd)
+  {
+    thread_heap = hd;
+  }
+
+  #if Yal_prep_TLS // assumes attributes are supported, not checked
+  static void __attribute__((constructor)) __attribute__((used))  yal_before_TLS(void)
+  {
+    yal_tls_inited = 0;
+    tid_sethd(nil); // on some platforms, e.g. aarch64-apple-darwin-gcc, TLS is inited with malloc(). Trigger it before main
+    yal_tls_inited = 1;
+  }
+  #endif
+
+#endif
+
+#include "dbg.h"
 
 static heapdesc *new_heapdesc(enum Loc loc)
 {
@@ -699,13 +772,13 @@ static heapdesc *new_heapdesc(enum Loc loc)
     hd = &firstbase;
     if (Yal_enable_private) hd->tidstate = Ts_private;
     else hd->tidstate = Ts_mt;
-    thread_heap = hd;
+    tid_sethd(hd);
     thread_setclean(hd);
     hd->id = id;
     hd->trace = global_trace & 3;
     hd->trcfln = global_trace & 8;
     init_env();
-    minidiag(Fln,loc,Debug,id,"first base heap size %u.%u state %u caller %lx",len,(ub4)sizeof(struct hdstats),hd->tidstate,caller);
+    minidiag(Yfln,loc,Debug,id,"first base heap size %u.%u state %u caller %lx",len,(ub4)sizeof(struct hdstats),hd->tidstate,caller);
     return hd;
   }
 
@@ -716,22 +789,22 @@ static heapdesc *new_heapdesc(enum Loc loc)
     didcas = Cas(global_freehds,hd,org);
     if (didcas) {
       memset(hd,0,sizeof(heapdesc));
-      thread_heap = hd;
+      tid_sethd(hd);
       thread_setclean(hd);
-      minidiag(Fln,loc,Debug,id,"use base heap %u size %u.%u caller %lx",hd->id,len,(ub4)sizeof(struct hdstats),caller);
+      minidiag(Yfln,loc,Debug,id,"use base heap %u size %u.%u caller %lx",hd->id,len,(ub4)sizeof(struct hdstats),caller);
     }
   } else { // new, common case
-    hd = bootalloc(Fln,id,loc,len);
-    minidiag(Fln,loc,Debug,id,"new base heap size %u.%u caller %lx",len,(ub4)sizeof(struct hdstats),caller);
+    hd = bootalloc(Yfln,id,loc,len);
+    minidiag(Yfln,loc,Debug,id,"new base heap size %u.%u caller %lx",len,(ub4)sizeof(struct hdstats),caller);
   }
   if (unlikely(hd == nil)) {
-    minidiag(Fln,loc,Fatal,id,"cannot allocate heap descriptor %u len %u",id,len);
+    minidiag(Yfln,loc,Fatal,id,"cannot allocate heap descriptor %u len %u",id,len);
     _Exit(1);
   }
 
   hd->tidstate = Ts_mt;
 
-  thread_heap = hd;
+  tid_sethd(hd);
   thread_setclean(hd);
 
   iter = 20;
@@ -752,11 +825,13 @@ static heapdesc *new_heapdesc(enum Loc loc)
 
 static Hot heapdesc *getheapdesc(enum Loc loc)
 {
-  heapdesc *hd = thread_heap;
+  heapdesc *hd;
   heap *hb;
   ub4 tic;
   ub4 tidcnt;
   bool some;
+
+  hd = tid_gethd();
 
   if (likely(hd != nil)) {
     if (hd->tidstate != Ts_private) return hd;
@@ -764,7 +839,8 @@ static Hot heapdesc *getheapdesc(enum Loc loc)
     hd->ticker = tic + 1;
     some = sometimes(tic,Private_interval);
     if (likely(some == 0)) return hd;
-    tidcnt = Atomget(global_tid,Monone);
+
+    tidcnt = Atomget(global_tid,Monone); // 'periodically' check thread count
     if (tidcnt == 1) return hd;
     hd->tidstate = Ts_mt;
     hb = hd->hb;
@@ -772,7 +848,7 @@ static Hot heapdesc *getheapdesc(enum Loc loc)
       Atomset(hb->lock,0,Morel);
     }
 #if Yal_dbg_level > 1
-    minidiag(Fln,loc,Debug,hd->id,"tidstate %u at %u",hd->tidstate,tidcnt);
+    minidiag(Yfln,loc,Debug,hd->id,"tidstate %u at %u",hd->tidstate,tidcnt);
 #endif
     return hd;
   }
@@ -787,7 +863,6 @@ static cchar *regname(xregion *reg)
   return typ <= Rcount ? regnames[typ] : "??";
 }
 
-#undef Fln
 #include "diag.h" // main diags
 
 // -- main heap init and access --
@@ -809,17 +884,14 @@ static ub1 mapshifts[24] = { // progressively increase region sizes the more we 
 
 #include "heap.h"
 
-#define Logfile Fyalloc
-
-static void *oom(ub4 fln,enum Loc loc,size_t n1,size_t n2)
+static void *oom(heap *hb,ub4 fln,enum Loc loc,size_t n1,size_t n2)
 {
   char buf[64];
-  heapdesc *hd = thread_heap;
 
   if (n2) snprintf_mini(buf,0,64," * %zu`",n2);
   else *buf = 0;
 
-  do_ylog(Yal_diag_oom,loc,fln,Error,0,"heap %u out of memory allocating %zu`%s",hd ? hd->id : 0,n1,buf);
+  do_ylog(Yal_diag_oom,loc,fln,Error,0,"heap %u out of memory allocating %zu`%s",hb ? hb->id : 0,n1,buf);
   Enomem
   return nil;
 }
@@ -845,7 +917,7 @@ static void *osmem(ub4 fln,ub4 hid,size_t len,cchar *desc)
   }
 
   errorctx(fln,Lnone,"heap %u %s",hid,desc)
-  oom(Fln,Lnone,len,0);
+  oom(nil,Yfln,Lnone,len,0);
   return p;
 }
 
@@ -860,8 +932,6 @@ static bool osunmem(ub4 fln,heapdesc *hd,void *p,size_t len,cchar *desc)
   Atomad(global_mapdel,1,Monone);
   return 0;
 }
-
-#undef Logfile
 
 static ub4 slabstats(region *reg,struct yal_stats *sp,char *buf,ub4 pos,ub4 len,bool print,ub4 opts,ub4 cnt);
 #include "region.h"
@@ -883,13 +953,11 @@ static ub4 slabstats(region *reg,struct yal_stats *sp,char *buf,ub4 pos,ub4 len,
 
 #include "std.h"
 
-#define Logfile Fyalloc
-
 // -- nonstandard extensions
 void *__je_bootstrap_malloc(size_t len)
 {
   if (len >= Hi32) return nil;
-  return bootalloc(Fln,0,Lnone,(ub4)len);
+  return bootalloc(Yfln,0,Lnone,(ub4)len);
 }
 
 void *__je_bootstrap_calloc(size_t num, size_t size)
@@ -945,11 +1013,11 @@ ub4 yal_options(enum Yal_options opt,size_t arg1,size_t arg2)
 
     case Yal_trace_enable: return trace_enable(a1);
     case Yal_trace_name:
-       if (arg2 <= Pagesize || arg2 >= Vmsize) { do_ylog(Yal_diag_ill,Lnone,Fln,Warn,0,"unknown option '%d'",opt); return __LINE__; }
+       if (arg2 <= Pagesize || arg2 >= Vmsize) { do_ylog(Yal_diag_ill,Lnone,Yfln,Warn,0,"unknown option '%d'",opt); return __LINE__; }
        return trace_name(a1,(char *)arg2);
 
     case Yal_logmask: rv = ylog_mask; ylog_mask = a1; return rv;
-    default: do_ylog(Yal_diag_ill,Lnone,Fln,Warn,0,"unknown option '%d'",opt); return __LINE__;
+    default: do_ylog(Yal_diag_ill,Lnone,Yfln,Warn,0,"unknown option '%d'",opt); return __LINE__;
   }
 }
 
@@ -957,7 +1025,7 @@ ub4 yal_options(enum Yal_options opt,size_t arg1,size_t arg2)
 
 size_t malloc_usable_size(void * ptr)
 {
-  return ysize(ptr,Fln);
+  return ysize(ptr,Yfln);
 }
 
 #if defined __APPLE__ && defined __MACH__
@@ -965,7 +1033,7 @@ size_t malloc_usable_size(void * ptr)
 extern size_t malloc_size(const void * ptr); // todo malloc.h
 size_t malloc_size(const void * ptr)
 {
-  return ysize((void *)ptr,Fln);
+  return ysize((void *)ptr,Yfln);
 }
 #endif
 
@@ -1007,7 +1075,7 @@ void malloc_stats(void)
 #if Yal_glibc_mtrace
 void mtrace(void)
 {
-  ydbg1(Fln,Lnone,"region %zu` heap %zu`",sizeof(struct st_region),sizeof(struct st_heap))
+  ydbg1(Yfln,Lnone,"region %zu` heap %zu`",sizeof(struct st_region),sizeof(struct st_heap))
   global_trace = 1;
 }
 

@@ -69,6 +69,7 @@
 
   // enable semi stack trace. Adds minor overhead
   #define Yal_enable_stack 0
+  #define Yal_stack_len 32
 
   #define Yal_log_level 5 // 1 assert 2 error 3 warn 4 info 5 trace 6 vrb 7 dbg
 
@@ -150,6 +151,14 @@ static const unsigned long Mmap_retainlimit = 1ul << 30; // directly release mem
 #define Yal_enable_private 1 // private heap for main thread
 static const unsigned int Private_drop_threshold = 1024;
 static const unsigned int Private_interval = 0xff; // pwr2 - 1
+
+/* Thread support mode
+  0 - none
+  1 - TLS
+  2 - pthread_self()
+*/
+#define Yal_tidmode 1
+#define Maxtid 65536
 
 #define L1line 128
 

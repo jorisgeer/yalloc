@@ -220,13 +220,14 @@ static void *yrealloc(void *p,size_t oldlen,size_t newlen,ub4 tag)
   bool didcas;
   enum Tidstate tidstate = hd->tidstate;
 
-  ypush(hd,Fln)
+  ypush(hd,Lreal | Lapi,Fln)
 
   ytrace(0,hd,Lreal,tag,0,"+ realloc(%zx,%zu)",(size_t)p,newlen)
 
   if (unlikely(p == nil)) { // realloc(nil,n) = malloc(n)
     np = yal_heapdesc(hd,newlen,newlen,1,Lreal,tag);
     ytrace(0,hd,Lreal,tag,0,"- realloc(nil,%zu) = %zx",newlen,(size_t)np)
+    ypush(hd,Lreal | Lapi,Fln)
     return np;
   }
 
@@ -235,15 +236,17 @@ static void *yrealloc(void *p,size_t oldlen,size_t newlen,ub4 tag)
     yfree_heap(hd,p,0,Lreal,tag);
     np = (void *)zeroblock;
     ytrace(0,hd,Lreal,tag,0,"- realloc(nil,%zu) = %p",newlen,np)
+    ypush(hd,Lreal | Lapi,Fln)
     return np;
   }
 
   if (unlikely(oldlen && oldlen != Nolen)) { // extension: size of org passed
     np = yal_heapdesc(hd,newlen,newlen,1,Lreal,tag);
-    if (np == nil) return nil;
+    if (unlikely(np == nil)) return nil;
     real_copy(p,np,min(oldlen,newlen));
     ytrace(0,hd,Lreal,tag,0,"- realloc(%zx,%zu) = %zx",(size_t)p,newlen,(size_t)np)
     // todo free orig
+    ypush(hd,Lreal | Lapi,Fln)
     return np;
   }
 
@@ -268,7 +271,7 @@ static void *yrealloc(void *p,size_t oldlen,size_t newlen,ub4 tag)
       // Atomset(hb->locfln,Fln,Morel);
     }
   }
-  if (unlikely(hb == nil)) return oom(Fln,Lreal,newlen,0);
+  if (unlikely(hb == nil)) return oom(hb,Fln,Lreal,newlen,0);
 
   memset(&pi,0,sizeof(pi));
 
@@ -287,6 +290,7 @@ static void *yrealloc(void *p,size_t oldlen,size_t newlen,ub4 tag)
       //coverity[pass_freed_arg]
        ytrace(0,hd,Lreal,tag,0,"- realloc(%zx,%zu) from %zu = %zx loc %.01u",(size_t)p,newlen,alen,(size_t)np,pi.fln)
     } else {
+
       np = alloc_heap(hd,hb,doalign8(newlen,Stdalign),newlen,1,Lreal,tag);
       Realclear(np,0,newlen)
 
@@ -309,6 +313,7 @@ static void *yrealloc(void *p,size_t oldlen,size_t newlen,ub4 tag)
     if (pi.len < newlen) {
       Realclear(np,pi.len,newlen)
     }
+    ypush(hd,Lreal | Lapi,Fln)
     return np;
   }
   fln = (ub4)(size_t)np;
