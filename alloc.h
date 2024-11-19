@@ -14,7 +14,7 @@
 #define Logfile Falloc
 
 // large blocks. For align > Page, len is already adjusted
-static mpregion *yal_mmap(heapdesc *hd,heap *hb,size_t len,size_t ulen,size_t align,enum Loc loc,ub4 fln)
+static mpregion *yal_mmap(heapdesc *hd,heap *hb,size_t len,size_t align,enum Loc loc,ub4 fln)
 {
   size_t ip,aip,alen,rlen;
   void *p;
@@ -33,7 +33,7 @@ static mpregion *yal_mmap(heapdesc *hd,heap *hb,size_t len,size_t ulen,size_t al
   alen = doalign8(len,Pagesize);
 
   reg = newmpregion(hb,alen,loc,fln);
-  if (reg == nil) return oom(hb,fln,loc,ulen,0);
+  if (reg == nil) return oom(hb,fln,loc,len,0);
   rlen = reg->len;
 
   from = 2;
@@ -61,10 +61,10 @@ static mpregion *yal_mmap(heapdesc *hd,heap *hb,size_t len,size_t ulen,size_t al
 
   vg_mem_noaccess(ip,alen)
   if (loc == Lcalloc) {
-    vg_mem_def(aip,ulen)
-    if (reg->clr) memset((void *)aip,0,ulen);
+    vg_mem_def(aip,len)
+    if (reg->clr) memset((void *)aip,0,len);
   } else {
-    vg_mem_undef(aip,ulen)
+    vg_mem_undef(aip,len)
   }
 
 #if 0 // todo see above
@@ -104,59 +104,65 @@ static mpregion *yal_mmap(heapdesc *hd,heap *hb,size_t len,size_t ulen,size_t al
    realloc - ulen is as requested by user, reqlen is as wanted, e.g. +25%
    aligned_alloc - large alignment and mmap already covered
  */
-static Hot void *alloc_heap(heapdesc *hd,heap *hb,size_t reqlen,size_t ulen,ub4 align,enum Loc loc,ub4 tag)
+static Hot void *alloc_heap(heapdesc *hd,heap *hb,size_t ulen,ub4 align,enum Loc loc,ub4 tag)
 {
   ub4 alen,clen,len,ulen4,clasal;
   void *p;
   size_t ip,aip;
-  region *reg,**clasregs,**nxclasregs;
+  region *reg,*nxreg,**clasregs,**nxclasregs;
   mpregion *xreg;
   ub4 clas,nxclas,nx;
   ub4 pos,nxpos,claseq;
   Ub8 clasmsk,fremsk,msk;
   ub4 clascnt,threshold;
   ub4 ord,cord;
-  ub4 grain = class_grain;
   ub4 iter;
   ub4 xpct;
 
-  if (reqlen < 64) { // small
-    len = (ub4)reqlen;
+  if (ulen < 64) { // small
+    len = (ub4)ulen;
     clas = len2clas[len];
     alen = clas2len[clas];
     ord = clas;
+    clen = 4;
 
-    ydbg3(Lnone,"clas %2u for len %5u",clas,len);
-    ycheck(nil,loc,alen < len,"alen %u len %u",alen,len)
+    ydbg2(Fln,Lnone,"clas %2u for len %5u",clas,len);
+    ycheck1(nil,loc,alen < len,"alen %u len %u",alen,len)
 
-  } else if (likely(reqlen <= Hi30)) { // normal. Above mmap_max still counting popularity
-    len = (ub4)reqlen;
+  } else if (likely(ulen <= Hi30)) { // normal. Above mmap_max still counting popularity
+    len = (ub4)ulen;
+
     if (len & (len - 1)) { // 0000_0000_1ccx_xxxx  use 2 'cc' bits for 4 size classes per power of two and round 'xxx...' up
       ord = 32 - clz(len);
-      cord = ord - grain;
+      cord = ord - class_grain;
       clasal = 1u << cord;
       alen = doalign4(len,clasal);
-      clen = (alen >> cord) & grain;
-      if (clen == 0) clas = ord + Baseclass - 6; // if clen == 0, we can use clas = ctz(len) as below
-      else clas = Maxclass + ord * grain + clen + 4; // VMbits - 6 + ...  ?
-      ycheck(nil,loc,len < Smalclas && clas != len2clas[len],"len %u clas %u vs %u clen %u",len,clas,len2clas[len],clen)
-      ydbg3(Lnone,"clas %2u for len %5x ord %u.%u align %x alen %x clen %x",clas,len,ord,cord,align,alen,clen);
+      clen = (alen >> cord) & class_grain;
+      if (clen == 0) clen = 4;
+      clas = ord * class_grain1 + clen;
+      ypush(hd,loc,Fln)
     } else { // pwr2
       ord = ctz(len);
-      clas = ord + Baseclass - 6; // ctz(64) = 6
+      clas = (ord + 1) * class_grain1;
       alen = len;
-      ydbg3(Lnone,"clas %2u for len %5u ord %u",clas,len,ord);
+      clen = 0;
+      ypush(hd,loc,Fln)
     }
+    clas += Baseclass - 7 * class_grain1; // smal uses 8 and covers 6 * (grain + 1)
+    ydbg2(Fln,Lnone,"clas %2u for len %5u` ord %u align %u alen %u`",clas,len,ord,align,alen);
+    ycheck1(nil,loc,alen < len,"clas %u aen %u len %u.%u tag %.01u",clas,alen,len,len,tag)
+    ycheck1(nil,loc,len < Smalclas && clas != len2clas[len],"len %u clas %u vs %u",len,clas,len2clas[len])
 
-  } else { // reqlen >= Hi30
-    ord = sizeof(size_t) * 8 - clzl(reqlen);
-    if (unlikely(ord >= Vmbits)) return nil;
-    clas = ord + 4;
-    len = alen = (1u << Mmap_max_threshold);
-    ydbg3(Lnone,"clas %2u for len %5zu` ord %u",clas,reqlen,ord);
+  } else { // ulen >= Hi30
+    ord = sizeof(size_t) * 8 - clzl(ulen);
+    if (ulen & (ulen - 1)) ord++;
+    if (unlikely(ord >= Vmbits)) return oom(hb,Fln,loc,ulen,0);
+    clas = 31 * class_grain1 + ord - 30 + Baseclass - 7 * class_grain1;
+    len = alen = (1u << Mmap_max_threshold); // unused
+    clen = 0;
+    ydbg2(Fln,Lnone,"clas %2u for len %5zu` ord %u",clas,ulen,ord);
   }
-
-  ycheck(nil,loc,clas >= Xclascnt,"class %u for len  %u out of range %u",clas,alen,Xclascnt)
+  ycheck(nil,loc,clas >= Xclascnt,"class %u for len  %zu` out of range %u",clas,ulen,Xclascnt)
 
   clascnt = hb->clascnts[clas] & Hi31;
 
@@ -166,17 +172,17 @@ static Hot void *alloc_heap(heapdesc *hd,heap *hb,size_t reqlen,size_t ulen,ub4 
     ydbg2(Fln,Lnone,"clas %2u for len %5u`",clas,len);
   }
 #if Yal_enable_check
-  else if (hb->claslens[clas]  != alen) { error(loc,"reqlen %zu clas %u alen %u vs %u %zu",reqlen,clas,alen,hb->claslens[clas],ulen) return nil; }
+  else if (hb->claslens[clas] != alen) { error(loc,"ulen %zu clas %u alen %u vs %u",ulen,clas,alen,hb->claslens[clas]) return nil; }
 #endif
 
   hb->clascnts[clas] = clascnt + 1;
 
   // mmap ?
-  if (unlikely(reqlen >= mmap_limit)) {
+  if (unlikely(ulen >= mmap_limit)) {
     if (clascnt <= Xclas_threshold || alen >= mmap_max_limit) {
       // ycheck(nil,loc,align > Pagesize,"len %zu` align %u",alen,align)
       ypush(hd,loc,Fln)
-      xreg = yal_mmap(hd,hb,reqlen,ulen,align,loc,Fln);
+      xreg = yal_mmap(hd,hb,ulen,align,loc,Fln);
       if (xreg == nil) return  nil;
       ip = xreg->user;
       aip = ip + xreg->align;
@@ -185,15 +191,17 @@ static Hot void *alloc_heap(heapdesc *hd,heap *hb,size_t reqlen,size_t ulen,ub4 
       return (void *)ip;
     }
   } // mmap thresh
-  ulen4 = (ub4)ulen;
 
-  ycheck(nil,loc,clas >= Clascnt,"class %u for len  %u out of range %u",clas,alen,Clascnt)
+  ulen4 = (ub4)ulen;
+  ycheck(nil,loc,clas >= Clascnt,"class %u for len  %zu` out of range %u",clas,ulen,Clascnt)
 
   // bump ?
   threshold = max(Clas_threshold >> (ord / 2),3);
   if (unlikely(clascnt < threshold && len <= min(Bumplen,Bumpmax) )) { // size class not popular yet
     ypush(hd,loc,Fln)
-    p = bump_alloc(hb,len,ulen4,align,loc,tag);
+    if (likely(loc != Lreal)) len = ulen4;
+    else len = ulen4 + (ulen4 >> 2); // plus ~25% headroom
+    p = bump_alloc(hd,hb,len,align,loc,tag);
     if (likely(p != nil)) {
 #if Yal_enable_trace
       if (loc == Lallocal) { ytrace(0,hd,loc,tag,0,"-allocal(%u,%u) = %zx (bump)",ulen4,align,(size_t)p) }
@@ -224,6 +232,23 @@ static Hot void *alloc_heap(heapdesc *hd,heap *hb,size_t reqlen,size_t ulen,ub4 
   iter = Clasregs * 2 + 2;
   do {
     reg = clasregs[pos];
+    if (unlikely(loc == Lreal && clen > 1)) { // try headroom if available
+      nxclasregs = clasregs + Clasregs;
+      nxclas = clas + 1;
+      nxpos = hb->claspos[nxclas];
+      nxreg = nxclasregs[nxpos];
+      if (nxreg && (nxreg->binpos || nxreg->inipos < nxreg->celcnt) ) { // has space
+        ypush(hd,loc,Fln)
+        reg = nxreg;
+        ycheck(nil,loc,reg->cellen < len,"region %.01llu clas %u cellen %u len %u.%u tag %.01u",reg->uid,clas,reg->cellen,len,len,tag)
+        clas = nxclas;
+        pos = nxpos;
+        clasregs = nxclasregs;
+        alen = reg->cellen;
+        fremsk = hb->cfremsk[clas];
+      }
+    }
+
     if (unlikely(reg == nil)) { // need to create new
 
       if (unlikely(len == 0)) {
@@ -231,16 +256,17 @@ static Hot void *alloc_heap(heapdesc *hd,heap *hb,size_t reqlen,size_t ulen,ub4 
         return zeroblock;
       }
       // next class ?
-      if (clascnt < threshold && iter < 4 && clas < Clascnt - 3 && loc != Lallocal) { // size class not popular yet
+      if (clascnt < threshold && iter < 4 && clas < Clascnt - 4 && loc != Lallocal) { // size class not popular yet
         for (nx = 1; nx < 3; nx++) {
           nxclas = clas + nx;
-          ycheck(nil,loc,nxclas >= Clascnt,"class %u for len  %u out of range %u",nxclas,alen,Clascnt)
-          if (hb->claslens[nxclas] < alen) continue;
           nxclasregs = hb->clasregs + nxclas * Clasregs;
           nxpos = hb->claspos[nxclas];
           ycheck(nil,loc,nxpos >= Clasregs,"clas %u pos %u",clas,nxpos)
-          reg = nxclasregs[nxpos];
-          if (reg) { // use a larger one
+          nxreg = nxclasregs[nxpos];
+          if (nxreg && (nxreg->binpos || nxreg->inipos < nxreg->celcnt)) { // use a larger one
+            reg = nxreg;
+            ypush(hd,loc,Fln)
+            ycheck(nil,loc,reg->cellen < len,"region %.01llu clas %u cellen %u len %u.%u tag %.01u",reg->uid,clas,reg->cellen,len,len,tag)
             vg_mem_def(reg,sizeof(region))
             vg_mem_def(reg->meta,reg->metalen)
             ydbg2(Fln,Lnone,"reg %.01llu clas %u use %u len %u,%u for %u",reg->uid,clas,nxclas,hb->claslens[nxclas],reg->cellen,alen);
@@ -257,7 +283,9 @@ static Hot void *alloc_heap(heapdesc *hd,heap *hb,size_t reqlen,size_t ulen,ub4 
       } // threshold for next
 
       if (unlikely(reg == nil)) { // get new region
+        ypush(hd,loc,Fln)
         claseq = hb->clasregcnt[clas];
+        ycheck(nil,loc,alen < len,"region %.01llu clas %u aen %u len %u.%u tag %.01u",reg->uid,clas,alen,len,len,tag)
         reg = newslab(hb,alen,clas,claseq);
         if (unlikely(reg == nil)) {
           xreg = osmmap(len); // fallback
@@ -285,8 +313,8 @@ static Hot void *alloc_heap(heapdesc *hd,heap *hb,size_t reqlen,size_t ulen,ub4 
 
     ycheck(nil,loc,clas != reg->clas,"region %.01llu gen %u.%u clas %u len %u vs %u %u pos %u",reg->uid,reg->gen,reg->id,reg->clas,reg->cellen,clas,alen,pos)
 
-    ycheck(nil,loc,reg->cellen < alen,"region %.01llu clas %u cellen %u len %u.%u tag %.01u",reg->uid,clas,reg->cellen,alen,len,tag)
-    ycheck(nil,loc,reg->inuse != 1,"region %.01llu clas %u cellen %u len %u.%u tag %.01u",reg->uid,clas,reg->cellen,alen,len,tag)
+    ycheck(nil,loc,reg->cellen < len,"region %.01llu.%u clas %u cellen %u len %u.%zu tag %.01u",reg->uid,reg->id,clas,reg->cellen,len,ulen,tag)
+    ycheck(nil,loc,reg->inuse != 1,"region %.01llu clas %u cellen %u len %u.%zu tag %.01u",reg->uid,clas,reg->cellen,len,ulen,tag)
     ydbg2(Fln,loc,"clas %u pos %u msk %lx",clas,pos,fremsk);
 
     ypush(hd,loc,Fln)
@@ -308,7 +336,7 @@ static Hot void *alloc_heap(heapdesc *hd,heap *hb,size_t reqlen,size_t ulen,ub4 
     hb->clasmsk[clas] = clasmsk;
     if (clasmsk == 0) {
         if (fremsk == 0) {
-         ydbg1(Fln,loc,"clas %u pos %u msk %lx",clas,pos,fremsk);
+         do_ylog(Diagcode,loc,Fln,Warn,0,"clas %u pos %u msk %lx",clas,pos,fremsk);
           fremsk = 0xfffffffful; // should not occur
         }
         pos = ctzl(fremsk); // new reg in empty slots
@@ -344,12 +372,12 @@ static Hot void *alloc_heap(heapdesc *hd,heap *hb,size_t reqlen,size_t ulen,ub4 
 }
 
 // nil len handled
-static void *yal_heap(heapdesc *hd,heap *hb,size_t len,size_t ulen,ub4 align,enum Loc loc,ub4 tag)
+static void *yal_heap(heapdesc *hd,heap *hb,size_t len,ub4 align,enum Loc loc,ub4 tag)
 {
   void *p;
   enum Status st;
 
-  p = alloc_heap(hd,hb,len,ulen,align,loc,tag);  // Note: hb may change
+  p = alloc_heap(hd,hb,len,align,loc,tag);  // Note: hb may change
   if (likely(p != nil)) return p;
 
   st = hd->status; hd->status = St_ok;
@@ -366,7 +394,7 @@ static void *yal_heap(heapdesc *hd,heap *hb,size_t len,size_t ulen,ub4 align,enu
 
 // main entry for malloc, calloc, realloc, alloc_align.
 // If no heap yet and small request, use mini bumpallocator
-static Hot void *yal_heapdesc(heapdesc *hd,size_t len,size_t ulen,ub4 align,enum Loc loc,ub4 tag)
+static Hot void *yal_heapdesc(heapdesc *hd,size_t len,ub4 align,enum Loc loc,ub4 tag)
 {
   heap *hb = hd->hb;
   void *p;
@@ -377,7 +405,7 @@ static Hot void *yal_heapdesc(heapdesc *hd,size_t len,size_t ulen,ub4 align,enum
   enum Tidstate tidstate = hd->tidstate;
 
   // trivia: malloc(0)
-  if (unlikely(ulen == 0)) {
+  if (unlikely(len == 0)) {
     p = (void *)zeroblock;
     ytrace(0,hd,loc,tag,0,"alloc 0 = %zx",(size_t)p)
     ystats(hd->stat.alloc0s)
@@ -387,7 +415,7 @@ static Hot void *yal_heapdesc(heapdesc *hd,size_t len,size_t ulen,ub4 align,enum
   if (unlikely(hb == nil)) { // no heap yet
     if (len <= min(Minilen,Minimax) && align <= Minimax) {
       ypush(hd,loc,Fln)
-      p = mini_alloc(hd,(ub4)len,(ub4)ulen,align,loc,tag); // initial bump allocator
+      p = mini_alloc(hd,(ub4)len,align,loc,tag); // initial bump allocator
       if (p) {
         ytrace(0,hd,loc,tag,0,"-malloc(%u) mini = %zx",(ub4)len,(size_t)p)
         return p;
@@ -438,9 +466,12 @@ static Hot void *yal_heapdesc(heapdesc *hd,size_t len,size_t ulen,ub4 align,enum
   } // heap or not
 
   ypush(hd,loc,Fln);
-  ytrace(0,hd,loc,tag,0,"+malloc(%zu`)",loc == Lallocal ? len : ulen)
-
-  p = yal_heap(hd,hb,len,ulen,align,loc,tag); // regular
+  if (loc == Lallocal) {
+    ytrace(0,hd,loc,tag,0,"+malloc(%zu`)",len)
+  } else {
+    ytrace(0,hd,loc,tag,0,"+mallocal(%u,%zu`)",align,len)
+  }
+  p = yal_heap(hd,hb,len,align,loc,tag); // regular
   // hb = hd->hb;  // hb may have changed
 
   if (tidstate != Ts_private) {
@@ -453,14 +484,14 @@ static Hot void *yal_heapdesc(heapdesc *hd,size_t len,size_t ulen,ub4 align,enum
 }
 
 // calloc
-static void *yalloc(size_t len,size_t ulen,enum Loc loc,ub4 tag)
+static void *yalloc(size_t len,enum Loc loc,ub4 tag)
 {
   heapdesc *hd = getheapdesc(Lcalloc);
   void *p;
 
   ypush(hd,Lalloc | Lapi,Fln);
 
-  p = yal_heapdesc(hd,len,ulen,1,loc,tag);
+  p = yal_heapdesc(hd,len,1,loc,tag);
 
 #if Yal_enable_check > 1
   if (unlikely(chkalign(p,len,Stdalign) != 0)) error(Lalloc,"alloc(%zu) = %zx not aligns",len,(size_t)p)
@@ -478,8 +509,8 @@ static void *ymalloc(size_t len,ub4 tag)
   heap *hb = hd->hb;
   region *reg;
   void *p;
-  ub4 clas;
-  ub4 clascnt;
+  ub4 clas,clascnt;
+  ub4 len4;
   ub4 from;
   bool didcas;
   enum Tidstate tidstate;
@@ -502,7 +533,9 @@ static void *ymalloc(size_t len,ub4 tag)
       ycheck1(nil,Lalloc,Atomget(hb->lock,Moacq) == 0,"heap %u is unlocked",hb->id)
 
       if (likely(len < Smalclas)) {
-        clas = len2clas[len];
+        len4 = (ub4)len;
+        clas = len2clas[len4];
+        ydbg2(Fln,Lnone,"clas %2u for len %5u tag %.01u",clas,len4,tag);
         reg = hb->smalclas[clas];
         if (likely(reg != nil)) {
           clascnt = hb->clascnts[clas] & Hi31;
@@ -510,16 +543,15 @@ static void *ymalloc(size_t len,ub4 tag)
           hb->clascnts[clas] = clascnt + 1;
           vg_mem_def(reg,sizeof(region))
           vg_mem_def(reg->meta,reg->metalen)
-          ycheck(nil,Lalloc,reg->clas != clas,"region %.01llu clas %u len %zu vs %u %u",reg->uid,clas,len,reg->clas,reg->cellen)
-          ycheck(nil,Lalloc,reg->cellen < len,"region %.01llu clas %u len %u vs %zu",reg->uid,clas,reg->cellen,len)
+          ycheck(nil,Lalloc,reg->clas != clas,"region %.01llu clas %u len %u vs %u %u",reg->uid,clas,len4,reg->clas,reg->cellen)
+          ycheck1(nil,Lalloc,reg->cellen < len,"region %.01llu clas %u len %u vs %u",reg->uid,clas,reg->cellen,len4)
           reg->age = 0; // todo replace with re-check at trim
-          ydbg3(Fln,Lalloc,"len %zu",len)
 
-          p = slab_malloc(reg,(ub4)len,tag);
+          p = slab_malloc(reg,len4,tag);
 
           if (likely(p != nil)) {
 #if Yal_enable_check > 1
-            if (unlikely(chkalign(p,len,Stdalign) != 0)) error(Lalloc,"alloc(%zu) = %zx not aligns",len,(size_t)p)
+            if (unlikely(len >= Stdalign && chkalign(p,len,Stdalign) != 0)) error(Lalloc,"alloc(%u) = %zx not aligns",len4,(size_t)p)
 #endif
             if (tidstate != Ts_private) {
               Atomset(hb->lock,0,Morel);
@@ -546,7 +578,7 @@ static void *ymalloc(size_t len,ub4 tag)
 
       } // small
 
-      p = alloc_heap(hd,hb,len,len,1,Lalloc,tag);
+      p = alloc_heap(hd,hb,len,1,Lalloc,tag);
 
       if (tidstate != Ts_private) {
         Atomset(hb->lock,0,Morel);
@@ -558,7 +590,7 @@ static void *ymalloc(size_t len,ub4 tag)
     ydbg2(Fln,Lalloc,"len %zu",len)
   } // heap
   ydbg3(Fln,Lalloc,"len %zu",len)
-  p = yal_heapdesc(hd,len,len,1,Lalloc,tag);
+  p = yal_heapdesc(hd,len,1,Lalloc,tag);
   ypush(hd,Lalloc | Lapi,Fln);
   return p;
 }
@@ -617,8 +649,9 @@ static void *yalloc_align(size_t align, size_t len,ub4 tag)
       alen = len + align; // may need to move base
     } else alen = len;
     alen = max(alen,mmap_limit);
-    reg = yal_mmap(hd,hb,alen,len,align,Lallocal,Fln);
+    reg = yal_mmap(hd,hb,alen,align,Lallocal,Fln);
     if (reg == nil) return nil;
+    reg->ulen = len;
     aip = reg->user + reg->align;
 
     if (tidstate != Ts_private) {
@@ -641,7 +674,7 @@ static void *yalloc_align(size_t align, size_t len,ub4 tag)
     ord = 32 - clz((ub4)len);
     len = 1ul << ord;
   }
-  p = yal_heapdesc(hd,len,len,(ub4)align,Lallocal,tag);
+  p = yal_heapdesc(hd,len,(ub4)align,Lallocal,tag);
 
 #if Yal_enable_check
   if (p == nil) return p;

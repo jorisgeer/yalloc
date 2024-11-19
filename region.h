@@ -540,7 +540,7 @@ static region *newregion(heap *hb,ub4 order,size_t len,size_t metaulen,ub4 celle
         sp->useregions++;
         uid = (sp->useregions + sp->newregions + sp->noregions) * 2;
         ycheck(nil,0,reg->len != 0,"region %.01llu len %zu`",reg->uid,reg->len)
-        ydbg1(Fln,Lnone,"use region %.01llu -> %u.%llu len %zu` gen %u.%u.%u cel %u for %zu`,%u",reg->uid,hid,uid,reg->len,reg->gen,hid,reg->id,reg->cellen,len,cellen);
+        ydbg2(Fln,Lnone,"use region %.01llu -> %u.%llu len %zu` gen %u.%u.%u cel %u for %zu`,%u",reg->uid,hid,uid,reg->len,reg->gen,hid,reg->id,reg->cellen,len,cellen);
       }
     } else {
       nreg = reg->frenxt;
@@ -792,7 +792,7 @@ static mpregion *newmpregion(heap *hb,size_t len,enum Loc loc,ub4 fln)
   ureg = hb->freemp0regs;
   iter = 0;
   while (ureg && iter < 100) {
-     ydbg1(Fln,loc,"%u has xregion %u.%u len %zu`",iter++,ureg->hid,ureg->id,ureg->len)
+     ydbg2(Fln,loc,"%u has xregion %u.%u len %zu`",iter++,ureg->hid,ureg->id,ureg->len)
      ureg = ureg->frenxt;
   }
 #endif
@@ -805,7 +805,7 @@ static mpregion *newmpregion(heap *hb,size_t len,enum Loc loc,ub4 fln)
     reg = newmpregmem(hb);
     if (reg == nil) return nil;
 
-    ydbg1(Fln,Lnone,"new xregion %zx %u.%u for size %zu` from %zu`",(size_t)reg,hid,rid,len,reg->len);
+    ydbg2(Fln,Lnone,"new xregion %zx %u.%u for size %zu` from %zu`",(size_t)reg,hid,rid,len,reg->len);
 
     if (hb->mpreglst == nil) { // maintain for stats and trim
       hb->mpreglst = hb->mpregtrim = hb->mpregprv = reg;
@@ -846,6 +846,7 @@ static mpregion *newmpregion(heap *hb,size_t len,enum Loc loc,ub4 fln)
     reg->len = len;
     reg->order = order;
     reg->clr = 0;
+    reg->real = 0;
     Atomset(reg->set,2,Morel); // give it freed
   }
   Atomset(reg->age,0,Morel);

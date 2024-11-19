@@ -12,7 +12,7 @@
 #define Logfile Fmini
 
 // mini bump allocator
-static void *mini_alloc(heapdesc *hd,ub4 len,ub4 ulen,ub4 align,enum Loc loc,ub4 tag)
+static void *mini_alloc(heapdesc *hd,ub4 len,ub4 align,enum Loc loc,ub4 tag)
 {
   bregion *reg;
   ub4 ord,cnt;
@@ -46,7 +46,7 @@ static void *mini_alloc(heapdesc *hd,ub4 len,ub4 ulen,ub4 align,enum Loc loc,ub4
     hd->mhb = reg;
   }
 
-  return bumpalloc(nil,hd->id,reg,1,len,ulen,align,loc,tag);
+  return bumpalloc(hd,nil,hd->id,reg,1,len,align,loc,tag);
 }
 
 #undef Logfile

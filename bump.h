@@ -64,8 +64,10 @@ static bool newbump(heap *hb,ub4 hid,bregion *reg,ub4 len,ub4 regpos,enum Rtype 
   return 0;
 }
 
-static void *bumpalloc(heap *hb,ub4 hid,bregion *regs,ub4 regcnt,ub4 len,ub4 ulen,ub4 align,enum Loc loc,ub4 tag)
+// hb is nil for mimi
+static void *bumpalloc(heapdesc *hd,heap *hb,ub4 hid,bregion *regs,ub4 regcnt,ub4 ulen,ub4 align,enum Loc loc,ub4 tag)
 {
+  ub4 len = ulen;
   ub4 *meta;
   _Atomic ub2 *lens;
   ub4 *tags;
@@ -82,7 +84,6 @@ static void *bumpalloc(heap *hb,ub4 hid,bregion *regs,ub4 regcnt,ub4 len,ub4 ule
     if (align >= 512) return nil;
     len += align;
   } else align = Stdalign;
-
   len = doalign4(len,Stdalign);
 
   if (regs->typ == Rmini) {
@@ -90,17 +91,16 @@ static void *bumpalloc(heap *hb,ub4 hid,bregion *regs,ub4 regcnt,ub4 len,ub4 ule
     if (pos + len > regs->len) return nil;
     reg = regs;
   } else {
+    ycheck(nil,loc,hb == nil,"nil heap for bump regs %u",regcnt)
     for (regpos = 0; regpos < regcnt; regpos++) {
       reg = regs + regpos;
       if (unlikely(reg->len == 0)) {
         if (newbump(hb,hid,reg,Bumplen,regpos,typ,loc)) return nil;
         vg_drd_rwlock_init(reg);
-        if (hb) setregion(hb,(xregion *)reg,reg->user,reg->len,1,loc,Fln);
+        setregion(hb,(xregion *)reg,reg->user,reg->len,1,loc,Fln);
       }
       pos = reg->pos;
-      if (pos + len + align > reg->len) continue;
-
-      break;
+      if (pos + len <= reg->len) break;
     }
     if (regpos == regcnt) {
       ydbg2(Fln,loc,"bump regions full at regpos %u/%u",regpos,regcnt);
@@ -110,12 +110,15 @@ static void *bumpalloc(heap *hb,ub4 hid,bregion *regs,ub4 regcnt,ub4 len,ub4 ule
   base = reg->user;
   meta = reg->meta;
 
-  reg->pos = pos + len;
-
-  if (unlikely(loc == Lallocal && pos != 0)) pos = doalign4(pos,align);
+  if (unlikely(loc == Lallocal && pos != 0)) {
+    pos = doalign4(pos,align);
+    if (pos + len > reg->len) return nil;
+  }
 
   ycheck(nil,loc,pos & (align - 1),"pos %u align %u",pos,align)
   ycheck(nil,loc,pos + len > reg->len,"pos %u + %u > %zu",pos,len,reg->len)
+  reg->pos = pos + len;
+
   cel = pos / Stdalign;
   lens = (_Atomic ub2 *)meta;
 
@@ -125,7 +128,8 @@ static void *bumpalloc(heap *hb,ub4 hid,bregion *regs,ub4 regcnt,ub4 len,ub4 ule
   didcas = Casa(fres + cel,&zero,1);
   ip = base + pos;
   if (unlikely(didcas == 0)) {
-    error(loc,"%s region %.01llu ptr %zx len %u cel %u is not free %.01u state %u",regnames[reg->typ],reg->uid,ip,ulen,cel,tag,zero)
+    errorctx(Fln,loc,"len %u align %u",ulen,align)
+    error2(loc,Fln,"%s region %.01llu ptr %zx len %u cel %u is not free %.01u state %u",regnames[reg->typ],reg->uid,ip,len,cel,tag,zero)
     return nil;
   }
 
@@ -137,15 +141,24 @@ static void *bumpalloc(heap *hb,ub4 hid,bregion *regs,ub4 regcnt,ub4 len,ub4 ule
   ystats(reg->allocs)
   ydbg3(loc,"bumpregion %.01lu ptr %zx len %u cel %u tag %.01u state %u",reg->uid,ip,len,cel,tag,zero)
 
-  if (loc == Lcalloc) { vg_mem_def(ip,ulen) }
-  else { vg_mem_undef(ip,ulen) }
+  if (likely(loc == Lalloc)) {
+    ytrace(0,hd,loc,tag,0,"-alloc(%u) = %zx",ulen,ip)
+  } else if (loc == Lallocal) {
+    ytrace(0,hd,loc,tag,0,"-mallocal(%u,%u) = %zx",ulen,align,ip)
+  }
+  if (loc == Lcalloc) {
+    ytrace(0,hd,loc,tag,0,"-calloc(%u) = %zx",ulen,ip)
+    vg_mem_def(ip,ulen)
+  } else {
+   vg_mem_undef(ip,ulen)
+  }
 
   return (void *)ip;
 }
 
-static void *bump_alloc(heap *hb,ub4 len,ub4 ulen,ub4 align,enum Loc loc,ub4 tag)
+static void *bump_alloc(heapdesc *hd,heap *hb,ub4 len,ub4 align,enum Loc loc,ub4 tag)
 {
-  return bumpalloc(hb,hb->id,hb->bumpregs,Bumpregions,len,ulen,align,loc,tag);
+  return bumpalloc(hd,hb,hb->id,hb->bumpregs,Bumpregions,len,align,loc,tag);
 }
 
 // returns len. hb may be nil. Region not locked. size() if reqlen = Nolen

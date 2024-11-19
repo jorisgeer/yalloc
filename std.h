@@ -14,7 +14,7 @@ void *malloc(size_t len)
 
 #if Yal_prep_TLS
   if (unlikely(yal_tls_inited == 0)) {
-    p =  bootalloc(Fln,0,Lnone,(ub4)len);
+    p = bootalloc(Fln,0,Lnone,(ub4)len);
     minidiag(Fln,Lalloc,Debug,0,"TLS init %zu = %zx",len,(size_t)p);
     return p;
   }
@@ -41,7 +41,7 @@ void *calloc (size_t count, size_t size)
 
 #if Yal_prep_TLS
   if (unlikely(yal_tls_inited == 0)) {
-    p =  bootalloc(Fln,0,Lnone,(ub4)(count * size));
+    p = bootalloc(Fln,0,Lnone,(ub4)(count * size));
     minidiag(Fln,Lcalloc,Debug,0,"TLS init %zu * %zu = %zx",count,size,(size_t)p);
   }
 #endif
@@ -61,7 +61,7 @@ void *calloc (size_t count, size_t size)
   }
 #endif
 
-  p = yalloc(len,len,Lcalloc,Fln);
+  p = yalloc(len,Lcalloc,Fln);
 
   return p;
 }
@@ -89,7 +89,7 @@ void *aligned_alloc(size_t align, size_t size)
 
 #if Yal_prep_TLS
   if (unlikely(yal_tls_inited == 0)) {
-    p =  osmmap(size); // assuming align > Page not done
+    p = osmmap(size); // assuming align > Page not done
     minidiag(Fln,Lalloc,Debug,0,"TLS init %zu = %zx",size,(size_t)p);
     return p;
   }

@@ -160,7 +160,7 @@ extern Noret void _Exit(int status);
 #define Dir2len (1u << Dir2)
 #define Dir3len (1u << Dir3)
 
-#define Xclascnt (32 * 4)
+#define Xclascnt (33 * 4)
 
 #define Regorder 36
 
@@ -331,7 +331,7 @@ typedef unsigned char celset_t;
 
 // per-region statistics
 struct regstat {
-  size_t allocs,Allocs,callocs,reallocles,reallocgts,binallocs,iniallocs,xallocs;
+  size_t allocs,Allocs,callocs,binallocs,iniallocs,xallocs;
   size_t frees,rfrees;
   ub4 minlen,maxlen;
   size_t rbin;
@@ -388,6 +388,7 @@ struct Align(16) st_mpregion { // mmap region. allocated as pool from heap
   struct st_mpregion *frenxt,*freprv; // for reuse aka regbin
   _Atomic ub4 age;
   ub4 aged;
+  ub4 real;
 };
 typedef struct st_mpregion mpregion;
 
@@ -665,7 +666,7 @@ static heapdesc * _Atomic global_freehds;
      Thread_clean_push(&hd->thread_clean_info,thread_cleaner, hd);
   }
 #else
-  static void thread_setclean(heapdesc * Unused hd) { }
+  static void thread_setclean(Unused heapdesc * hd) { }
 #endif
 
 static size_t Align(16) zeroarea[16];
@@ -745,6 +746,8 @@ static _Atomic ub4 global_hid = 1;
   }
 
   #if Yal_prep_TLS // assumes attributes are supported, not checked
+  static bool yal_tls_inited;
+
   static void __attribute__((constructor)) __attribute__((used))  yal_before_TLS(void)
   {
     yal_tls_inited = 0;
@@ -775,10 +778,11 @@ static heapdesc *new_heapdesc(enum Loc loc)
     tid_sethd(hd);
     thread_setclean(hd);
     hd->id = id;
+    init_env();
     hd->trace = global_trace & 3;
     hd->trcfln = global_trace & 8;
-    init_env();
     minidiag(Yfln,loc,Debug,id,"first base heap size %u.%u state %u caller %lx",len,(ub4)sizeof(struct hdstats),hd->tidstate,caller);
+    minidiag(Yfln,loc,Debug,id,"trace %u %u",hd->trace,global_trace);
     return hd;
   }
 
@@ -820,6 +824,7 @@ static heapdesc *new_heapdesc(enum Loc loc)
   hd->id = id;
   hd->trace = global_trace & 3;
   hd->trcfln = global_trace & 8;
+  minidiag(Yfln,loc,Debug,id,"trace %u",hd->trace);
   return hd;
 }
 
@@ -869,10 +874,6 @@ static cchar *regname(xregion *reg)
 
 static _Atomic unsigned int global_mapadd;
 static _Atomic unsigned int global_mapdel;
-
-#if Yal_prep_TLS
- static bool yal_tls_inited; // set by accessing TLS from a 'constructor' aka .ini section function before main()
-#endif
 
 static ub1 mapshifts[24] = { // progressively increase region sizes the more we have
   0,0,0,0,
@@ -974,12 +975,14 @@ void __je_bootstrap_free(void Unused * p) { } // no metadata or length
 
 void * yal_alloc(size_t size,unsigned int tag)
 {
-  return ymalloc(size,tag + (Fcount << 16));
+  void *p = ymalloc(size,tag + (Fcount << 16));
+  return p;
 }
 
 void * yal_calloc(size_t size,unsigned int tag)
 {
-  return yalloc(size,size,Lcalloc,tag + (Fcount << 16));
+  void *p = yalloc(size,Lcalloc,tag + (Fcount << 16));
+  return p;
 }
 
 void yal_free(void *p,unsigned int tag)
@@ -989,12 +992,14 @@ void yal_free(void *p,unsigned int tag)
 
 void * yal_realloc(void *p,size_t oldsize,size_t newsize,unsigned int tag)
 {
-  return yrealloc(p,oldsize,newsize,tag + (Fcount << 16));
+  void *q = yrealloc(p,oldsize,newsize,tag + (Fcount << 16));
+  return q;
 }
 
-void *yal_aligned_alloc(size_t align, size_t len,ub4 tag)
+void *yal_aligned_alloc(size_t align, size_t size,ub4 tag)
 {
-  return yalloc_align(align,len,tag + (Fcount << 16));
+  void *p = yalloc_align(align,size,tag + (Fcount << 16));
+  return p;
 }
 
 size_t yal_getsize(void *p,unsigned int tag)
@@ -1011,7 +1016,7 @@ ub4 yal_options(enum Yal_options opt,size_t arg1,size_t arg2)
     case Yal_diag_enable: return diag_enable(arg1,(ub4)arg2);
     case Yal_stats_enable: return init_stats(a1);
 
-    case Yal_trace_enable: return trace_enable(a1);
+    case Yal_trace_enable: return trace_enable(a1 | 16);
     case Yal_trace_name:
        if (arg2 <= Pagesize || arg2 >= Vmsize) { do_ylog(Yal_diag_ill,Lnone,Yfln,Warn,0,"unknown option '%d'",opt); return __LINE__; }
        return trace_name(a1,(char *)arg2);

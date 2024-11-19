@@ -33,15 +33,18 @@ static const int Error_fd = 2;
 
 #include "yalloc.h"
 
-enum Loglvl { Fatal,Assert,Error,Warn,Info,Trace,Verb,Debug,Nolvl };
-static cchar * const lvlnames[Nolvl + 1] = { "Fatal","Assert","Error","Warn","Info","Trace","Verb","Debug"," " };
+enum Loglvl { Fatal,Assert,Error,Warn,Info,Vrb,Debug,Nolvl };
+static cchar * const lvlnames[Nolvl + 1] = { "Fatal","Assert","Error","Warn","Info","Verb","Debug"," " };
+static enum Loglvl loglvl = Info;
 
 static ub4 dolog(ub4 fln,enum Loglvl lvl,cchar *fmt,va_list ap)
 {
   char buf[1024];
   ub4 pos = 0,len = 1022;
 
-  if (lvl < Info) pos = snprintf_mini(buf,0,len,"configure.c:%u %s - ",fln,lvlnames[lvl]);
+  if (lvl > loglvl) return 0;
+
+  if (lvl < Info || loglvl > Info) pos = snprintf_mini(buf,0,len,"configure.c:%-3u %c - ",fln,*lvlnames[lvl]);
   pos += mini_vsnprintf(buf,pos,len,fmt,ap);
   buf[pos++] = '\n';
   oswrite(Error_fd,buf,pos,fln);
@@ -87,6 +90,17 @@ static Printf(2,3) ub4 info(ub4 fln,cchar *fmt,...)
 
   va_start(ap,fmt);
   pos = dolog(fln,Info,fmt,ap);
+  va_end(ap);
+  return pos;
+}
+
+static Printf(2,3) ub4 verb(ub4 fln,cchar *fmt,...)
+{
+  va_list ap;
+  ub4 pos;
+
+  va_start(ap,fmt);
+  pos = dolog(fln,Vrb,fmt,ap);
   va_end(ap);
   return pos;
 }
@@ -173,6 +187,7 @@ static ub4 genclasses(char *buf,ub4 pos,ub4 blen)
   ub4 len,ord,cord,alen,clen,clasal;
   ub4 clas,hiclas = 0,basclas = 0;
   ub4 grain = class_grain;
+  ub4 grain1 = class_grain1;
   char comma;
   static ub4 clas2len[Clascnt];
 
@@ -215,17 +230,17 @@ static ub4 genclasses(char *buf,ub4 pos,ub4 blen)
       clasal = 1u << cord;
       alen = doalign4(len,clasal);
       clen = (alen >> cord) & grain;
-      if (clen == 0) clas = ord + basclas - 6; // if clen == 0, we can use clas = ctz(len) as below
-      else clas = Maxclass + ord * grain + clen + 4; // VMbits - 6 + ...  ?
+      if (clen == 0) clen = 4;
+      clas = ord * (grain + 1) + clen + basclas - 7 * grain1;
+      verb(L,"clas %2u for len %5u ord %u.%u alen %u clen %x",clas,len,ord,cord,alen,clen);
       if (clas2len[clas] == 0) clas2len[clas] = alen;
       else if (alen != clas2len[clas]) fatal(L,"class %u len %u vs %u",clas,alen,clas2len[clas]);
-      // info(L,"clas %2u for len %5x ord %u.%u alen %x clen %x",clas,len,ord,cord,alen,clen);
     } else { // pwr2
       ord = ctz(len);
-      clas = ord + basclas - 6; // smal uses 8 and covers 6
+      clas = (ord + 1) * grain1 + basclas - 7 * grain1; // smal uses 8 and covers 6 * (grain + 1)
       if (clas2len[clas] == 0) clas2len[clas] = len;
       else if (len != clas2len[clas]) fatal(L,"class %u len %u vs %u",clas,len,clas2len[clas]);
-      // info(L,"clas %2u for len %5u ord %u",clas,len,ord);
+      verb(L,"clas %2u for len %5u ord %u",clas,len,ord);
     }
     hiclas = max(clas,hiclas);
 
@@ -267,8 +282,9 @@ static ub4 genconfig(cchar *name,ub4 pagebits,char *nowtim)
   info(L,"  int %u long %u llong %u ptr %u",intsiz,longsiz,llongsiz,ptrsiz);
 
   pos = snprintf_mini(bck,0,len,"%s.bak",name);
-  if (pos) rename(name,bck);
-
+  if (pos) {
+    if (rename(name,bck)) warning(L,"cannot rename %s to %s: %m",name,bck);
+  }
   if (sizeof(int) == 8) byte8 = "int";
   else if (sizeof(long) == 8) byte8 = "long";
   else if (sizeof(long long) == 8) byte8 = "long long";
@@ -362,10 +378,17 @@ int main(int argc,char *argv[])
   if (argc > 1) {
     arg = argv[1];
     if (arg[0] == '-') {
-      if ((c = arg[1]) == 'h' || c == '?') return usage();
-      if (strcmp(arg + 1,"-help") == 0) return usage();
+      c  = arg[1];
+      switch (c) {
+      case  'h': case '?': return usage();
+      case 'v': if (loglvl < Nolvl) loglvl++; break;
+      case '-':
+        if (strcmp(arg + 1,"help") == 0) return usage();
+        break;
+      }
     }
   }
+
   info(0,"  generating config for yalloc %s",yal_version);
   now = time(NULL);
   nowtm = gmtime(&now);

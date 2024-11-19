@@ -27,7 +27,6 @@ struct ptrinfo {
 static Hot size_t Nonnull(1,4) size_heap(heapdesc *hd,heap *hb,size_t ip,struct ptrinfo *pi,enum Loc loc,ub4 fln,ub4 tag)
 {
   size_t ulen,alen,rlen;
-  ub4 ulen4;
   region *creg;
   mpregion *mpreg;
   bregion *mhb;
@@ -114,13 +113,10 @@ static Hot size_t Nonnull(1,4) size_heap(heapdesc *hd,heap *hb,size_t ip,struct 
       error(loc,"ptr %zx is not allocated: %u",ip,set)
       return Nolen;
     }
-    ulen4 = cellen <= Cel_nolen ? cellen : slab_getlen(creg,cel,cellen);
-    ycheck(Nolen,loc,ulen4 == 0,"region %u cel %u ulen 0 for %u",creg->id,cel,cellen)
-    ycheck(Nolen,loc,ulen4 > cellen,"region %u cel %u ulen %u above %u",creg->id,cel,ulen4,cellen)
-    ytrace(0,hd,loc,tag,0,"size(%zx) len %u for %u",ip,cellen,ulen4)
+    ytrace(0,hd,loc,tag,0,"size(%zx) len %u",ip,cellen)
     pi->reg = reg;
     pi->cel = cel;
-    pi->len = ulen4;
+    pi->len = 0;
     return cellen;
   }
 
@@ -160,7 +156,7 @@ static Hot size_t Nonnull(1,4) size_heap(heapdesc *hd,heap *hb,size_t ip,struct 
 }
 
 // lock heap if present. nil ptr handled
-static Hot Nonnull(1,2,3) size_t ysize_heap(heapdesc *hd,void *p,struct ptrinfo *pi,enum Loc loc,ub4 tag)
+static Nonnull(1,2,3) size_t ysize_heap(heapdesc *hd,void *p,struct ptrinfo *pi,enum Loc loc,ub4 tag)
 {
   size_t ip = (size_t)p;
   size_t retlen;
@@ -234,7 +230,7 @@ static size_t ysize(void *p,ub4 tag)
   }
   ypush(hd,Lsize | Lapi,Fln)
 
-  pi.len = 0;
+  pi.len = 0; // net len only requested when needed
   pi.local = 0;
   len = ysize_heap(hd,p,&pi,Lsize,tag);
 

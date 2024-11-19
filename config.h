@@ -15,9 +15,9 @@
   static int Yal_stats_fd = -1; // stats
 
   // thread id appended
-  static const char *Yal_log_file[] =  { "yal-log-heap",".log" };
-  static const char *Yal_err_file[] =  { "yal-err-heap",".log" };
-  static const char *Yal_stats_file[] =  { "yal-stats-heap",".log" };
+  static const char *Yal_log_file[] = { "yal-log-heap",".log" };
+  static const char *Yal_err_file[] = { "yal-err-heap",".log" };
+  static const char *Yal_stats_file[] = { "yal-stats-heap",".log" };
 
   #define Yal_log_utf8 1 // allow unicode in logs in utf-8
 
@@ -122,7 +122,7 @@ static const unsigned int Region_alloc = 32; // allow #alloc releases per interv
 static const unsigned long Mmap_retainlimit = 1ul << 30; // directly release memory
 
 // --- slab ---
-#define Cel_nolen 64 // Do not store user aka net length per cell below this block len
+#define Cel_nolen 1023 // Store user aka net length per cell above this len
 
 #define Rbinbuf 64 // Initial remote freelist
 #define Buffer_flush 256 // Item threshold to flush remote freelist

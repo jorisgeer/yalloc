@@ -79,9 +79,8 @@ static region *newslab(heap *hb,ub4 cellen,ub4 clas,ub4 claseq)
 
   binlen = doalign8(acnt,L1line / 4);
   lenorg = binorg + binlen;
-  if (cellen <= Cel_nolen) lenlen = 0;
-  else if (cellen <= Hi16) lenlen = acnt / 2;
-  else lenlen = acnt;
+  if (cellen > Cel_nolen) lenlen = acnt;
+  else lenlen = 0;
 
   tagorg = lenorg + lenlen;
   taglen = Yal_enable_tag ? acnt : 0;
@@ -265,20 +264,16 @@ static Hot bool slab_markused(region *reg,ub4 cel,celset_t from,ub4 fln)
   return 1;
 }
 
-static ub4 slab_getlen(region *reg,ub4 cel,ub4 cellen)
+// return user aka net len
+static Hot ub4 slab_getlen(region *reg,ub4 cel,ub4 cellen)
 {
   ub4 *meta = reg->meta;
-  size_t lenorg = reg->lenorg;
-  ub4 *len4;
-  ub2 *len2;
+  ub4 ulen;
+  ub4 *lens = meta + reg->lenorg;
 
-  if (cellen <= Hi16) {
-    len2 = (ub2 *)(meta + lenorg);
-    return len2[cel];
-  } else {
-    len4 = (ub4 *)(meta + lenorg);
-    return len4[cel];
-  }
+  ulen = lens[cel];
+  ycheck(0,Lnone,ulen > cellen,"cel %u ulen %u above %u",cel,ulen,cellen)
+  return ulen;
 }
 
 // get checked cel from ptr. Can be called from remote.
@@ -304,7 +299,7 @@ static Hot ub4 slab_cel(region *reg,size_t ip,ub4 cellen,ub4 celcnt,enum Loc loc
   }
 
   if (unlikely( (size_t)cel * cellen != ofs8)) { // possible user error: inside block
-    ub4 ulen = cellen <= Cel_nolen ? cellen : slab_getlen(reg,cel,cellen);
+    ub4 ulen = cellen > Cel_nolen ? slab_getlen(reg,cel,cellen) : cellen;
     if (cel * cellen < ofs8) {
       errorctx(Fln,loc,"ofs8 %zx vs %zx in %zu`/%zu`",ofs8,(size_t)cel * cellen,reg->len,reg->metalen)
       error2(loc,Fln,"ptr %zx of size %u/%u is %zu` b inside block %u/%u` region %.01llu %u",ip,cellen,ulen,(ip - base)  - (size_t)cel * cellen,cel,celcnt,reg->uid,ord)
@@ -347,7 +342,7 @@ static ub4 slab_remalloc(region *reg)
   meta = reg->meta;
 
   bin = meta + reg->binorg;
-  pos  = reg->binpos;
+  pos = reg->binpos;
   celcnt = reg->celcnt;
 
   ycheck(Nocel,Lalloc,pos + rpos > celcnt,"bin pos %u + %u above %u",pos,rpos,celcnt)
@@ -796,14 +791,12 @@ static Hot size_t slab_newalcel(region *reg,ub4 ulen,ub4 align,ub4 cellen Tagarg
 {
   size_t ip,base;
   ub4 c,cel,celcnt,ofs;
-  size_t lenorg;
   ub4 inipos = reg->inipos;
   ub4 binpos = reg->binpos;
   ub4 *meta;
   ub4 *binp;
   bool rv;
   ub4 *len4;
-  ub2 *len2;
 
   meta = reg->meta;
   base = reg->user;
@@ -855,16 +848,10 @@ static Hot size_t slab_newalcel(region *reg,ub4 ulen,ub4 align,ub4 cellen Tagarg
   tags[cel] = tag;
 #endif
 
-  if (cellen <= Cel_nolen) return ip; // todo merge
+  if (cellen <= Cel_nolen) return ip;
 
-  lenorg = reg->lenorg;
-  if (cellen <= Hi16) {
-    len2 = (ub2 *)(meta + lenorg);
-    len2[cel] = (ub2)ulen;
-  } else {
-    len4 = meta + lenorg;
-    len4[cel] = ulen;
-  }
+  len4 = meta + reg->lenorg;
+  len4[cel] = ulen;
 
   return ip;
 }
@@ -954,9 +941,7 @@ static Hot void *slab_alloc( Unused heapdesc *hd,region *reg,ub4 ulen,ub4 align,
   ub4 cel,cellen;
   ub4 inipos;
   ub4 *meta;
-  size_t lenorg;
   ub4 *len4;
-  ub2 *len2;
   size_t ip;
   void *p;
 
@@ -1003,14 +988,9 @@ static Hot void *slab_alloc( Unused heapdesc *hd,region *reg,ub4 ulen,ub4 align,
 
   if (cellen > Cel_nolen) {
     meta = reg->meta;
-    lenorg = reg->lenorg;
-    if (cellen <= Hi16) {
-      len2 = (ub2 *)(meta + lenorg);
-      len2[cel] = (ub2)cellen;
-    } else {
-      len4 = meta + lenorg;
-      len4[cel] = cellen;
-    }
+
+    len4 = meta + reg->lenorg;
+    len4[cel] = ulen;
   }
 
   ip = reg->user + (size_t)cel * cellen;
@@ -1065,9 +1045,7 @@ static Hot void *slab_malloc(region *reg,ub4 ulen,ub4 tag)
 {
   ub4 cel,cellen = reg->cellen;
   ub4 *meta;
-  size_t lenorg;
   ub4 *len4;
-  ub2 *len2;
   size_t ip;
   void *p;
 
@@ -1095,14 +1073,9 @@ static Hot void *slab_malloc(region *reg,ub4 ulen,ub4 tag)
 
   if (cellen > Cel_nolen) {
     meta = reg->meta;
-    lenorg = reg->lenorg;
-    if (cellen <= Hi16) {
-      len2 = (ub2 *)(meta + lenorg);
-      len2[cel] = (ub2)cellen;
-    } else {
-      len4 = meta + lenorg;
-      len4[cel] = cellen;
-    }
+
+    len4 = meta + reg->lenorg;
+    len4[cel] = ulen;
   }
 
   ip = reg->user + (size_t)cel * cellen;
@@ -1115,21 +1088,15 @@ static Hot void *slab_malloc(region *reg,ub4 ulen,ub4 tag)
 static bool slab_setlen(region *reg,ub4 cel,ub4 len)
 {
   ub4 cellen = reg->cellen;
-  size_t lenorg = reg->lenorg;
   ub4 *meta = reg->meta;
   ub4 *len4;
-  ub2 *len2;
 
   ycheck(1,Lnone,len == 0,"ulen %u",len)
   ycheck(1,Lnone,len > cellen,"ulen %u above %u",len,cellen)
 
-  if (reg->cellen <= Hi16) {
-    len2 = (ub2 *)(meta + lenorg);
-    len2[cel] = (ub2)len;
-  } else {
-    len4 = (ub4 *)(meta + lenorg);
-    len4[cel] = len;
-  }
+  len4 = meta + reg->lenorg;
+  len4[cel] = len;
+
   return 0;
 }
 

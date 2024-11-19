@@ -63,6 +63,7 @@ static unsigned long mypid;
  #define malloc(len) yal_alloc( (len), L) // -V1059 PVS override-reserved
  #define free(p) yal_free( (p), L) // -V1059
  #define realloc(p,len) yal_realloc( (p),(size_t)-1,(len), L) // -V1059
+ #define aligned_alloc(a,len) yal_aligned_alloc( (a), (len), L) // -V1059
 #endif
 
 #include "atom.h"
@@ -232,6 +233,31 @@ static int slabs(cchar *cmd,size_t from,size_t to,size_t cnt,size_t iter)
     } // cnt
    } // len
   } // iter
+  return 0;
+}
+
+static int class(cchar *cmd,size_t from,size_t to,size_t cnt,ub4 grain)
+{
+  size_t len,alen,c;
+  void *p = nil;
+  bool quit = haschr(cmd,'!');
+
+  if (to == 0) to = from + 1;
+  if (cnt == 0) cnt = 1;
+
+  alen = 0;
+  for (len = from; len < to;  len += max(len >> grain,1)) alen += 2 * len + len / 4;
+
+  info(L,"malloc(%zu` .. %zu`) * %zu sum %zu`",from,to,cnt,alen * cnt);
+  for (len = from; len < to; len += max(len >> grain,1)) {
+   for (c = 0; c < cnt; c++) {
+    p = malloc(len);
+    if (quit && p == nil) return L;
+    alen = malloc_usable_size(p);
+    if (alen < len) return L;
+    else if (len >= 16 && alen >= len * 4) return error(L,"block %zx len %zu has allocated %zu",(size_t)p,len,alen);
+  } // cnt
+ } // len
   return 0;
 }
 
@@ -843,18 +869,48 @@ static int tstreal(size_t from,size_t to,size_t iter)
   return 0;
 }
 
+// realloc 2
+static int tstreal2(cchar *cmd,size_t from,size_t to,size_t step)
+{
+  size_t nlen,n,len = from;
+  void *p = nil,*np;
+  bool check = cmd[1] != '-';
+
+  info(L,"realloc(%zu` .. %zu`) step %zu",from,to,step);
+
+  while (len < to) {
+    if (p && check) memset(p,0x55,len);
+    nlen = len + step;
+    np = realloc(p,nlen);
+    if (np == nil) return L;
+    n = malloc_usable_size(np);
+    if (n < nlen) { info(L,"len %zu vs %zu",n,nlen); return L; }
+
+    if (check && p && chkcel((ub1 *)np,len,0x55,0x55,0x55)) {
+      info(L,"len %zu nlen %zu np %zx",len,nlen,(size_t)np);
+      return L;
+    }
+    p = np;
+    len = nlen;
+  }
+  free(p);
+  return 0;
+}
+
 static int do_test(cchar *cmd,size_t arg1,size_t arg2,size_t arg3,size_t arg4)
 {
   int rv = L;
   ub4 tstcnt = 0;
 
   if (haschr(cmd,'s')) { tstcnt++; rv = slabs(cmd,arg1,arg2,arg3,arg4); if (rv) return rv; }
+  if (haschr(cmd,'c')) { tstcnt++; rv = class(cmd,arg1,arg2,arg3,(ub4)arg4); if (rv) return rv; }
   if (haschr(cmd,'A')) { tstcnt++; rv = testalign(cmd,arg1,arg2,arg3); if (rv) return rv; }
 //  if (haschr(cmd,'b')) { rv = blocks(arg1,arg2); if (rv) return rv; }
   if (haschr(cmd,'a')) { tstcnt++; rv = allfre(cmd,arg1,arg2,arg3,arg4); if (rv) return rv; }
   if (haschr(cmd,'2')) { tstcnt++; rv = fre2(arg1,arg2,arg3); if (rv) return rv; }
   if (haschr(cmd,'r')) { tstcnt++; rv = tstrand(arg1,arg2,arg3,arg4); if (rv) return rv; }
   if (haschr(cmd,'R')) { tstcnt++; rv = tstreal(arg1,arg2,arg3); if (rv) return rv; }
+  if (haschr(cmd,'B')) { tstcnt++; rv = tstreal2(cmd,arg1,arg2,arg3); if (rv) return rv; }
 
   if (tstcnt == 0) return L;
 

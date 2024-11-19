@@ -23,7 +23,7 @@ struct yal_stats {
 
   // conditional stats - summable
   size_t allocs,Allocs,callocs,alloc0s,slaballocs,slabAllocs,mapallocs,mapAllocs;
-  size_t reallocles,reallocgts,mreallocles,mreallocgts;
+  size_t reallocles,reallocgts,Reallocles,mreallocles,mreallocgts;
   size_t miniallocs,bumpallocs;
   size_t frees,free0s,freenils,slabfrees,mapfrees,slabxfrees,xslabfrees,mapxfrees,xmapfrees,minifrees,bumpfrees;
   size_t sizes;

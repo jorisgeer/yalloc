@@ -55,7 +55,7 @@ static const char yal_version[] = "0.8.2-alpha.0";
 
 #endif // gcc or clang
 
-#ifdef __musl__libc__ // support integration into musl libc
+#ifdef __musl_libc__ // support integration into musl libc
   #define malloc __libc_malloc_impl
   #define calloc __libc_calloc
   #define realloc __libc_realloc
@@ -121,9 +121,10 @@ static bool chkalign(void *p,size_t len,ub4 std) {
 #endif
 
 // derived config shared with configure
-#define Maxclass (Mmap_max_threshold + 3)
-#define Clascnt (Maxclass * 4)
+#define Max2class (Mmap_max_threshold + 3)
+#define Clascnt (Max2class * 4)
 static const ub4 class_grain = 3;
+static const ub4 class_grain1 = class_grain + 1;
 
 #define Hi20 0xfffffu
 #define Hi24 0xffffffU

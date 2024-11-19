@@ -37,8 +37,6 @@ static ub4 slabstats(region *reg,yalstats *sp,char *buf,ub4 pos,ub4 len,bool pri
   size_t binallocs = rp->binallocs;
   size_t iniallocs = rp->iniallocs;
   size_t xallocs = rp->xallocs;
-  size_t reallocles = rp->reallocles;
-  size_t reallocgts = rp->reallocgts;
   size_t frees = rp->frees;
   size_t rfrees = rp->rfrees;
 
@@ -52,8 +50,6 @@ static ub4 slabstats(region *reg,yalstats *sp,char *buf,ub4 pos,ub4 len,bool pri
   sp->slaballocs += allocs;
   sp->slabAllocs += Allocs;
   sp->callocs += callocs;
-  sp->reallocles += reallocles;
-  sp->reallocgts += reallocgts;
   sp->slabxfrees += rfrees;
   sp->slabfrees += frees;
 
@@ -93,8 +89,8 @@ static ub4 slabstats(region *reg,yalstats *sp,char *buf,ub4 pos,ub4 len,bool pri
   if ( (cnt & 0x1f) == 0) {
 
     hdpos = snprintf_mini(albuf,0,255,
-      "\n  %-5s %-3s %-4s %-7s %-7s %-7s %-7s %-23s %-7s %-7s %-7s %-7s %-7s",
-      "id","seq","gen","len","cellen","alloc ","calloc","","free","rfree","Alloc","realloc","Realloc");
+      "\n  %-5s %-3s %-4s %-7s %-7s %-7s %-7s %-23s %-7s %-7s %-7s",
+      "id","seq","gen","len","cellen","alloc ","calloc","","free","rfree","Alloc");
      if (dostate) hdpos += snprintf_mini(albuf,hdpos,255," %-7s %-7s %-7s %-7s %-4s","cnt","free","ini","bin","rbin");
      albuf[hdpos++] = '\n';
      pos += underline(buf + pos,len - pos,albuf,hdpos);
@@ -102,7 +98,7 @@ static ub4 slabstats(region *reg,yalstats *sp,char *buf,ub4 pos,ub4 len,bool pri
   snprintf_mini(albuf,0,256,"%-7zu` %-7zu` %-7zu`",iniallocs,binallocs,xallocs);
 
   pos += snprintf_mini(buf,pos,len,"%c %-5u %-3u %-4u %-7zu` %-7u` %-7zu` %-7zu` %-23s %-7zu` %-7zu`",status,rid,claseq,reg->gen,rlen,reg->cellen,allocs,callocs,albuf,frees,rfrees);
-  if (dostate || (Allocs | reallocles | reallocgts)) pos += snprintf_mini(buf,pos,len," %-7zu` %-7zu` %-7zu`",Allocs,reallocles,reallocgts);
+  pos += snprintf_mini(buf,pos,len," %-7zu`",Allocs);
   if (dostate) {
     pos += snprintf_mini(buf,pos,len," %-7u %-7u %-7u %-7u %-7u",celcnt,frecnt,inipos,bincnt,rbincnt);
   }
@@ -178,7 +174,7 @@ static void Cold mmapstats(int fd,heap *hb,bool print)
   char buf[4096];
 
   reg = hb->mpreglst;
-  if (reg == nil || hb->stat.newmpregions == 0) return;
+  if (reg == nil || sp->newmpregions + sp->usempregions== 0) return;
 
   if (print) pos += snprintf_mini(buf,pos,blen,"\n  - yalloc mmap region stats for heap %u -\n",hb->id);
 
@@ -297,8 +293,8 @@ static Cold size_t yal_mstats_heap(int fd,heap *hb,yalstats *ret,bool print,ub4 
   size_t errs;
   ub4 hid = 0;
   ub4 pos = 0,tpos;
-  ub4 len = 1022;
-  char buf[1024];
+  ub4 len = 2046;
+  char buf[2048];
   ub4 tlen = 510;
   char tbuf[512];
   ub4 issum = opts & 0x80;
@@ -341,7 +337,7 @@ static Cold size_t yal_mstats_heap(int fd,heap *hb,yalstats *ret,bool print,ub4 
   }
 
   if (issum == 0) {
-    // sp->callocs = sp->reallocles = sp->reallocgts = 0;
+    // sp->callocs = 0;
     // sp->slaballocs = sp->slabxfrees = 0;
 
     sp->minlen = Hi32;
@@ -369,6 +365,7 @@ static Cold size_t yal_mstats_heap(int fd,heap *hb,yalstats *ret,bool print,ub4 
   size_t alloc0s = sp->alloc0s;
   size_t reallocles = sp->reallocles;
   size_t reallocgts = sp->reallocgts;
+  size_t Reallocles = sp->Reallocles;
   size_t slabfrees = sp->slabfrees;
   size_t free0s = sp->free0s;
   size_t freenils = sp->freenils;
@@ -412,7 +409,8 @@ static Cold size_t yal_mstats_heap(int fd,heap *hb,yalstats *ret,bool print,ub4 
 #if Yal_enable_stats
     if (newregs) {
 
-      tpos = table(tbuf,0,tlen,7,8,"alloc",slaballocs,"alloc0",alloc0s,"calloc",callocs,"free",slabfrees,"free0",free0s,"freenil",freenils,"rfree",slabxfrees,"realloc",reallocles,"Realloc",reallocgts,"Alloc",slabAllocs,"size",sp->sizes,nil);
+      tpos = table(tbuf,0,tlen,7,8,"alloc",slaballocs,"alloc0",alloc0s,"calloc",callocs,"free",slabfrees,"free0",free0s,"freenil",freenils,"rfree",slabxfrees,
+        "realloc",reallocles,"<",Reallocles,"Realloc",reallocgts,"Alloc",slabAllocs,"size",sp->sizes,nil);
       pos += snprintf_mini(buf,pos,len,"\n-- slab summary --\n  counts  %.*s\n",tpos,tbuf);
 
       tpos = table(tbuf,0,tlen,7,8,"new",sp->newregions,"reuse",sp->useregions,"del",sp->delregions,"inuse",
@@ -485,6 +483,7 @@ static void sumup(yalstats *sum,yalstats *one)
   sum->callocs += one->callocs;
   sum->bumpallocs += one->bumpallocs;
   sum->reallocles += one->reallocles;
+  sum->Reallocles += one->Reallocles;
   sum->reallocgts += one->reallocgts;
   sum->frees += one->frees;
   sum->free0s += one->free0s;
@@ -705,7 +704,10 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
 
   if (print) {
       pos = diagfln(buf,0,len,Fln);
-      pos += snprintf_mini(buf,pos,len,"\n%s\n--- yalloc %s stats totals over %u %s` and %u %s` in %u %s` --- %s tag %.01u\n",global_cmdline,yal_version,heapcnt,"heap",mheapcnt,"miniheap",tidcnt,"thread",desc,tag);
+      pos += snprintf_mini(buf,pos,len,"\n%s\n--- yalloc %s stats totals over %u %s` ",global_cmdline,yal_version,heapcnt,"heap");
+      if (mheapcnt) pos += snprintf_mini(buf,pos,len,"and %u %s` ",mheapcnt,"miniheap");
+      pos += snprintf_mini(buf,pos,len," in %u %s` --- %s tag %.01u\n",tidcnt,"thread",desc,tag);
+      oswrite(fd,buf,pos,Fln); pos = 0;
   }
   yal_mstats_heap(fd,nil,&sum,print != 0,opts | 0x80,tag,desc,Fln); // totals
 
