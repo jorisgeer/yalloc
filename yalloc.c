@@ -268,7 +268,7 @@ static Cold ub4 diagfln(char *buf,ub4 pos,ub4 len,ub4 fln)
     fnam = trcnames[fn - Fcount];
     pfx = "";
   }
-  if (fnam) snprintf_mini(fbuf,0,64,"%s%.8s:%-4u",pfx,fnam,ln);
+  if (fnam) snprintf_mini(fbuf,0,64,"%s%.9s:%-4u",pfx,fnam,ln);
   else snprintf_mini(fbuf,0,64,"%s(%u):%-4u",pfx,fn,ln);
   pos += snprintf_mini(buf,pos,len,"%18s ",fbuf);
   return pos;
@@ -480,7 +480,7 @@ struct Align(16) st_region { // slab region. allocated as pool from heap
 
   // remote bin
   ub4 * _Atomic rembin; // allocated on demand by sender from sender's heapmem
-  _Atomic ub4 remref;
+  _Atomic ub4 remref; // todo
 
   ub4 rbinpos;
   ub4 rbinlen,rbininc;
@@ -505,12 +505,12 @@ struct remote {
   ub8 uid;
   ub4 *bin;
   ub4 pos,cnt,inc;
-  ub4 nocas;
   ub4 celcnt;
 };
 
 struct rembuf {
   struct remote *rem;
+  size_t nocas;
   Ub8 clas[Clascnt / 64 + 1];
   Ub8 seq[Clascnt];
 };
@@ -564,6 +564,7 @@ struct Align(16) st_heap {
 
   // remote free (slab)
   struct rembuf *rembufs[Remhid];
+  struct st_heap *remhbs[Remhid];
   Ub8 remask;
 
   ub4 *rbinmem;  // mempool for rembins

@@ -147,11 +147,6 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 tick)
     aged = reg->aged;
     if (likely(age == 0 || aged == 3)) { reg = nxreg; continue; } // not empty or already aged
 
-    from = 0; didcas = Cas(reg->lock,from,1);
-    if (didcas == 0) { reg = nxreg; continue; }
-    vg_drd_wlock_acq(reg)
-    reg->fln = Fln;
-
     uid = reg->uid;
     rid = reg->id;
 
@@ -164,9 +159,6 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 tick)
         hb->stat.trimregions[0]++;
         reg->age = 2; // next time ageing starts
       }
-      reg->fln = Fln;
-      Atomset(reg->lock,0,Morel);
-      vg_drd_wlock_rel(reg)
       reg = nxreg;
       continue;
     }
@@ -231,9 +223,6 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 tick)
     if (sp->curnoregions > Region_alloc) lim = 1024; // reduce trim if too much redo happens
     if (age >= lim && aged == 2) { // trim : delete user and meta
       if (sp->noregions > Region_alloc) { // avoid too frequent trim-alloc cycles
-        Atomset(reg->lock,0,Morel);
-        vg_drd_wlock_rel(reg)
-        reg->fln = Fln;
         break;
       }
       ydbg2(Fln,Lfree,"trim slab region %.01llu gen %u.%u.%u len %zu",uid,reg->gen,hid,rid,reg->len);
@@ -270,9 +259,6 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 tick)
       reg->aged = 3;
     }
 
-    Atomset(reg->lock,0,Morel);
-    vg_drd_wlock_rel(reg)
-    reg->fln = Fln;
     reg = nxreg;
   } // each reg
 
@@ -430,9 +416,8 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,enum Loc
   Ub8 clasmsk;
   char buf[256];
   enum Status rv;
-  ub4 xpct;
   ub4 from;
-  bool didcas,reglocked,local;
+  bool didcas,local;
 
   // common: regular local heap
   if (likely(hb != nil)) {
@@ -502,12 +487,19 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,enum Loc
         vg_drd_wlock_acq(xhb)
         local = 1;
         if (hb) {
+          ycheck(Nolen,loc,hb == xhb,"hb %u equal for reg %u",hb->id,reg->id)
           Atomset(hb->lock,0,Morel); // release orig
           vg_drd_wlock_rel(hb)
         }
         hd->hb = hb = xhb;
         hd->locked = 1;
-      }
+      } else if (hb == nil && reg->typ == Rslab) { // need to buffer
+        hb = heap_new(hd,loc,Fln);
+        if (hb == nil) return Nolen;
+        hd->hb = hb;
+        hd->locked = 1;
+        if (hb == reg->hb) local = 1;
+      } // lock owner or new
     }
   } else {
     local = 1; // nil hb or reg not locked
@@ -515,14 +507,14 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,enum Loc
 
   typ = reg->typ;
   if (likely(reg->typ == Rslab)) {
+    ycheck(Nolen,loc,hb == nil,"nil hb for reg %u",reg->id)
     creg = (region *)reg;
     vg_mem_def(creg,sizeof(region))
     vg_mem_def(creg->meta,creg->metalen)
     ycheck(Nolen,loc,reg->hb == nil,"region %zx has no hb",(size_t)reg)
     cellen = creg->cellen;
     celcnt = creg->celcnt;
-    if (likely(local)) {
-      ycheck(Nolen,loc,hb == nil,"nil hb for reg %u",reg->id)
+    if (likely(local != 0)) {
       ycheck(Nolen,loc,hb != reg->hb,"hb %u vs %u for reg %u",hb->id,reg->hb->id,reg->id)
       ytrace(1,hd,loc,tag,creg->stat.frees,"ptr+%zx len %u",ip,cellen)
 
@@ -544,19 +536,10 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,enum Loc
       vg_mem_noaccess(creg->meta,creg->metalen)
       vg_mem_noaccess(creg,sizeof(region))
       return cellen;
-    } // remote
+    } // local or not
 
-    xpct = 0; reglocked = Cas(reg->lock,xpct,1);
-
-    if (unlikely(reglocked == 0)) { // buffer, needs heap
-      if (hb == nil) {
-        hb = heap_new(hd,loc,Fln);
-        if (hb == nil) return Nolen;
-        hd->hb = hb;
-        hd->locked = 1;
-      }
       ytrace(1,hd,loc,tag,creg->stat.frees,"ptr+%zx len %u",ip,cellen)
-      len4 = slab_free_rheap(hd,hb,creg,ip,tag,loc);
+      len4 = slab_free_rheap(hd,hb,creg,ip,tag,loc); // buffer
       if (likely(len4 != 0)) return len4;
 
       hd->stat.invalid_frees++;
@@ -564,27 +547,6 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,enum Loc
       if (xreg) errorctx(fln,loc,"%s region %u.%u %s",regname(xreg),xreg->hid,xreg->id,buf)
       error2(loc,Fln,"invalid free(%zx) tag %.01u",ip,tag)
       return Nolen;
-    } // reg not locked
-
-    xpct = Atomget(reg->lock,Moacq);
-    ycheck(1,loc,xpct != 1,"reg %u from %u %u",reg->id,xpct,reglocked)
-
-    vg_drd_wlock_acq(reg)
-
-    ytrace(1,hd,loc,tag,creg->stat.frees,"ptr+%zx len %u",ip,cellen)
-
-    len4 = slab_free_rreg(hd,hb,creg,ip,tag,loc);
-
-    Atomset(reg->lock,0,Morel);
-    vg_drd_wlock_rel(reg)
-    creg->fln = Fln;
-    if (likely(len4 != 0)) return len4;
-
-    hd->stat.invalid_frees++;
-    xreg = region_near(ip,buf,255);
-    if (xreg) errorctx(fln,loc,"%s region %u.%u %s",regname(xreg),xreg->hid,xreg->id,buf)
-    error2(loc,Fln,"invalid free(%zx) tag %.01u",ip,tag)
-    return Nolen;
   } // slab
 
   // mini or bump
@@ -606,8 +568,8 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,enum Loc
       hb->stat.munmaps++;
     }
     rv = free_mmap(hd,local ? hb : nil,mpreg,ip,reqlen,loc,Fln,tag);
+    ypush(hd,loc,Fln)
     if (rv == St_error) {
-      ypush(hd,loc,Fln)
       if (hb) hd->stat.invalid_frees++;
       return Nolen;
     }

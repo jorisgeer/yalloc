@@ -385,55 +385,6 @@ static ub4 slab_remalloc(region *reg)
   return cel;
 }
 
-// Add cel to remote bin. Already marked. Region locked
-static ub4 cel2rbin(heap *hb,region *reg,ub4 cel,ub4 celcnt,enum Loc loc)
-{
-  ub4 cnt,inc,pos,rpos = reg->rbinpos;
-  ub4 *bin,*bin2;
-
-  if (rpos == 0) Atomad(reg->remref,1,Moacqrel);
-
-  bin = Atomget(reg->rembin,Moacq);
-  if (unlikely(bin == nil)) {
-    ycheck(1,loc,rpos != 0,"reg %.01llu pos %unil rbin",reg->uid,rpos)
-    cnt = Rbinbuf;
-  } else {
-    cnt = doalign4(rpos + Rbinbuf,Rbinbuf );
-  }
-  if (unlikely(cnt > reg->rbinlen)) {
-    inc = reg->rbininc;
-    reg->rbininc = inc * 2;
-    cnt = max(cnt,inc);
-    cnt = doalign4(cnt + Rbinbuf,Rbinbuf );
-    if (cnt > 1u << 16) { ydbg2(Fln,loc,"rbin %u -> %u",reg->rbinlen,cnt) }
-    if (hb) bin2 = getrbinmem(hb,cnt);
-    else bin2 = bootalloc(Fln,0,Lrfree,cnt * 4);
-    if (bin2 == nil) return 1;
-    if (rpos && bin) memcpy(bin2,bin,rpos * 4);
-    bin = bin2;
-    Atomset(reg->rembin,bin,Morel);
-    reg->rbinlen = cnt;
-  }
-
-  pos = reg->binpos;
-
-  if (unlikely(pos + rpos >= celcnt)) { // overfull, should never occur
-    error(loc,"region %.01llu bin cel %u to remote pos %u + %u above %u",reg->uid,cel,pos,rpos,celcnt)
-    return 1;
-  }
-
-#if Yal_enable_check > 1
-  celset_t set = slab_chkfree(reg,cel);
-  if (set != 3) error(loc,"region %.01llu cel %u/%u is not free %u",reg->uid,cel,celcnt,set);
-#endif
-  ycheck(1,loc,cel >= celcnt,"bin pos %u cel %u above %u",rpos,cel,celcnt)
-  bin[rpos] = cel;
-
-  reg->rbinpos = rpos + 1;
-
-  return 0;
-}
-
 // Add cels to remote bin. Already marked. have hb
 static ub4 cels2rbin(heap *hb,ub4 *bin,region *reg,ub4 cnt,enum Loc loc)
 {
@@ -502,6 +453,7 @@ static ub4 cels2rbin(heap *hb,ub4 *bin,region *reg,ub4 cnt,enum Loc loc)
 // unbuffer remote frees. Returns cells left
 static size_t slab_unbuffer(heap *hb,enum Loc loc,ub4 frees)
 {
+  heap *xhb;
   struct rembuf *rb;
   struct remote *rem,*remp;
   ub4 cnt,pos;
@@ -512,7 +464,7 @@ static size_t slab_unbuffer(heap *hb,enum Loc loc,ub4 frees)
   size_t bufs = hs->xfreebuf;
   size_t batch = hs->xfreebatch;
   size_t left;
-  ub4 nocas = 0,noCas;
+  size_t nocas=0;
   ub4 urv;
   ub4 from;
   bool didcas;
@@ -527,9 +479,21 @@ static size_t slab_unbuffer(heap *hb,enum Loc loc,ub4 frees)
  do {
   hid = ctzl(hidmsk);
   ycheck(0,loc,hid >= Remhid,"hid %u",hid)
+
   rb = hb->rembufs[hid];
   ycheck(0,loc,rb == nil || rb->rem == nil,"hid %u nil rembuf for mask %lx",hid,hidmsk)
   rem = rb->rem;
+
+  xhb = hb->remhbs[hid];
+  ycheck(0,loc,xhb == nil,"hid %u nil heap",hid)
+  ycheck(0,loc,xhb == hb,"hid %u equals heap",hid)
+
+  from = 0; didcas = Cas(xhb->lock,from,1);
+  if (didcas) rb->nocas = 0;
+  else {
+    nocas = ++rb->nocas;
+    if (nocas > 100) { ydbg2(reg->fln,loc,"busy heap  %.u from %u no %zu",hid,hb->id,nocas) }
+  }
 
   clasmsks = 0;
   for (clasofs = 0; clasofs <= Clascnt / 64; clasofs++) {
@@ -559,29 +523,18 @@ static size_t slab_unbuffer(heap *hb,enum Loc loc,ub4 frees)
         ycheck1(0,loc,reg->uid != remp->uid,"reg %.01llu.%u vs %.01llu",reg->uid,reg->id,remp->uid)
         if (pos < 4 && effort == 0) continue;
 
-        from = 0; didcas = Cas(reg->lock,from,1);
         if (didcas) {
-          remp->nocas = 0;
-          vg_drd_wlock_acq(reg)
 
           urv = cels2rbin(hb,remp->bin,reg,pos,loc);
 
-          Atomset(reg->lock,0,Morel);
-          vg_drd_wlock_rel(reg)
-
-          if (urv) {
+          if (unlikely(urv)) {
             ydbg2(reg->fln,loc,"skip region %.01llu from %u gen %u cnt %-2u hid %u clas %u seq %u",reg->uid,hb->id,reg->gen,cnt,hid,clas,seq)
           }
 
         } else {
-          nocas++;
-          noCas = remp->nocas;
-          if (nocas > 100) { ydbg2(reg->fln,loc,"busy region %.01llu from %u cnt %-2u hid %u clas %u seq %u no %u",reg->uid,hb->id,cnt,hid,clas,seq,noCas) }
-          if (noCas < Private_drop_threshold) {
-            remp->nocas = noCas + 1;
+          if (nocas < Private_drop_threshold) {
             continue;
           } else {
-            remp->nocas = 0;
             hb->stat.xfreedropped += pos; // Private heap may be abandoned -> drop
           }
         } // cas or not
@@ -602,66 +555,21 @@ static size_t slab_unbuffer(heap *hb,enum Loc loc,ub4 frees)
     rb->clas[clasofs] = Clasmsk;
     clasmsks |= Clasmsk;
   } // each clasofs
+
+  if (didcas) Atomset(xhb->lock,0,Morel);
   hidmsk &= ~(1ul << hid);
   if (clasmsks == 0) Hidmsk &= ~(1ul << hid);
- } while (hidmsk); // each hid
-  hb->remask = Hidmsk;
 
+ } while (hidmsk); // each hid
+
+  hb->remask = Hidmsk;
   hs->xfreebatch = batch;
 
-  if (nocas > 256) { ydbg1(Fln,loc,"nocas %u buf %zu batch %zu",nocas,bufs,batch) }
-
-  if (left > 1ul << 16) { ydbg1(Fln,0,"left %zu from %zu nocas %u",bufs - batch,left,nocas) }
+  if (bufs - batch > 1ul << 16) { ydbg1(Fln,0,"left %zu from %zu nocas %zu",bufs - batch,left,nocas) }
   return bufs - batch;
 }
 
-// free from other thread. Returns cel len. Region locked. hb may be nil
-static ub4 slab_free_rreg(heapdesc *hd,heap *hb,region *reg,size_t ip,ub4 tag,enum Loc loc)
-{
-  ub4 cel,cellen,celcnt;
-  yalstats *hs;
-  bool rv;
-  ub4 from = Atomget(reg->lock,Moacq);
-
-  ycheck(1,loc,from != 1,"reg %u from %u",reg->id,from)
-
-  cellen = reg->cellen;
-  celcnt = reg->celcnt;
-
-  cel = slab_cel(reg,ip,cellen,celcnt,loc);
-  if (unlikely(cel == Nocel)) {
-    return 0;
-  }
-
-  // mark
-  rv = markfree(reg,cel,cellen,3,Fln,tag);
-  if (unlikely(rv != 0)) {
-    ypush(hd,loc,Fln)
-    return 0;
-  }
-
-  cel2rbin(hb,reg,cel,celcnt,loc);
-
-  if (hb == nil) {
-    hd->stat.xfreebatch++;
-    return cellen;
-  }
-  hs = &hb->stat;
-  hs->xfreebatch1++;
-
-#if 0
-  size_t bufs = hb->stat.xfreebuf;
-  size_t batch = hb->stat.xfreebatch;
-
-  if (bufs - batch < 256) return cellen;
-
-  slab_unbuffer(hb,loc);
-#endif
-
-  return cellen;
-}
-
-// free from other thread. Returns cel len. Region not locked.
+// free from other thread. Returns cel len.
 static ub4 slab_free_rheap(heapdesc *hd,heap *hb,region *reg,size_t ip,ub4 tag,enum Loc loc)
 {
   struct remote *rem,*remp;
@@ -769,6 +677,7 @@ static ub4 slab_free_rheap(heapdesc *hd,heap *hb,region *reg,size_t ip,ub4 tag,e
   clasbit = clas & 63;
   rb->clas[clasofs] |= (1ul << clasbit);
   hb->remask |= (1ul << hid);
+  hb->remhbs[hid] = reg->hb;
 
 #if 0
   if (bufs - batch < 256) return cellen;
