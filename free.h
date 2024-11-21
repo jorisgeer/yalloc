@@ -169,8 +169,15 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 tick)
     reg->age = age + 1;
     order = reg->order;
 
-    if (aged == 0 && age >= ages[0]) { // arrange for recycling todo re-check emptiness
+    if (aged == 0 && age >= ages[0]) { // arrange for recycling
       ydbg2(Fln,Lfree,"recycle slab region %.01llu gen %u.%u.%u len %zu ",uid,reg->gen,hid,rid,reg->len);
+
+      isempty = (reg->binpos == reg->inipos);
+      if (isempty == 0) {
+        reg->age = reg->aged = 0;
+        reg = nxreg;
+        continue;
+      }
 
       setregion(hb,(xregion *)reg,reg->user,reg->len,0,Lfree,Fln);
 
@@ -222,6 +229,9 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 tick)
     if (sometimes(curregs,Region_interval)) sp->curnoregions = 0;
     if (sp->curnoregions > Region_alloc) lim = 1024; // reduce trim if too much redo happens
     if (age >= lim && aged == 2) { // trim : delete user and meta
+    isempty = (reg->binpos == reg->inipos);
+    ycheck(1,Lnone,isempty == 0,"region %.01llu age %u.%u not  empty bin %u ini %u",uid,age,reg->aged,reg->binpos,reg->inipos)
+
       if (sp->noregions > Region_alloc) { // avoid too frequent trim-alloc cycles
         break;
       }
