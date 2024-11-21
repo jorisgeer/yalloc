@@ -1202,6 +1202,8 @@ ub4 Cold mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
 
  } // while (pos + n < dlen);
 
+  if (dlen - (pos + n) < 3 && dlen - (pos + n) > 1) dst[n++] = '!';
+
  dst[n] = 0;
  return n;
 } // minprint

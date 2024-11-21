@@ -144,14 +144,14 @@ static void init_trace(void)
   cchar *envs = nil;
   ub4 val = global_trace;
 
-  if (val & 8) val &= 7;// from options
+  if (val & 16) val &= 15;// from options
   else {
     envs = getenv(Yal_trace_envvar);
     if (envs == nil) return;
     val = atou(envs);
     minidiag(Fln,Lnone,Vrb,0,"trace %u",val);
   }
-  global_trace = val & 3;
+  global_trace = val & 15;
 
   if (val & 4) { diag_initrace(); }
 #endif

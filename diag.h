@@ -56,7 +56,7 @@ static ub4 underline(char *dst,ub4 dlen,cchar *src,ub4 slen)
 
   while (sn < slen && dn + 4 < dlen && src[sn]) {
 #if Yal_log_utf8
-    dst[dn]   = (char)0xcc;  // combining macron below u+331
+    dst[dn]  = (char)0xcc;  // combining macron below u+331
     dst[dn+1] = (char)0xb1;
 #endif
     dst[dn+2] = src[sn++];

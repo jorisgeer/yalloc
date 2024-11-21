@@ -26,12 +26,13 @@ static void heap_init(heap *hb)
 
 static void heap_reset(heap *hb)
 {
-  region *reg;
+  region *reg,*nreg;
 
   reg = hb->reglst;
   while (reg) {
     if (reg->typ == Rslab) slab_reset(reg);
-    reg = reg->nxt;
+    nreg = reg->nxt;
+    reg = nreg;
   }
 }
 

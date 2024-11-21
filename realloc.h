@@ -44,8 +44,6 @@ static void *real_mmap(heap *hb,bool local,mpregion *reg,size_t orglen,size_t ne
   if (local) setregion(hb,(xregion *)reg,ip,Pagesize,0,Lreal,Fln);
   else setgregion(hb,(xregion *)reg,ip,Pagesize,0,Lreal,Fln);
 
-  vg_mem_noaccess(ip,reg->len)
-
   ydbg2(Fln,Lreal,"reg %u.%u remap %zu -> %zu,%zu local %u",hb->id,reg->id,orglen,newlen,newulen,local)
 
   if (reg->real) newlen += newlen >> 3; // ~10% headroom
@@ -296,6 +294,8 @@ static void *yrealloc(void *p,size_t oldlen,size_t newlen,ub4 tag)
 
       np = alloc_heap(hd,hb,doalign8(newlen,Stdalign),1,Lreal,tag);
       Realclear(np,0,newlen)
+      vg_mem_noaccess(p,alen)
+      vg_mem_def(np,newlen)
 
       //coverity[pass_freed_arg]
       ytrace(0,hd,Lreal,tag,0,"- realloc(%zx,%zu) from %zu = %zx",(size_t)p,newlen,alen,(size_t)np)

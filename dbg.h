@@ -40,7 +40,7 @@ static void callstack(heapdesc *hd)
   for (pos = 0; pos < Yal_stack_len; pos++) {
     fln = stack[pos];
     loc = hd->locstack[pos];
-    if (fln) minidiag(fln,loc,Info,hd->id,"%u%s",pos,pos == cur ? " <--" : "");
+    if (fln) minidiag(fln,loc,Info,hd->id,"%s%u%s",pos == 0 ? "\n" : "",pos,pos == cur ? " <--" : "");
   }
 #else
   minidiag(0,Lnone,Debug,hd ? hd->id : 0,"no callstack");
@@ -51,7 +51,7 @@ static void callstack(heapdesc *hd)
 
 static unsigned long asm_get_caller(void)
 {
-  unsigned long x;
+  unsigned long x = 0;
 
 #ifdef __aarch64__
 	__asm__("mov %0, x30" : "=r"(x) );
