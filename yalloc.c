@@ -54,6 +54,13 @@
 
 #include "config.h" // user config
 
+#ifdef Dev // override some vars with typical development mode setting
+  #undef Yal_log_level
+  #define Yal_log_level 7
+  #undef Yal_dbg_level
+  #define Yal_dbg_level 1
+#endif // Dev
+
 #if Yal_signal
  #define _POSIX_C_SOURCE 199309L // needs to be at first system header
  #include <signal.h>
@@ -832,15 +839,18 @@ static heapdesc *new_heapdesc(enum Loc loc)
 static Hot heapdesc *getheapdesc(enum Loc loc)
 {
   heapdesc *hd;
+#if Yal_enable_private == 1
   heap *hb;
   ub4 tic;
   ub4 tidcnt;
   bool some;
+#endif
 
   hd = tid_gethd();
 
   if (likely(hd != nil)) {
     if (hd->tidstate != Ts_private) return hd;
+#if Yal_enable_private == 1
     tic = hd->ticker;
     hd->ticker = tic + 1;
     some = sometimes(tic,Private_interval);
@@ -848,13 +858,14 @@ static Hot heapdesc *getheapdesc(enum Loc loc)
 
     tidcnt = Atomget(global_tid,Monone); // 'periodically' check thread count
     if (tidcnt == 1) return hd;
-    hd->tidstate = Ts_mt;
+    hd->tidstate = Ts_mt; // if > 1, release private heap
     hb = hd->hb;
     if (likely(hb != nil)) {
       Atomset(hb->lock,0,Morel);
     }
 #if Yal_dbg_level > 1
     minidiag(Yfln,loc,Debug,hd->id,"tidstate %u at %u",hd->tidstate,tidcnt);
+#endif
 #endif
     return hd;
   }

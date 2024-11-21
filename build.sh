@@ -12,12 +12,14 @@ set -eu
 
 tool=guess
 dbg=0
+dev=0
 
 usage()
 {
   echo 'usage: build [options] [target]'
   echo
   echo '-a  - analyze'
+  echo '-d - development mode'
   echo '-q  - quick - build yalloc.o only'
   echo '-t   - also build test'
   echo '-m  - create map file'
@@ -33,6 +35,7 @@ error()
 }
 
 if [ $tool = 'guess' ]; then
+  if which gcc-14; then tool=gcc-14
   if which gcc; then tool=gcc
   elif which clang; then tool=clang
   elif which icx; then tool=icx
@@ -71,7 +74,7 @@ case $tool in
 
 # a64 gcc >= 8 2018 -fcf-protection  -fno-stack-clash-protection'
 
-  'gcc' | 'icc')
+  'gcc' | 'icc' | 'gcc-14')
   cc=gcc
   cdiag='-Wall -Wextra -Wshadow -Wundef -Wunused -Wformat-overflow=2 -Wformat-truncation=2 -Winline -Werror=stack-usage=35000'
   cfmt='-fmax-errors=60 -fno-diagnostics-show-caret -fno-diagnostics-show-option -fno-diagnostics-color -fcompare-debug-second'
@@ -173,6 +176,7 @@ while [ $# -ge 1 ]; do
   case "$1" in
   '-a') cflags="$cflags $cana" ;;
   '-b') cflags="$cflags -DBacktrace" ;;
+  '-d') cflags="$cflags -DDev" ;;
   '-h'|'-?') usage ;;
   '-m') map=1 ;;
   '-q') quick=1; docfg=0; ;;

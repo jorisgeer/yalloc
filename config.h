@@ -108,7 +108,7 @@ static const unsigned int regfree_interval = 0xff;
 #define Trim_scan 64 // number of regions to scan at a time. 0 to disable
 
 // --- safety ---
-#define Realloc_clear 0
+#define Realloc_clear 0 // clear freed part if shrinking block
 
 // ageing thresholds
 static unsigned int Trim_ages[3] = {
@@ -148,7 +148,12 @@ static const unsigned long Mmap_retainlimit = 1ul << 30; // directly release mem
 
 // --- threading ---
 
-#define Yal_enable_private 1 // private heap for main thread
+/* 0 - on-demand aka on contention heap creation
+   1 - private heap for main thread until multiple threads are active
+   2 - private heap for all threads
+ */
+#define Yal_enable_private 1
+
 static const unsigned int Private_drop_threshold = 1024;
 static const unsigned int Private_interval = 0xff; // pwr2 - 1
 

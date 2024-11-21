@@ -29,7 +29,7 @@ good performance:: compares well in many link:https://github.com/daanx/mimalloc-
 == Status
 Alpha, no outstanding issues. +
 Most benchmarks and tests work on 64-bit Linux and MacOS and show decent results.
-Linux system working with yalloc Integrated in musl C library.
+Integrated in musl C library on Linux (Alpine) system, working (exposing use-after-free in GTK).
 Preliminary 32-bit Linux test passes.
 Some synthetic tests show high memory usage.
 
