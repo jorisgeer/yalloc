@@ -160,7 +160,7 @@ static const unsigned int Private_interval = 0xff; // pwr2 - 1
 /* Thread support mode
   0 - none
   1 - TLS
-  2 - pthread_self()
+  2 - pthread_self() (only wrks when embedding in libc)
 */
 #define Yal_tidmode 1
 #define Maxtid 65536
@@ -202,3 +202,6 @@ static const unsigned int Private_interval = 0xff; // pwr2 - 1
 #define Yal_mallopt 0
 #define Yal_mallinfo 0
 #define Yal_glibc_malloc_stats 1
+
+// --- build ---
+#define Miniprint_inc

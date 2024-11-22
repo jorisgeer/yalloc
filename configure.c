@@ -24,7 +24,12 @@
 
 #include "base.h"
 
-#include "printf.h"
+#ifdef Miniprint_inc
+  #include <errno.h> // %m
+  #include "printf.c"
+#else
+  #include "printf.h"
+#endif
 
 extern Noret void exit(int);
 #define L __LINE__

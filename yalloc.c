@@ -54,11 +54,14 @@
 
 #include "config.h" // user config
 
-#ifdef Dev // override some vars with typical development mode setting
+#ifdef Yal_dev // override some vars with typical development mode setting
   #undef Yal_log_level
   #define Yal_log_level 7
   #undef Yal_dbg_level
   #define Yal_dbg_level 1
+
+  #undef Miniprint_inc
+
 #endif // Dev
 
 #if Yal_signal
@@ -212,14 +215,17 @@ static const ub4 Pagesize1 = Pagesize - 1;
 
 #define Remhid 64
 
+#ifdef Miniprint_inc
+  #include "printf.c"
+#else
+  #include "printf.h"
+#endif
 
 #ifdef Inc_os
   #include "os.c"
 #else
   #include "os.h"
 #endif
-
-#include "printf.h"
 
 #define Yfln __LINE__| (Fyalloc << 16)
 
@@ -692,7 +698,19 @@ static _Atomic ub4 global_hid = 1;
 
 #if Yal_tidmode == 2  // use pthread_self()
 
- #ifdef __musl_libc__
+ #if defined __musl_libc__
+  #define Yal_pthread_int "pthread_impl.h"
+  #define Yal_pthread_tid tid
+ #elif defined __HAIKU__
+  #define Yal_pthread_int "pthread_private.h"
+  #define Yal_pthread_tid id
+ #elif defined __GLIBC__
+  #error "TODO glibc for tidmode 2"
+ #else
+  #error "unsupported libc for tidmode 2"
+ #endif // libc variant
+
+ #ifdef Yal_pthread_int
 
   #if Isgcc
    #pragma GCC diagnostic ignored "-Wunused-value"
@@ -700,14 +718,14 @@ static _Atomic ub4 global_hid = 1;
    #pragma clang diagnostic ignored "-Wunused-value"
   #endif
 
-  #include "pthread_impl.h" // assuming yalloc/* located at musl/src/malloc
+  #include Yal_pthread_int
 
   static heapdesc *global_hds[Maxtid];
 
   static inline heapdesc *tid_gethd(void)
   {
     heapdesc *hd;
-    int tid = pthread_self()->tid;
+    int tid = pthread_self()->Yal_pthreead_tid;
 
     if (likely(tid < Maxtid)) {
       hd = global_hds[tid];
@@ -719,7 +737,7 @@ static _Atomic ub4 global_hid = 1;
 
   static inline void tid_sethd(heapdesc *hd)
   {
-    int tid = pthread_self()->tid;
+    int tid = pthread_self()->Yal_pthreead_tid;
 
     if (likely(tid < Maxtid)) {
       global_hds[tid] = hd;
@@ -728,11 +746,7 @@ static _Atomic ub4 global_hid = 1;
     minidiag(Yfln,Lnone,Fatal,tid,"tid %u for %zx",tid,(size_t)pthread_self());
     _Exit(1);
   }
- #elif defined __GLIBC__
-  #error "TODO glibc for tidmode 2"
- #else
-  #error "unsupported libc for tidmode 2"
- #endif // libc variant
+ #endif // supported lib for mode 2
 
 #elif Yal_tidmode == 1 // use TLS
 

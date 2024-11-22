@@ -22,8 +22,8 @@ static mpregion *yal_mmap(heapdesc *hd,heap *hb,size_t len,size_t align,enum Loc
   ub4 from;
   bool didcas;
 
-  ycheck(nil,Lalloc,len < Pagesize,"heap %u.%u mmap region has len %zu",hd->id,hb->id,len)
-  ycheck(nil,Lalloc,align == 0 || (align & (align - 1)) != 0 ,"heap %u.%u mmap region has align %zu",hd->id,hb->id,align)
+  ycheck(nil,loc,len < Pagesize,"heap %u.%u mmap region has len %zu",hd->id,hb->id,len)
+  ycheck(nil,loc,align == 0 || (align & (align - 1)) != 0 ,"heap %u.%u mmap region has align %zu",hd->id,hb->id,align)
 
   if (unlikely(len >= Vmsize)) {
     oom(hb,fln,loc,len,0);
@@ -46,6 +46,7 @@ static mpregion *yal_mmap(heapdesc *hd,heap *hb,size_t len,size_t align,enum Loc
   if (rlen) { // reused
     ip = reg->user;
     reg->typ = Rmmap;
+    ycheck(nil,loc,ip < Pagesize ,"heap %u.%u mmap region of len %zu gen %u has nil base %zx",hd->id,hb->id,rlen,reg->gen,ip)
   } else {
 
     // Atomset(hb->lock,0,Morel); // todo syscall not under lock

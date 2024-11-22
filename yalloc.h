@@ -6,7 +6,7 @@
    SPDX-License-Identifier: GPL-3.0-or-later
 */
 
-static const char yal_version[] = "0.8.2-alpha.0";
+static const char yal_version[] = "0.8.3-alpha.0";
 
 #if Isgcc || Isclang // enable extensions conditionally
  #define Mallike __attribute__ ((malloc))
@@ -68,6 +68,12 @@ static const char yal_version[] = "0.8.2-alpha.0";
   #define Yal_psx_memalign 0
 
   void __malloc_donate(char *start, char *end) {}
+
+#elif defined __HAIKU__ && defined __haiku_libroot__
+  void __heap_thread_init(void) {}
+  void __heap_thread_exit(void) {}
+  int __init_heap(void) {	return 0; }
+  void __heap_before_fork(void) {}
 #endif
 
 #ifndef clz

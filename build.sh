@@ -13,18 +13,21 @@ set -eu
 tool=guess
 dbg=0
 dev=0
+osinc=0
+printinc=1
 
 usage()
 {
   echo 'usage: build [options] [target]'
   echo
   echo '-a  - analyze'
-  echo '-d - development mode'
+  echo '-d  - development mode'
+  echo '-o  - separate object files'
   echo '-q  - quick - build yalloc.o only'
-  echo '-t   - also build test'
+  echo '-t  - also build test'
   echo '-m  - create map file'
   echo '-v  - verbose'
-  echo 'V - verify'
+  echo 'V  - verify'
   echo '-h  - help'
 }
 
@@ -36,7 +39,7 @@ error()
 
 if [ $tool = 'guess' ]; then
   if which gcc-14; then tool=gcc-14
-  if which gcc; then tool=gcc
+  elif which gcc; then tool=gcc
   elif which clang; then tool=clang
   elif which icx; then tool=icx
   elif which icc; then tool=icc
@@ -55,7 +58,7 @@ time=$(date -u '+%H%M')
 
 case $tool in
   'clang' | 'icx')
-  cc=clang
+  cc=$tool
   cdiag='-Wall -Wextra -Wunused -Wno-unused-command-line-argument -Wsign-conversion -Wchar-subscripts -Werror=format -Werror=return-type -Wno-poison-system-directories'
   cfmt='-fno-caret-diagnostics -fno-color-diagnostics -fno-diagnostics-show-option -fno-diagnostics-fixit-info -fno-diagnostics-show-note-include-stack -fno-show-column'
   cxtra='-std=c11 -funsigned-char -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -fpic -ftls-model=local-dynamic -fno-plt'
@@ -75,7 +78,7 @@ case $tool in
 # a64 gcc >= 8 2018 -fcf-protection  -fno-stack-clash-protection'
 
   'gcc' | 'icc' | 'gcc-14')
-  cc=gcc
+  cc=$tool
   cdiag='-Wall -Wextra -Wshadow -Wundef -Wunused -Wformat-overflow=2 -Wformat-truncation=2 -Winline -Werror=stack-usage=35000'
   cfmt='-fmax-errors=60 -fno-diagnostics-show-caret -fno-diagnostics-show-option -fno-diagnostics-color -fcompare-debug-second'
   cxtra='-std=c11 -funsigned-char -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -fpic -ftls-model=local-dynamic -fno-plt'
@@ -124,7 +127,6 @@ docfg=1
 vrb=0
 bldtst=0
 quick=0
-osinc=0
 verify=0
 target=''
 objs=''
@@ -176,9 +178,10 @@ while [ $# -ge 1 ]; do
   case "$1" in
   '-a') cflags="$cflags $cana" ;;
   '-b') cflags="$cflags -DBacktrace" ;;
-  '-d') cflags="$cflags -DDev" ;;
+  '-d') cflags="$cflags -DYal_dev" ;;
   '-h'|'-?') usage ;;
   '-m') map=1 ;;
+  '-o') osinc=0; printinc=0 ;;
   '-q') quick=1; docfg=0; ;;
   '-Q') quick=2; docfg=0; ;;
   '-t') bldtst=2 ;;
@@ -191,16 +194,17 @@ while [ $# -ge 1 ]; do
   shift
 done
 
-if [ $osinc -eq 1 ]; then
-  cflags="$cflags -DInc_os=1"
-  objs='printf.o'
-else
-  objs='printf.o os.o'
+if [ $osinc -eq 0 ]; then
+  objs="$objs os.o"
+  if [ $quick -eq 0 ]; then
+    cc os.o os.c
+  fi
 fi
-
-if [ $quick -eq 0 ]; then
-  cc printf.o printf.c
-  cc os.o os.c
+if [ $printinc -eq 0 ]; then
+  objs="$objs printf.o"
+  if [ $quick -eq 0 ]; then
+    cc printf.o printf.c
+  fi
 fi
 
 if [ $docfg -eq 1 ]; then

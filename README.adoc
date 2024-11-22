@@ -56,8 +56,8 @@ If building otherwise, make sure first to run once :
 
 Essentially, you need to compile and run configure, then compile yalloc.c :
 
-  cc -c -fpic os.c printf.c
-  cc -o configure configure.c *.o
+  cc -c -fpic os.c
+  cc -o configure configure.c os.o
   ./configure
   cc -c -fpic yalloc.c
   cc -shared -o yalloc.so *.o
@@ -67,7 +67,7 @@ Essentially, you need to compile and run configure, then compile yalloc.c :
 == Using
 
 === static linking, any platform
-  cc -o myprog [ your project ] yalloc/{yalloc,os,printf}.o
+  cc -o myprog [ your project ] yalloc/yalloc.o yalloc/os.o
 
 === dynamic linking, Linux
 
@@ -76,7 +76,7 @@ Essentially, you need to compile and run configure, then compile yalloc.c :
   gdb -iex "set exec-wrapper env LD_PRELOAD=./yalloc.so" --args python -c 'print(1+1)'
 
 === idem, macos
-  DYLD_INSERT_LIBRARIES=yalloc.so
+  DYLD_INSERT_LIBRARIES=yalloc.so /Applications/Safari.app/Contents/MacOS/Safari
 
 === included in source
 Alternatively, you can include yalloc.c directly in your source, provided static identifiers will not conflict.

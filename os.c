@@ -30,16 +30,24 @@
 
 #ifdef Inc_os
   #define Vis static
+
   struct osstat {
     unsigned long len;
     unsigned long mtime;
   };
+
+struct osrusage {
+  unsigned long utime,stime;
+  unsigned long maxrss;
+  unsigned long minflt,maxflt;
+  unsigned long volctx,ivolctx;
+};
 #else
  #include "os.h"
  #define Vis
 #endif
 
-static char *ucnv(char *end,unsigned int x)
+static char *osucnv(char *end,unsigned int x)
 {
     do *--end = (char)((x % 10) + '0'); while (x /= 10);
     return end;
@@ -83,7 +91,7 @@ static void writeint(int fd,unsigned int x,int sign)
   char *p;
 
   buf[--len] = '\n';
-  p = ucnv(buf + len,x);
+  p = osucnv(buf + len,x);
   if (sign) *--p = '-';
   *--p = ' ';
   write(fd,p,(size_t)( buf + 30 - p));

@@ -56,27 +56,39 @@
   1 - elementary support, can be slow
   2 - full support - do not use for yalloc
  */
-#define Mini_printf_float_formats 1 // %f %g %a
+#define Mini_printf_float_formats 0 // %f %g %a
 
-#include <stddef.h> // size_t
+#ifdef Miniprint_inc
+  #define Static_if_included static
+#else
+  #define Static_if_included
+  #include <stddef.h> // size_t
+  #include <stdarg.h>
+  #include <string.h> // memcpy
+  #include <errno.h> // %m
 
-#include <errno.h> // %m
-#include <limits.h> // long_max
-
-#if Mini_printf_float_formats
-// #include <float.h> // mant-dig
-#include <math.h> // fpclassify, frexp,pow for formats = 2
+  #include "base.h"
+  #include "printf.h"
 #endif
 
-#include <stdarg.h>
-#include <stdint.h> // intmax_t
-#include <string.h> // memcpy
+#ifndef LONG_MAX
+  #include <limits.h>
+#endif
 
-#include "base.h"
+#if Mini_printf_float_formats
+  // #include <float.h> // mant-dig
+  #include <math.h> // fpclassify, frexp,pow for formats = 2
+#else
+
+  enum Dumfpcls { FP_NORMAL,FP_SUBNORMAL,FP_INFINITE,FP_NAN,FP_ZERO };
+
+  #define fpclassify(x) FP_NORMAL
+
+#endif
+
+#include <stdint.h> // intmax_t
 
 typedef long long sb8;
-
-#include "printf.h"
 
 // max single conversion length without padding, except %s
 #define Maxfmt 256
@@ -335,6 +347,7 @@ static ub1 *Ulcnv(ub1 *end,unsigned long x)
   return hrcnv(end,x1,x2,scale);
 }
 
+#if Mini_printf_float_formats
 // for all floating point formats, zero, inf and nan are handled separately and negatives converted
 // for %f
 static ub1 *ullcnv_dot(ub1 *end,unsigned long long x,ub4 dotpos)
@@ -351,8 +364,6 @@ static ub1 *ullcnv_dot(ub1 *end,unsigned long long x,ub4 dotpos)
   if (x) *--end = (ub1)(x + '0');
   return end;
 }
-
-#if Mini_printf_float_formats
 
 static double tentab[19] = { 10.0,100.0,1e3,1e4,1e5,1e6,1e7,1e8,1e9,1e10,1e11,1e12,1e13,1e14,1e15,1e16,1e17,1e18 };
 static double itentab[19] = { 0.1,0.01,1e-3,1e-4,1e-5,1e-6,1e-7,1e-8,1e-9,1e-10,1e-11,1e-12,1e-13,1e-14,1e-15,1e-16,1e-17,1e-18 };
@@ -658,7 +669,7 @@ static const enum Fmt fmtmap[128] = { // format template for parsing
 #define Pluralbuf 256
 
 // writes into dst + pos, upto dst + dlen from fmt and args. Always zero-terminates. Returns #chars written
-ub4 Cold mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
+Static_if_included ub4 Cold mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
 {
   // width and precision
   ub4 wid,prec,mindig,P,pad0,slen,sndx;
@@ -1075,9 +1086,14 @@ ub4 Cold mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
           fmtf = Fmte; prec = P - 1;
         }
       }
+#if Mini_printf_float_formats
       if  (fmtf == Fmtf) org = fcnv(end,f8,flags,casemsk,prec);
       else if (fmtf == Fmte) org = ecnv(end,f8,flags,casemsk,prec);
       else org = acnv(end,f8,flags,prec,Case);
+#else
+     u8 = (ub8)f8;
+     org = ulcnv(end,u8);
+#endif
    break;
 
    case Cnvn:
@@ -1208,7 +1224,7 @@ ub4 Cold mini_vsnprintf(char *dst,ub4 pos,ub4 dlen,const char *fmt,va_list ap)
  return n;
 } // minprint
 
-ub4 Printf(4,5) snprintf_mini(char *dst,ub4 pos,ub4 len,cchar *fmt,...)
+Static_if_included ub4 Printf(4,5) snprintf_mini(char *dst,ub4 pos,ub4 len,cchar *fmt,...)
 {
   va_list ap;
   ub4 n;
@@ -1224,7 +1240,9 @@ ub4 Printf(4,5) snprintf_mini(char *dst,ub4 pos,ub4 len,cchar *fmt,...)
   return n;
 }
 
-#ifdef Test
+#undef Static_if_included
+
+#ifdef Miniprint_Test
 
 #include <unistd.h> // write
 #include <stdlib.h> // strtod
