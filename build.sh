@@ -38,13 +38,13 @@ error()
 }
 
 if [ $tool = 'guess' ]; then
-  if which gcc-14; then tool=gcc-14
-  elif which gcc; then tool=gcc
-  elif which clang; then tool=clang
-  elif which icx; then tool=icx
-  elif which icc; then tool=icc
-  elif which dmd; then tool=dmd
-  elif which cc; then tool=cc
+  if which gcc-14 2>/dev/null; then tool=gcc-14
+  elif which gcc 2>/dev/null; then tool=gcc
+  elif which clang 2>/dev/null; then tool=clang
+  elif which icx 2>/dev/null; then tool=icx
+  elif which icc 2>/dev/null; then tool=icc
+  elif which dmd 2>/dev/null; then tool=dmd
+  elif which cc 2>/dev/null; then tool=cc
   else
     error 'unable to guess compiler'
   fi
@@ -72,7 +72,7 @@ case $tool in
     libs=
   fi
   copt='-O2'
-  lflags="-O2 -g $cdbg -static"
+  lflags="-O2 $cdbg"
   ;;
 
 # a64 gcc >= 8 2018 -fcf-protection  -fno-stack-clash-protection'
@@ -90,7 +90,7 @@ case $tool in
     cdbg='-g -fno-stack-protector -fcf-protection=none -fno-stack-clash-protection -fno-asynchronous-unwind-tables -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0'
   fi
   copt='-O2 -fwrapv -fgcse-after-reload -ftree-partial-pre -fsplit-paths'
-  lflags="-O2 -fuse-ld=gold $cdbg -static"
+  lflags="-O2 -fuse-ld=gold $cdbg"
     libs=
   ;;
 
@@ -148,7 +148,7 @@ cc()
   tgt="$1"
   src="$2"
 
-  verbose "cc -c $src" "$cc -c $cflags $src"
+  verbose "$cc -c $src" "$cc -c $cflags $src"
   $cc -c $cflags -DDate=$date -DTime=1$time $src
   if [ "$tgt" = "$target" ]; then
     exit 0
@@ -221,12 +221,13 @@ fi
 cc yalloc.o yalloc.c
 
 if [ $bldtst -ge 2 ]; then
+  cc printf.o printf.c
   cc test.o test.c
 #  cc yaldum.o yaldum.c
 fi
 
 if [ $bldtst -ge 1 ]; then
-  ld test "test.o yalloc.o $objs"
+  ld test "test.o yalloc.o os.o printf.o"
   # ld test_libc "test.o yaldum.o $objs"
 fi
 
@@ -241,9 +242,9 @@ if [ -n "$cmd" ]; then
   if [ "$platform" = "Darwin" ]; then
     verbose "ld -dyn yalloc" "$cc $lflags -dynamiclib -o yalloc.dylib yalloc.o $objs -flat_namespace"
     $cc -dynamiclib -o yalloc.dylib yalloc.o $objs -flat_namespace
-  elif [ "$platform" = "Linux" ]; then
+  elif [ "$platform" = "Linux" -o "$platform" = "Haiku"  ]; then
     verbose "ld -dyn yalloc" "$cc $lflags -shared -o yalloc.so yalloc.o $objs"
-    $cc -shared -o yalloc.so yalloc.o $objs
+    $cc -g -shared -o yalloc.so yalloc.o $objs
     echo 'yalloc.so built successfully'
   fi
 fi

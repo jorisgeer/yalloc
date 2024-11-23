@@ -79,6 +79,7 @@ static Noret void mysigact(int sig,siginfo_t *si,void *pp)
   ub4 fln = Fdbg << 16;
   ub4 id = 0;
   unsigned long pid = Atomget(global_pid,Monone);
+  ub4 statopt = global_stats_opt;
   static char buf[256];
 
   hd = tid_gethd();
@@ -107,13 +108,16 @@ static Noret void mysigact(int sig,siginfo_t *si,void *pp)
     minidiag(fln|__LINE__,Lsig,Fatal,id,"%.250s\n",buf);
   }
 
-  if (global_stats_opt) yal_mstats(nil,global_stats_opt | Yal_stats_print,fln|__LINE__,"signal");
+  if (global_check & 8) statopt |= Yal_stats_totals | Yal_stats_sum;
+  if (statopt) yal_mstats(nil,statopt | Yal_stats_print,fln|__LINE__,"signal");
 
   callstack(hd);
 
   showtrace();
 
+#ifdef Yal_dev
   osread(0,buf,64); // pauze, so interceptible by debugger
+#endif
 
   if (g_orgsa.sa_sigaction) (*g_orgsa.sa_sigaction)(sig,si,pp);
   else if (g_orgsa.sa_handler) (*g_orgsa.sa_handler)(sig);

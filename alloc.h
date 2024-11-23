@@ -46,7 +46,7 @@ static mpregion *yal_mmap(heapdesc *hd,heap *hb,size_t len,size_t align,enum Loc
   if (rlen) { // reused
     ip = reg->user;
     reg->typ = Rmmap;
-    ycheck(nil,loc,ip < Pagesize ,"heap %u.%u mmap region of len %zu gen %u has nil base %zx",hd->id,hb->id,rlen,reg->gen,ip)
+    ycheck(nil,loc,ip < Pagesize ,"heap %u.%u mmap region of len %zu` gen %u has nil base %zx",hd->id,hb->id,rlen,reg->gen,ip)
   } else {
 
     // Atomset(hb->lock,0,Morel); // todo syscall not under lock
@@ -286,7 +286,7 @@ static Hot void *alloc_heap(heapdesc *hd,heap *hb,size_t ulen,ub4 align,enum Loc
       if (unlikely(reg == nil)) { // get new region
         ypush(hd,loc,Fln)
         claseq = hb->clasregcnt[clas];
-        ycheck(nil,loc,alen < len,"region %.01llu clas %u aen %u len %u.%u tag %.01u",reg->uid,clas,alen,len,len,tag)
+        ycheck(nil,loc,alen < len,"clas %u aen %u len %u.%u tag %.01u",clas,alen,len,len,tag)
         reg = newslab(hb,alen,clas,claseq);
         if (unlikely(reg == nil)) {
           xreg = osmmap(len); // fallback

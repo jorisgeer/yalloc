@@ -25,9 +25,10 @@
    1 - detect, count and ignore. Format diagnostic for yal_stats()
    2 - In addition to above print diagnostic
    4 - exit via _Exit(1)
+   8 - print stats
   */
   #define Yal_check_envvar "Yalloc_check"
-  #define Yal_check_default 7
+  #define Yal_check_default 15
 
   /* Enable statistics:
   0 - disabled. Yal_stats() is not defined

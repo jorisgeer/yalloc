@@ -122,23 +122,25 @@ static void setgregion(heap *hb,xregion *reg,size_t bas,size_t len,bool add,enum
     }
 
     if (add) {
-      do {
+      while (pos3 < posend) {
         from = nil;
         didcas = Casa(dir3 + pos3,&from,xreg);
         if (unlikely(didcas == 0)) {
           errorctx(fln,loc,"reg %zx base %lx len %lu`",(size_t)reg,bas,len)
           error2(loc,Fln,"heap %u %s region %u still mapped to %zx %u",hb ? hb->id : 0,regname(reg),reg->id,(size_t)from,from->id)
         }
-      } while (++pos3 < posend);
+        pos3++;
+      }
     } else {
-      do {
+      while (pos3 < posend) {
         from = reg;
         didcas = Casa(dir3 + pos3,&from,xreg);
         if (unlikely(didcas == 0)) {
           errorctx(fln,loc,"reg %zx base %lx len %lu`",(size_t)reg,bas,len)
           error2(loc,Fln,"heap %u %s region %u was not mapped %zx",hb ? hb->id : 0,regname(reg),reg->id,(size_t)from)
         }
-      } while (++pos3 < posend);
+        pos3++;
+      }
     }
 
   } while (org < end); // -V776 PVS inf loop false positive ?
@@ -195,10 +197,9 @@ static bool setregion(heap *hb,xregion *reg,size_t bas,size_t len,bool add,enum 
       if (dir3 == nil) return 1;
       dir2[pos2] = dir3;
     }
-    do {
-      ycheck(1,Lnone,pos3 >= Dir3len,"pos1 %u above %u",pos3,Dir3len)
-      dir3[pos3] = xreg;
-    } while (++pos3 < posend);
+    while (pos3 < posend) {
+      dir3[pos3++] = xreg;
+    }
   } while (org < end);
 
   if (reg->typ != Rmini) setgregion(hb,reg,bas,len,add,loc,fln);

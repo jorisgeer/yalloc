@@ -701,7 +701,7 @@ static _Atomic ub4 global_hid = 1;
  #if defined __musl_libc__
   #define Yal_pthread_int "pthread_impl.h"
   #define Yal_pthread_tid tid
- #elif defined __HAIKU__
+ #elif defined  __haiku_libroot__
   #define Yal_pthread_int "pthread_private.h"
   #define Yal_pthread_tid id
  #elif defined __GLIBC__
@@ -725,7 +725,7 @@ static _Atomic ub4 global_hid = 1;
   static inline heapdesc *tid_gethd(void)
   {
     heapdesc *hd;
-    int tid = pthread_self()->Yal_pthreead_tid;
+    int tid = pthread_self()->Yal_pthread_tid;
 
     if (likely(tid < Maxtid)) {
       hd = global_hds[tid];
@@ -737,7 +737,7 @@ static _Atomic ub4 global_hid = 1;
 
   static inline void tid_sethd(heapdesc *hd)
   {
-    int tid = pthread_self()->Yal_pthreead_tid;
+    int tid = pthread_self()->Yal_pthread_tid;
 
     if (likely(tid < Maxtid)) {
       global_hds[tid] = hd;
@@ -752,7 +752,48 @@ static _Atomic ub4 global_hid = 1;
 
  #ifdef __musl_libc__
   #error "TODO tidmode 1 in musl"
- #endif
+
+ #elif defined __HAIKU__ && defined __haiku_libroot__
+
+  #include <support/TLS.h>
+ 
+  extern void __heap_thread_init(void);
+  extern void __heap_thread_exit(void);
+  extern void __heap_before_fork(void);
+  extern void __heap_terminate_after(void);
+  extern void __heap_after_fork_child(void);
+  extern void  __heap_after_fork_parent(void);
+
+  void __heap_thread_init(void) {}
+  void __heap_thread_exit(void) {}
+  void __heap_before_fork(void) {}
+  void __heap_terminate_after(void) {}
+  void __heap_after_fork_child(void) {}
+  void  __heap_after_fork_parent(void) {}
+
+  static ub4 global_tls_index;
+
+  extern int __init_heap(void);
+  int __init_heap(void)
+  {
+    ub4 index = tls_allocate();
+    global_tls_index = index;
+    minidiag(Yfln,Lnone,Debug,0,"tls index %u",index);
+    return 0;
+  }
+
+  static inline heapdesc *tid_gethd(void)
+  {
+    heapdesc *hd = tls_get(global_tls_index);
+    return hd;
+  }
+
+  static inline void tid_sethd(heapdesc *hd)
+  {
+    tls_set(global_tls_index,hd);
+  }
+
+ #else // typically C11
 
   static _Thread_local heapdesc *thread_heap;
 
@@ -766,6 +807,7 @@ static _Atomic ub4 global_hid = 1;
   {
     thread_heap = hd;
   }
+  #endif
 
   #if Yal_prep_TLS // assumes attributes are supported, not checked
   static bool yal_tls_inited;

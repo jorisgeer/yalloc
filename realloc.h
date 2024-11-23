@@ -125,6 +125,14 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
     } else if (typ == Rmmap) {
       mreg = (mpregion *)xreg;
       ulen = pi->len;
+      if (mreg->align) {
+        mreg->ulen = newulen;
+        if (newulen <= ulen) {
+          return p; // keep alignment
+        }
+        mreg->align = 0;
+        return (void *)mreg->user; // sacrifice alignment
+      }
       if (alen - newulen <= Pagesize || newulen + (newulen >> 3) > ulen) {
         mreg->ulen = newulen;
         mreg->real = 1;

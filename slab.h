@@ -463,7 +463,7 @@ static size_t slab_unbuffer(heap *hb,enum Loc loc,ub4 frees)
   yalstats *hs = &hb->stat;
   size_t bufs = hs->xfreebuf;
   size_t batch = hs->xfreebatch;
-  size_t left;
+  size_t Unused left;
   size_t nocas=0;
   ub4 urv;
   ub4 from;
@@ -572,6 +572,7 @@ static size_t slab_unbuffer(heap *hb,enum Loc loc,ub4 frees)
 // free from other thread. Returns cel len.
 static ub4 slab_free_rheap(heapdesc *hd,heap *hb,region *reg,size_t ip,ub4 tag,enum Loc loc)
 {
+  heap *xhb;
   struct remote *rem,*remp;
   struct rembuf *rb;
   ub4 *binp,*bin2;
@@ -588,6 +589,8 @@ static ub4 slab_free_rheap(heapdesc *hd,heap *hb,region *reg,size_t ip,ub4 tag,e
   cellen = reg->cellen;
   celcnt = reg->celcnt;
   hid = reg->hid;
+  xhb = reg->hb;
+  ycheck(0,loc,xhb->id != hid,"reg %u hid %u vs %u",reg->id,xhb->id,hid)
 
   cel = slab_cel(reg,ip,cellen,celcnt,loc);
   if (unlikely(cel == Nocel)) return 0;

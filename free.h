@@ -11,7 +11,7 @@
 
 #define Logfile Ffree
 
-// free large block
+// Free large block. If hb != nil, it is local and we can age. Otherwise unmap directly.
 static enum Status free_mmap(heapdesc *hd,heap *hb,mpregion *reg,size_t ap,size_t ulen,enum Loc loc,ub4 fln,ub4 tag)
 {
   mpregion *preg;
@@ -26,6 +26,7 @@ static enum Status free_mmap(heapdesc *hd,heap *hb,mpregion *reg,size_t ap,size_
 
   ytrace(0,hd,loc,tag,0,"free(%zx) len %zu` mmap",ap,len)
 
+  // check whether allocated and mark free
   from = 1;
   didcas = Cas(reg->set,from,2);
   if (didcas == 0) {
@@ -35,7 +36,10 @@ static enum Status free_mmap(heapdesc *hd,heap *hb,mpregion *reg,size_t ap,size_
   }
 
   if (ulen) {
-    if (reg->ulen != ulen) { error(loc,"free(%zx,%zu) from tid %u mmap block had size %zu",ap,ulen,hd->id,reg->len) return St_error; }
+    if (reg->ulen != ulen) {
+      errorctx(Fln,loc,"tag %.01u",tag)
+      do_ylog(Diagcode,loc,fln,Warn,1,"free(%zx) mmap block in heap %u had size %zu, not %zu",ap,hb ? hb->id : 0,reg->len,ulen);
+    }
   }
   if (align) {
     ycheck(St_error,loc,align & Pagesize1,"mmap region %u.%u align %zu",reg->hid,reg->id,align)
@@ -86,7 +90,10 @@ static enum Status free_mmap(heapdesc *hd,heap *hb,mpregion *reg,size_t ap,size_
     hb->stat.trimregions[5]++;
     Atomset(reg->age,2,Morel);
     reg->aged = 1;
-  } else Atomset(reg->age,1,Morel); // start ageing
+  } else {
+    from = 0; didcas = Cas(reg->age,from,1); // start ageing
+    ycheck(St_error,loc,didcas == 0,"free mmap region %u.%u age %u",reg->hid,reg->id,from)
+  }
 
   return St_ok;
 }
@@ -174,7 +181,7 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 tick)
 
       isempty = (reg->binpos == reg->inipos);
       if (isempty == 0) {
-        reg->age = reg->aged = 0;
+        reg->age = 0;
         reg = nxreg;
         continue;
       }
@@ -487,6 +494,8 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,enum Loc
       return Nolen;
     }
 
+    ytrace(1,hd,loc,tag,0,"free(%zx)",ip)
+
     // try to acquire owner heap
     local = 0;
     xhb = reg->hb;
@@ -548,6 +557,7 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,enum Loc
       return cellen;
     } // local or not
 
+      ycheck(Nolen,loc,hb == reg->hb,"hb %u eq %u for reg %u",hb->id,reg->hb->id,reg->id)
       ytrace(1,hd,loc,tag,creg->stat.frees,"ptr+%zx len %u",ip,cellen)
       len4 = slab_free_rheap(hd,hb,creg,ip,tag,loc); // buffer
       if (likely(len4 != 0)) return len4;
@@ -573,10 +583,9 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,enum Loc
     rlen = reg->len - mpreg->align;
 
     // free mmap directly
-    if (hb) {
-      hb->stat.mapfrees++;
-      hb->stat.munmaps++;
-    }
+    if (hb) hb->stat.mapfrees++;
+    else hd->stat.xmapfrees++;
+
     rv = free_mmap(hd,local ? hb : nil,mpreg,ip,reqlen,loc,Fln,tag);
     ypush(hd,loc,Fln)
     if (rv == St_error) {

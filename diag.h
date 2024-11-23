@@ -75,6 +75,7 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
   heapdesc *hd;
   ub4 tid = 0;
   unsigned long pid = Atomget(global_pid,Monone);
+  ub4 statopt = global_stats_opt;
   enum Diactl ctl;
   ub4 n,pos = 0,upos;
   ub4 check;
@@ -193,7 +194,8 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
 
   if (Cas(exiting,zero,1)) { // let only one thread call exit
     callstack(hd);
-    if (global_stats_opt) yal_mstats(nil,global_stats_opt | Yal_stats_print,Fln,"diag-exit");
+    if (check & 8) statopt |= Yal_stats_totals;
+    if (statopt) yal_mstats(nil,statopt | Yal_stats_print,Fln,"diag-exit");
     minidiag(Fln,loc,Error,tid,"\n--- %.255s exit(1) ---\n",global_cmdline);
     _Exit(1);
   }
