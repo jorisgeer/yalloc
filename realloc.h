@@ -51,6 +51,7 @@ static void *real_mmap(heap *hb,bool local,mpregion *reg,size_t orglen,size_t ne
 
   np = osmremap((void *)ip,reg->len,orglen,newlen);
   if (np == nil) return nil;
+  vg_mem_noaccess(np,newlen)
   vg_mem_def(np,newulen)
 
   reg->len = newlen;
@@ -88,6 +89,9 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
   if (newulen <= alen && local) { // will fit
     hb->stat.reallocles++;
 
+    vg_mem_noaccess(p,newlen)
+    vg_mem_def(p,newulen)
+
     if (likely(typ == Rslab)) {
       reg = (region *)xreg;
       openreg(reg)
@@ -105,6 +109,8 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
         if (ulen > newulen && cellen > Cel_nolen) slab_setlen(reg,pi->cel,(ub4)newulen);
         return p;
       }
+
+      // shrink
       hb->stat.Reallocles++;
       np = alloc_heap(hd,hb,newulen,1,Lreal,tag);
       if (unlikely(np == nil)) return (void *)__LINE__;

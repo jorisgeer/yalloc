@@ -43,9 +43,11 @@ static bool newbump(heap *hb,ub4 hid,bregion *reg,ub4 len,ub4 regpos,enum Rtype 
 
   user = osmem(Fln,hid,len,"bumpalloc");
   if (user == nil) return 1;
+  vg_mem_name(user,len,"bump region",regpos + 1,0)
   vg_mem_noaccess(user,len)
   meta = bootalloc(Fln,hid,loc,metalen);
   if (meta == nil) return 1;
+  vg_mem_name(meta,metalen,"bump meta",regpos + 1,0)
 
   reg->hb = hb;
   reg->uid = (ub8)hid << 32 | (regpos + 1);
@@ -74,7 +76,7 @@ static void *bumpalloc(heapdesc *hd,heap *hb,ub4 hid,bregion *regs,ub4 regcnt,ub
   size_t ip,base;
   ub4 pos = 0,cel;
   _Atomic ub1 *fres;
-  ub4 regpos;
+  ub4 regpos=0;
   ub1 zero;
   bool didcas;
   bregion *reg = nil;
@@ -150,7 +152,7 @@ static void *bumpalloc(heapdesc *hd,heap *hb,ub4 hid,bregion *regs,ub4 regcnt,ub
     ytrace(0,hd,loc,tag,0,"-calloc(%u) = %zx",ulen,ip)
     vg_mem_def(ip,ulen)
   } else {
-   vg_mem_undef(ip,ulen)
+    vg_mem_undef(ip,ulen)
   }
 
   return (void *)ip;
@@ -245,6 +247,8 @@ static ub4 bump_free(heapdesc *hd,heap *hb,bregion *reg,size_t ip,size_t reqlen,
     }
     return 0;
   }
+
+  vg_mem_noaccess((void *)ip,len)
 
   ydbg3(loc,"bumpregion %.01llu ptr %zx len %u cel %u tag %.01u state %u",reg->uid,ip,len,cel,fretag,Atomgeta(fres + cel,Moacq))
   Atomset(reg->frees,frees + 1,Morel);

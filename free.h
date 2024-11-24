@@ -34,6 +34,7 @@ static enum Status free_mmap(heapdesc *hd,heap *hb,mpregion *reg,size_t ap,size_
     free2(Fln,Lfree,(xregion *)reg,ap,len,0,"mmap");
     return St_error;
   }
+  vg_mem_noaccess((void *)ip,len)
 
   if (ulen) {
     if (reg->ulen != ulen) {
@@ -512,13 +513,15 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,enum Loc
         }
         hd->hb = hb = xhb;
         hd->locked = 1;
-      } else if (hb == nil && reg->typ == Rslab) { // need to buffer
-        hb = heap_new(hd,loc,Fln);
-        if (hb == nil) return Nolen;
-        hd->hb = hb;
-        hd->locked = 1;
-        if (hb == reg->hb) local = 1;
       } // lock owner or new
+    }
+    if (local == 0 && hb == nil && reg->typ == Rslab) { // need to buffer
+      hb = heap_new(hd,loc,Fln);
+      if (hb == nil) return Nolen;
+      hd->hb = hb;
+      hd->locked = 1;
+      if (hb == reg->hb) local = 1;
+      ydbg1(Fln,loc,"hb %u local %u",hb->id,local);
     }
   } else {
     local = 1; // nil hb or reg not locked

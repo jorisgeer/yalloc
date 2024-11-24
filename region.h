@@ -630,7 +630,7 @@ static region *newregion(heap *hb,ub4 order,size_t len,size_t metaulen,ub4 celle
     if (reg == nil) {
       return nil;
     }
-    vg_mem_name(reg,sizeof(region),"'slab region'")
+    vg_mem_name(reg,sizeof(region),"'slab region'",uid,0)
     vg_drd_rwlock_init(reg)
 
     if ( (size_t)reg & 15) {
@@ -667,7 +667,6 @@ static region *newregion(heap *hb,ub4 order,size_t len,size_t metaulen,ub4 celle
     if (user == nil) {
       return nil;
     }
-    vg_mem_name(user,ulen,"'slab user'")
   } else {
     user = ouser;
     ulen = olen;
@@ -696,7 +695,6 @@ static region *newregion(heap *hb,ub4 order,size_t len,size_t metaulen,ub4 celle
     if (meta == nil) {
       return nil;
     }
-    vg_mem_name(meta,mlen,"'slab meta'")
   } else {
     ycheck(nil,0,ometa == nil,"nil meta for len %zu",omlen)
     meta = ometa;

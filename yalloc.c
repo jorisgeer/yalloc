@@ -104,7 +104,15 @@ extern char *getenv(const char *name); // no <stdlib.h> as its malloc() defines 
  #define vg_mem_noaccess(p,n) VALGRIND_MAKE_MEM_NOACCESS( (char *)(p),(n));
  #define vg_mem_undef(p,n) VALGRIND_MAKE_MEM_UNDEFINED( (char *)(p),(n));
  #define vg_mem_def(p,n) VALGRIND_MAKE_MEM_DEFINED( (char *)(p),(n));
- #define vg_mem_name(p,n,d) VALGRIND_CREATE_BLOCK((p),(n),(d));
+
+ static void vg_mem_fmtname(void *p,size_t len,cchar *desc,ub8 uid,ub4 cellen)
+ {
+   char buf[256];
+ 
+   snprintf_mini(buf,len,0,255,"'%s region %.01llu cel %u",desc,uid,cellen);
+   VALGRIND_CREATE_BLOCK(p,n,buf);
+ }
+ #define vg_mem_name(p,n,dsc,id,cel) vg_mem_fmtname((p),(n),(dsc),(id),(cel));
 
  #define vg_atom_before(adr) ANNOTATE_HAPPENS_BEFORE((adr));
  #define vg_atom_after(adr) ANNOTATE_HAPPENS_AFTER((adr));
@@ -135,7 +143,7 @@ static size_t vg_mem_isdef(void *p,size_t n) // defined when not expected
  #define vg_mem_noaccess(p,n)
  #define vg_mem_undef(p,n)
  #define vg_mem_def(p,n)
- #define vg_mem_name(p,n,d)
+ #define vg_mem_name(p,n,d,id,cel)
 
  #define vg_mem_isaccess(p,n) (size_t)((p))
  #define vg_mem_isdef(p,n) 0
@@ -475,6 +483,7 @@ struct Align(16) st_region { // slab region. allocated as pool from heap
 
   ub4 claspos;
   ub4 clr; // set if calloc needs to clear
+  ub4 align;
 
   // bin
   ub4 binpos;
@@ -772,11 +781,20 @@ static _Atomic ub4 global_hid = 1;
   void  __heap_after_fork_parent(void) {}
 
   static ub4 global_tls_index;
+  static _Atomic ub4 global_tls_check;
 
   extern int __init_heap(void);
   int __init_heap(void)
   {
-    ub4 index = tls_allocate();
+    ub4 index,from = 0;
+    bool didcas = Cas(global_tls_check,from,1);;
+
+    if (didcas == 0) {
+      warn(Lnone,"int_heap check %u",global_tls_check)
+       return 0;
+    }
+    index = tls_allocate();
+
     global_tls_index = index;
     minidiag(Yfln,Lnone,Debug,0,"tls index %u",index);
     return 0;
@@ -784,13 +802,18 @@ static _Atomic ub4 global_hid = 1;
 
   static inline heapdesc *tid_gethd(void)
   {
-    heapdesc *hd = tls_get(global_tls_index);
+    heapdesc *hd;
+
+    ycheck(nil,Lnone,global_tls_index == 0,"tls index 0 for chk %u",Atomget(global_tls_check,Moacq)
+    hd = tls_get(global_tls_index);
     return hd;
   }
 
-  static inline void tid_sethd(heapdesc *hd)
+  static inline bool tid_sethd(heapdesc *hd)
   {
+    ycheck(1,Lnone,global_tls_index == 0,"tls index 0 for chk %u",Atomget(global_tls_check,Moacq)
     tls_set(global_tls_index,hd);
+    return 0;
   }
 
  #else // typically C11

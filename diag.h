@@ -209,6 +209,8 @@ static Cold Printf(6,7) ub4 do_ylog(ub4 did,enum Loc loc,ub4 fln,enum Loglvl lvl
 
 #define errorctx(fln,loc,fmt,...) do_ylog(Diagcode,loc,fln,Nolvl,0,fmt,__VA_ARGS__);
 
+#define warn(loc,fmt,...) do_ylog(Diagcode,loc,Fln,Warn,0,fmt,__VA_ARGS__);
+
 #define ylogx(loc,fmt,...) do_ylog(0,loc,Fln,Info,0,fmt,__VA_ARGS__);
 
 #if Yal_enable_trace

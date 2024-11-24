@@ -264,6 +264,7 @@ static Hot void *alloc_heap(heapdesc *hd,heap *hb,size_t ulen,ub4 align,enum Loc
           nxpos = hb->claspos[nxclas];
           ycheck(nil,loc,nxpos >= Clasregs,"clas %u pos %u",clas,nxpos)
           nxreg = nxclasregs[nxpos];
+          openreg(nxreg);
           if (nxreg && (nxreg->binpos || nxreg->inipos < nxreg->celcnt)) { // use a larger one
             reg = nxreg;
             ypush(hd,loc,Fln)

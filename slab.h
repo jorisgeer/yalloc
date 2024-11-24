@@ -20,7 +20,7 @@
 // determine suitable size for new slab, given it's sequence in its class. Higher seqs get exponentially larger ones.
 static region *newslab(heap *hb,ub4 cellen,ub4 clas,ub4 claseq)
 {
-  ub4 order,addord,maxord,celord;
+  ub4 order,addord,maxord,celord,align;
   region *reg;
   ub4 rid;
   size_t reglen,xlen;
@@ -51,10 +51,12 @@ static region *newslab(heap *hb,ub4 cellen,ub4 clas,ub4 claseq)
   do {
     reglen = 1ul << order;
 
+    celord = ctz(cellen);
     if ( (cellen & (cellen - 1)) == 0) { // pwr2
-      celord = ctz(cellen);
+      align = cellen;
       cnt = (ub4)(reglen >> celord);
     } else {
+      align = 1u << celord;
       celord = 0;
       cnt = (ub4)(reglen / cellen);
       xlen = (size_t)cnt * cellen;
@@ -103,6 +105,8 @@ static region *newslab(heap *hb,ub4 cellen,ub4 clas,ub4 claseq)
 
   ycheck(nil,Lalloc,xlen / cellen < cnt,"region %u cnt %zu vs %zu",rid,xlen / cellen,cnt)
 
+  vg_mem_name(user,ulen,"slab user",reg->uid,cellen)
+
   reg->rbininc = Rbinbuf;
 
   reg->cellen = cellen; // gross, as allocated
@@ -115,6 +119,8 @@ static region *newslab(heap *hb,ub4 cellen,ub4 clas,ub4 claseq)
   reg->lenorg = lenorg;
   reg->tagorg = Yal_enable_tag ? tagorg : 0;
   reg->flnorg = flnlen ? flnorg : 0; //coverity[DEADCODE]
+
+  reg->align = align;
 
   // reg->metacnt = metacnt;
 
@@ -695,11 +701,11 @@ static ub4 slab_free_rheap(heapdesc *hd,heap *hb,region *reg,size_t ip,ub4 tag,e
   return cellen;
 }
 
-/* returns ptr or 0 if no space
+/* returns cel or Nocel if no space
    aligned_alloc selects a cel from the never allocated pool that may leave a gap
    This gap is moved to the bin
  */
-static Hot size_t slab_newalcel(region *reg,ub4 ulen,ub4 align,ub4 cellen Tagargt(tag) )
+static Hot ub4 slab_newalcel(region *reg,ub4 align,ub4 cellen)
 {
   size_t ip,base;
   ub4 c,cel,celcnt,ofs;
@@ -708,7 +714,6 @@ static Hot size_t slab_newalcel(region *reg,ub4 ulen,ub4 align,ub4 cellen Tagarg
   ub4 *meta;
   ub4 *binp;
   bool rv;
-  ub4 *len4;
 
   meta = reg->meta;
   base = reg->user;
@@ -717,23 +722,23 @@ static Hot size_t slab_newalcel(region *reg,ub4 ulen,ub4 align,ub4 cellen Tagarg
   cel = inipos;
   if (cel == celcnt) {
     reg->fln = Fln;
-    return 0; // common if no cels are never allocated. Searching in the bin is too expensive
+    return Nocel; // common if no cels are never allocated. Searching in the bin is too expensive
   }
   ip = base + (size_t)cel * cellen;
   ip = doalign8(ip,align);
   ofs = (ub4)(ip - base);
-  ycheck(0,Lallocal,reg->celord == 0,"region %u cellen %u,cellen",reg->id,cellen)
+  ycheck(Nocel,Lallocal,reg->celord == 0,"region %u cellen %u,cellen",reg->id,cellen)
   cel = ofs >> reg->celord;
 
   if (cel >= celcnt) {
     reg->fln = Fln;
-    return 0;
+    return Nocel;
   }
   ydbg3(Lallocal,"cel %u ini %u",cel,inipos);
   rv = slab_markused(reg,cel,0,Fln);
   if (unlikely(rv != 0)) {
     reg->fln = Fln;
-    return 0;
+    return Nocel;
   }
   if (cel + 1 == celcnt) { ydbg3(Lallocal,"cel %u ini %u",cel,inipos) }
 
@@ -753,19 +758,7 @@ static Hot size_t slab_newalcel(region *reg,ub4 ulen,ub4 align,ub4 cellen Tagarg
   }
   ystats(reg->stat.iniallocs)
 
-#if Yal_enable_tag
-  size_t tagorg = reg->tagorg;
-  ub4 *tags = meta + tagorg;
-
-  tags[cel] = tag;
-#endif
-
-  if (cellen <= Cel_nolen) return ip;
-
-  len4 = meta + reg->lenorg;
-  len4[cel] = ulen;
-
-  return ip;
+  return cel;
 }
 
 // returns cel or Nocel if full
@@ -802,6 +795,7 @@ static Hot ub4 slab_newcel(region *reg,enum Loc loc)
       }
       error(loc,"reg %.01llu bin %u",reg->uid,pos)
     }
+
     reg->binpos = pos;
     bin[pos] = Nocel;
 
@@ -869,7 +863,7 @@ static Hot void *slab_alloc( Unused heapdesc *hd,region *reg,ub4 ulen,ub4 align,
   ycheck(nil,loc,reg->aged != 0,"region %.01llu age %u.%u",reg->uid,reg->age,reg->aged)
 
   reg->age = 0;
-  if (unlikely(loc == Lallocal && align > cellen )) {
+  if (unlikely(loc == Lallocal && align > reg->align)) { // aligned_alloc
     ystats(reg->stat.Allocs)
 #if Yal_enable_stats >= 2
     ub4 abit = ctz(ulen);
@@ -877,13 +871,11 @@ static Hot void *slab_alloc( Unused heapdesc *hd,region *reg,ub4 ulen,ub4 align,
     reg->stat.aligns[abit] = acnt + 1;
 #endif
     ypush(hd,loc,Fln)
-    ip = slab_newalcel(reg,ulen,align,cellen Tagarg(tag) );
-    vg_mem_undef(ip,ulen)
-    return (void *)ip;
-  } // aligned_alloc
-
-  ypush(hd,loc,Fln)
-  cel = slab_newcel(reg,loc);
+    cel = slab_newalcel(reg,align,cellen);
+  }  else {
+    ypush(hd,loc,Fln)
+    cel = slab_newcel(reg,loc);
+  }
   if (unlikely(cel == Nocel)) {
     ydbg3(loc,"no cel in region %u seq %zu",reg->id,reg->stat.iniallocs)
     return nil;
