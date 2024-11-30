@@ -92,71 +92,6 @@ extern char *getenv(const char *name); // no <stdlib.h> as its malloc() defines 
  #define Einval
 #endif
 
-/* Support using Valgrind without replacing malloc as if replaced.
- * using vg client requests to emulate memcheck's checks
- * These calls add minimal overhead when not running in vg
- * typical usage: valgrind --tool=memcheck--soname-synonyms=somalloc=nouserintercept
- */
-#if Yal_enable_valgrind
- #include <valgrind/valgrind.h>
- #include <valgrind/memcheck.h>
- #include <valgrind/drd.h>
- #define vg_mem_noaccess(p,n) VALGRIND_MAKE_MEM_NOACCESS( (char *)(p),(n));
- #define vg_mem_undef(p,n) VALGRIND_MAKE_MEM_UNDEFINED( (char *)(p),(n));
- #define vg_mem_def(p,n) VALGRIND_MAKE_MEM_DEFINED( (char *)(p),(n));
-
- static void vg_mem_fmtname(void *p,size_t len,cchar *desc,ub8 uid,ub4 cellen)
- {
-   char buf[256];
- 
-   snprintf_mini(buf,len,0,255,"'%s region %.01llu cel %u",desc,uid,cellen);
-   VALGRIND_CREATE_BLOCK(p,n,buf);
- }
- #define vg_mem_name(p,n,dsc,id,cel) vg_mem_fmtname((p),(n),(dsc),(id),(cel));
-
- #define vg_atom_before(adr) ANNOTATE_HAPPENS_BEFORE((adr));
- #define vg_atom_after(adr) ANNOTATE_HAPPENS_AFTER((adr));
-
- #define vg_drd_rwlock_init(p) ANNOTATE_RWLOCK_CREATE((p));
- #define vg_drd_wlock_acq(p) ANNOTATE_WRITERLOCK_ACQUIRED((p));
- #define vg_drd_wlock_rel(p) ANNOTATE_WRITERLOCK_RELEASED((p));
-
-static size_t vg_mem_isaccess(void *p,size_t n) // accessible when not expected
-{
-  size_t adr;
-  unsigned int tid;
-
-  if (RUNNING_ON_VALGRIND == 0) return (size_t)p;
-  tid = DRD_GET_DRD_THREADID;
-  if (tid) return (size_t)p;
-  adr = VALGRIND_CHECK_MEM_IS_ADDRESSABLE(p,n);
-  return adr;
-}
-
-static size_t vg_mem_isdef(void *p,size_t n) // defined when not expected
-{
-  size_t adr = VALGRIND_CHECK_MEM_IS_DEFINED(p,n);
-  return adr;
-}
-
-#else
- #define vg_mem_noaccess(p,n)
- #define vg_mem_undef(p,n)
- #define vg_mem_def(p,n)
- #define vg_mem_name(p,n,d,id,cel)
-
- #define vg_mem_isaccess(p,n) (size_t)((p))
- #define vg_mem_isdef(p,n) 0
-
- // #define vg_atom_before(adr)
- // #define vg_atom_after(adr)
-
- #define vg_drd_rwlock_init(p)
- #define vg_drd_wlock_acq(p)
- #define vg_drd_wlock_rel(p)
-
-#endif
-
 #include "base.h"
 
 #include "malloc.h" // nonstandard, common extensions
@@ -227,6 +162,73 @@ static const ub4 Pagesize1 = Pagesize - 1;
   #include "printf.c"
 #else
   #include "printf.h"
+#endif
+
+/* Support using Valgrind without replacing malloc as if replaced.
+ * using vg client requests to emulate memcheck's checks
+ * These calls add minimal overhead when not running in vg
+ * typical usage: valgrind --tool=memcheck--soname-synonyms=somalloc=nouserintercept
+ */
+#if Yal_enable_valgrind
+ #include <valgrind/valgrind.h>
+ #include <valgrind/memcheck.h>
+ #include <valgrind/drd.h>
+ #define vg_mem_noaccess(p,n) VALGRIND_MAKE_MEM_NOACCESS( (char *)(p),(n));
+ #define vg_mem_undef(p,n) VALGRIND_MAKE_MEM_UNDEFINED( (char *)(p),(n));
+ #define vg_mem_def(p,n) VALGRIND_MAKE_MEM_DEFINED( (char *)(p),(n));
+
+ static void vg_mem_fmtname(void *p,size_t len,cchar *desc,ub8 uid,ub4 cellen)
+ {
+   char buf[256];
+ 
+   snprintf_mini(buf,0,255,"'%s region %.01llu cellen %u'",desc,uid,cellen);
+   VALGRIND_CREATE_BLOCK(p,len,buf);
+ }
+ #define vg_mem_name(p,n,dsc,id,cel) vg_mem_fmtname((p),(n),(dsc),(id),(cel));
+
+ #define vg_atom_before(adr) ANNOTATE_HAPPENS_BEFORE((adr));
+ #define vg_atom_after(adr) ANNOTATE_HAPPENS_AFTER((adr));
+
+ #define vg_drd_rwlock_init(p) ANNOTATE_RWLOCK_CREATE((p));
+ #define vg_drd_wlock_acq(p) ANNOTATE_WRITERLOCK_ACQUIRED((p));
+ #define vg_drd_wlock_rel(p) ANNOTATE_WRITERLOCK_RELEASED((p));
+
+#if 0
+static size_t vg_mem_isaccess(void *p,size_t n) // accessible when not expected
+{
+  size_t adr;
+  unsigned int tid;
+
+  if (RUNNING_ON_VALGRIND == 0) return (size_t)p;
+  tid = DRD_GET_DRD_THREADID;
+  if (tid) return (size_t)p;
+  adr = VALGRIND_CHECK_MEM_IS_ADDRESSABLE(p,n);
+  return adr;
+}
+
+static size_t vg_mem_isdef(void *p,size_t n) // defined when not expected
+{
+  size_t adr = VALGRIND_CHECK_MEM_IS_DEFINED(p,n);
+  return adr;
+}
+#endif
+
+#else
+ #define vg_mem_noaccess(p,n)
+ #define vg_mem_undef(p,n)
+ #define vg_mem_def(p,n)
+ #define vg_mem_name(p,n,d,id,cel)
+
+ #define vg_mem_isaccess(p,n) (size_t)((p))
+ #define vg_mem_isdef(p,n) 0
+
+ // #define vg_atom_before(adr)
+ // #define vg_atom_after(adr)
+
+ #define vg_drd_rwlock_init(p)
+ #define vg_drd_wlock_acq(p)
+ #define vg_drd_wlock_rel(p)
+
 #endif
 
 #ifdef Inc_os
@@ -357,7 +359,6 @@ struct regstat {
   ub4 minlen,maxlen;
   size_t rbin;
   size_t invalidfrees;
-  ub4 aligns[32];
 };
 
 struct Align(16) st_xregion { // base, only type
@@ -566,7 +567,7 @@ struct Align(16) st_heap {
 
   // mrf list of freed regions, per order
   struct st_region * freeregs[Regorder + 1];
-  struct st_mpregion* freempregs[Vmbits - Mmap_threshold + 1];
+  struct st_mpregion* freempregs[Vmbits + 1];
   struct st_mpregion* freemp0regs;
 
   struct st_heap *nxt; // list for reassign
@@ -692,8 +693,7 @@ static heapdesc * _Atomic global_freehds;
   static void thread_setclean(Unused heapdesc * hd) { }
 #endif
 
-static size_t Align(16) zeroarea[16];
-static size_t *zeroblock = zeroarea + 4; // malloc(0)
+static ub4 *global_zeroblock; // malloc(0)
 
 #include "boot.h"
 
@@ -707,10 +707,10 @@ static _Atomic ub4 global_hid = 1;
 
 #if Yal_tidmode == 2  // use pthread_self()
 
- #if defined __musl_libc__
+ #if __musl_libc__
   #define Yal_pthread_int "pthread_impl.h"
   #define Yal_pthread_tid tid
- #elif defined  __haiku_libroot__
+ #elif __haiku_libroot__
   #define Yal_pthread_int "pthread_private.h"
   #define Yal_pthread_tid id
  #elif defined __GLIBC__
@@ -759,10 +759,10 @@ static _Atomic ub4 global_hid = 1;
 
 #elif Yal_tidmode == 1 // use TLS
 
- #ifdef __musl_libc__
+ #if __musl_libc__
   #error "TODO tidmode 1 in musl"
 
- #elif defined __HAIKU__ && defined __haiku_libroot__
+ #elif defined __HAIKU__ && __haiku_libroot__
 
   #include <support/TLS.h>
  
@@ -790,8 +790,8 @@ static _Atomic ub4 global_hid = 1;
     bool didcas = Cas(global_tls_check,from,1);;
 
     if (didcas == 0) {
-      warn(Lnone,"int_heap check %u",global_tls_check)
-       return 0;
+      minidiag(Yfln,Lnone,Warn,0,"int_heap check %u",global_tls_check);
+      return 0;
     }
     index = tls_allocate();
 
@@ -804,14 +804,14 @@ static _Atomic ub4 global_hid = 1;
   {
     heapdesc *hd;
 
-    ycheck(nil,Lnone,global_tls_index == 0,"tls index 0 for chk %u",Atomget(global_tls_check,Moacq)
+    if (global_tls_index == 0) minidiag(Yfln,Lnone,Fatal,0,"tls index 0 for chk %u",Atomget(global_tls_check,Moacq));
     hd = tls_get(global_tls_index);
     return hd;
   }
 
   static inline bool tid_sethd(heapdesc *hd)
   {
-    ycheck(1,Lnone,global_tls_index == 0,"tls index 0 for chk %u",Atomget(global_tls_check,Moacq)
+    if (global_tls_index == 0) minidiag(Yfln,Lnone,Fatal,0,"tls index 0 for chk %u",Atomget(global_tls_check,Moacq));
     tls_set(global_tls_index,hd);
     return 0;
   }
@@ -893,7 +893,8 @@ static heapdesc *new_heapdesc(enum Loc loc)
     _Exit(1);
   }
 
-  hd->tidstate = Ts_mt;
+  if (Yal_enable_private == 2) hd->tidstate = Ts_private;
+  else hd->tidstate = Ts_mt;
 
   tid_sethd(hd);
   thread_setclean(hd);

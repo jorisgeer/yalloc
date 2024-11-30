@@ -110,6 +110,7 @@ static const unsigned int regfree_interval = 0xff;
 
 // --- safety ---
 #define Realloc_clear 0 // clear freed part if shrinking block
+#define Alloc_last_freed 1 // alloc returns most recently freed block
 
 // ageing thresholds
 static unsigned int Trim_ages[3] = {
@@ -161,7 +162,7 @@ static const unsigned int Private_interval = 0xff; // pwr2 - 1
 /* Thread support mode
   0 - none
   1 - TLS
-  2 - pthread_self() (only wrks when embedding in libc)
+  2 - thread ID (currently only supported in embedded musl or haiku libc)
 */
 #define Yal_tidmode 1
 #define Maxtid 65536
@@ -193,7 +194,9 @@ static const unsigned int Private_interval = 0xff; // pwr2 - 1
 // --- extensions / compatibility ---
 #define Yal_enable_extensions 1
 
-#define Yal_psx_memalign 1 // 2 to include valloc
+#define Yal_psx_memalign 2 // 2 to include valloc
+
+#define Yal_reallocarray 1
 
 #define Yal_enable_c23 1 // free_sized
 #define Yal_glibc_mtrace 0
@@ -206,3 +209,9 @@ static const unsigned int Private_interval = 0xff; // pwr2 - 1
 
 // --- build ---
 #define Miniprint_inc
+
+// #define Inc_os
+
+#define __musl_libc__ 0 // Set if integrating into musl libc
+
+#define __haiku_libroot__ 0 // Set if integrating into Haiku libroot

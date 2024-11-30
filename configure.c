@@ -10,6 +10,7 @@
 
 #include <stdarg.h>
 #include <string.h>
+#include <errno.h>
 #include <stdio.h> // rename
 #include <time.h>
 
@@ -288,7 +289,7 @@ static ub4 genconfig(cchar *name,ub4 pagebits,char *nowtim)
 
   pos = snprintf_mini(bck,0,len,"%s.bak",name);
   if (pos) {
-    if (rename(name,bck)) warning(L,"cannot rename %s to %s: %m",name,bck);
+    if (rename(name,bck) && errno != ENOENT) warning(L,"cannot rename %s to %s: %m",name,bck);
   }
   if (sizeof(int) == 8) byte8 = "int";
   else if (sizeof(long) == 8) byte8 = "long";

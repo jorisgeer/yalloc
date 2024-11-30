@@ -11,7 +11,7 @@
 
 #define Logfile Ffree
 
-// Free large block. If hb != nil, it is local and we can age. Otherwise unmap directly.
+// Free large block. If hb != nil, it is local and we can age. Otherwise trigger age later.
 static enum Status free_mmap(heapdesc *hd,heap *hb,mpregion *reg,size_t ap,size_t ulen,enum Loc loc,ub4 fln,ub4 tag)
 {
   mpregion *preg;
@@ -56,34 +56,26 @@ static enum Status free_mmap(heapdesc *hd,heap *hb,mpregion *reg,size_t ap,size_
 
   ytrace(1,hd,loc,tag,0,"ptr-%zx len %zu mmap",ip,len)
 
-  if (len >= Mmap_retainlimit) { // release directly
-    ydbg1(Fln,loc,"unmap region %u",reg->id)
-    if (hb) {
-      setregion(hb,(xregion *)reg,ip,Pagesize,0,loc,Fln);
-      if (align) setregion(hb,(xregion *)reg,aip,Pagesize,0,loc,Fln);
-      preg = hb->freemp0regs;
-      hb->freemp0regs = reg;
-      reg->frenxt = preg;
-      reg->freprv = nil;
-      if (preg) preg->freprv = reg;
-    } else {
-      setgregion(hb,(xregion *)reg,ip,Pagesize,0,loc,Fln);
-      if (align) setgregion(hb,(xregion *)reg,aip,Pagesize,0,loc,Fln);
-    }
-    osmunmap((void *)ip,len);
-    hd->stat.munmaps++;
-    reg->len = 0;
-    return St_ok;
-  }
-
   if (hb) { // allow direct recycling
     ydbg2(fln,loc,"free mmap region %u.%u len %zu`",reg->hid,reg->id,len)
     setregion(hb,(xregion *)reg,ip,Pagesize,0,Lfree,Fln);
     if (align) setregion(hb,(xregion *)reg,ip + align,Pagesize,0,Lfree,Fln);
     reg->align = 0;
 
-    preg = hb->freempregs[order - Mmap_threshold];
-    hb->freempregs[order - Mmap_threshold] = reg;
+    if (len >= Mmap_retainlimit) { // release directly
+      preg = hb->freemp0regs;
+      hb->freemp0regs = reg;
+      reg->frenxt = preg;
+      reg->freprv = nil;
+      if (preg) preg->freprv = reg;
+      osmunmap((void *)ip,len);
+      hd->stat.munmaps++;
+      reg->len = 0;
+      return St_ok;
+    }
+
+    preg = hb->freempregs[order];
+    hb->freempregs[order] = reg;
     reg->frenxt = preg;
     reg->freprv = nil;
     if (preg) preg->freprv = reg;
@@ -91,7 +83,7 @@ static enum Status free_mmap(heapdesc *hd,heap *hb,mpregion *reg,size_t ap,size_
     hb->stat.trimregions[5]++;
     Atomset(reg->age,2,Morel);
     reg->aged = 1;
-  } else {
+  } else if (align == 0) {
     from = 0; didcas = Cas(reg->age,from,1); // start ageing
     ycheck(St_error,loc,didcas == 0,"free mmap region %u.%u age %u",reg->hid,reg->id,from)
   }
@@ -327,7 +319,7 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 tick)
     base = mreg->user;
     order = mreg->order;
     ycheck(1,Lnone,order >= Vmbits,"region %u order %u",rid,order)
-    ycheck(1,Lnone,order < Mmap_threshold,"region %u order %u",rid,order)
+    ycheck(1,Lnone,order <= Page,"region %u order %u",rid,order)
 
     if (aged == 0 && age >= ages[0]) { // arrange for recycling, add to freelist
       ydbg1(Fln,Lfree,"recycle mmap region %u ord %u",rid,order);
@@ -337,8 +329,8 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 tick)
       mreg->align = 0;
 
       // add to sized list
-      pmreg = hb->freempregs[order - Mmap_threshold];
-      hb->freempregs[order - Mmap_threshold] = mreg;
+      pmreg = hb->freempregs[order];
+      hb->freempregs[order] = mreg;
       mreg->frenxt = pmreg;
       mreg->freprv = nil;
       if (pmreg) pmreg->freprv = mreg;
@@ -376,7 +368,7 @@ static bool free_trim(heapdesc *hd,heap *hb,ub4 tick)
         pmreg->frenxt = nmreg;
         if (nmreg) nmreg->freprv = pmreg;
       } else {
-        hb->freempregs[order - Mmap_threshold] = nmreg;
+        hb->freempregs[order] = nmreg;
         if (nmreg) nmreg->freprv = nil;
       }
       mreg->frenxt = mreg->freprv = nil;
@@ -449,14 +441,13 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,enum Loc
     ytrace(0,hd,loc,tag,0,"free(%zx)",ip)
 
     // empty block ?
-    if (unlikely(p == (void *)zeroblock)) {
- #if Yal_enable_valgrind == 0
-      size_t x8 = 0;
-      ub4 i;
-      for (i = 0; i < 8; i++) x8 |= zeroarea[i];
-      if (unlikely(x8 != 0)) error(loc,"written to malloc(0) block (%p) = %zx",p,x8)
+    if (unlikely(p == global_zeroblock)) { // malloc(0) ?
+      ytrace(1,hd,loc,tag,0,"free(%zx) = 0",ip)
+ #if Yal_enable_valgrind == 0 && Yal_enable_check > 1
+      ub4 x4 = 0,i;
+      for (i = 0; i < 256; i++) x4 |= global_zeroblock[i];
+      if (unlikely(x4 != 0)) error(loc,"written to malloc(0) block (%p) = %x",p,x4)
 #endif
-      ytrace(1,hd,loc,tag,0,"free(%zx) len 0",ip)
       ystats(hd->stat.free0s)
       return 0;
     }
@@ -520,8 +511,9 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,enum Loc
       if (hb == nil) return Nolen;
       hd->hb = hb;
       hd->locked = 1;
+      vg_mem_def((void *)reg,sizeof(xregion))
       if (hb == reg->hb) local = 1;
-      ydbg1(Fln,loc,"hb %u local %u",hb->id,local);
+      ydbg2(Fln,loc,"hb %u local %u",hb->id,local);
     }
   } else {
     local = 1; // nil hb or reg not locked
@@ -560,9 +552,13 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,enum Loc
       return cellen;
     } // local or not
 
-      ycheck(Nolen,loc,hb == reg->hb,"hb %u eq %u for reg %u",hb->id,reg->hb->id,reg->id)
-      ytrace(1,hd,loc,tag,creg->stat.frees,"ptr+%zx len %u",ip,cellen)
-      len4 = slab_free_rheap(hd,hb,creg,ip,tag,loc); // buffer
+      if (hb == reg->hb) {
+        ydbg2(Fln,loc,"hb %u eq %u for reg %u",hb->id,reg->hb->id,reg->id)
+        return 0;
+      } else {
+        ytrace(1,hd,loc,tag,creg->stat.frees,"ptr+%zx len %u",ip,cellen)
+        len4 = slab_free_rheap(hd,hb,creg,ip,tag,loc); // buffer
+      }
       if (likely(len4 != 0)) return len4;
 
       hd->stat.invalid_frees++;

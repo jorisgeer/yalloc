@@ -74,6 +74,7 @@ static void *bumpalloc(heapdesc *hd,heap *hb,ub4 hid,bregion *regs,ub4 regcnt,ub
   _Atomic ub2 *lens;
   ub4 *tags;
   size_t ip,base;
+  ub4 ord;
   ub4 pos = 0,cel;
   _Atomic ub1 *fres;
   ub4 regpos=0;
@@ -112,8 +113,14 @@ static void *bumpalloc(heapdesc *hd,heap *hb,ub4 hid,bregion *regs,ub4 regcnt,ub
   base = reg->user;
   meta = reg->meta;
 
-  if (unlikely(loc == Lallocal && pos != 0)) {
-    pos = doalign4(pos,align);
+  if (unlikely(loc == Lallocal)) {
+    if (hb) {
+      ord = ctz(align);
+      ystats(hb->stat.slabAllocs)
+      ystats(hb->stat.slabaligns[ord])
+    }
+    if (likely(pos != 0)) pos = doalign4(pos,align);
+    else if (align > Pagesize) return nil;
     if (pos + len > reg->len) return nil;
   }
 

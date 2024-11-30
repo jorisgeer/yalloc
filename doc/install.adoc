@@ -1,0 +1,72 @@
+== Introduction
+You can build and use yalloc standalone, e.g. when including manually in your own project. A `build.sh` script is provided for such use case, as well as serving as documentation for how to build otherwise.
+
+When integrating into an existing project or a system's standard library, you will depend on that system's build system. Below are two examples, explaining the steps taken.
+
+
+== Prerequisites
+- 64 or 32 bit Unix-like operating system with mmap() support. Linux, FreeBSD, MacOs and Haiku are tested.
+
+- C11 C compiler or C99 compiler with atomics support. If atomics are not available, free(p) and realloc(p,n) need to be called from the same thread malloc() was called.
+
+- Either thread local store or pthreads.
+
+== Building
+
+=== Standalone
+Review settings in `config.h`. +
+
+Review compiler and options in `build.sh`. +
+
+Certain platform details are autodetected, yet not all. Make sure to review above files carefully. It also gives you a hint of available options.
+
+The preferred way to build is :
+
+  ./build.sh
+
+Now you can link your app statically with `yalloc.o os.o` or dynamically with `yalloc.so`
+
+Alternatively, you may be able to include `yalloc.c` directly in your source, setting `Inc_os` in `config.h`
+
+=== Integrated
+If building yalloc as part of a project.you need to run the following steps in order:
+
+  cc -c os.c
+  cc -o configure configure.c os.o
+  ./configure
+  cc -c yalloc.c
+  cc -shared -o yalloc.so *.o (only if a shared library is needed)
+
+Note: you may need to specify `-ftls-model=global-dynamic` or equivalent if your app uses `dlopen()`
+
+==== Example: http://musl.libc.org[musl] libc 
+First, build yalloc in a separate directory as above. You may want to add a -V flag to build.sh to include basic testing.
+
+  cd yalloc && ./build.sh -V
+  mkdir../musl/src/malloc/yalloc
+  cp yalloc.c os.c printf.c .*.h../musl/src/malloc/yalloc
+  cd ../musl/src/malloc/yalloc
+  vi config.h
+    set __musl_libc__ 1
+    set Yal_tidmode 2
+  cd ../../..  
+  ./configure --prefix=...
+  vi config.mak
+    MALLOC_DIR = yalloc
+  make && make install
+
+== Testing
+
+=== static linking, any platform
+  cc -o myprog [ your project ] yalloc/yalloc.o yalloc/os.o
+
+=== dynamic linking, Linux, Freebsd, Haiku
+
+  LD_PRELOAD=/path/to/yalloc.so gcc -O -c insn_emit.c
+
+  gdb -iex "set exec-wrapper env LD_PRELOAD=./yalloc.so" --args python -c 'print(1+1)'
+
+  valgrind --trace-children=yes --soname-synonyms=somalloc=nouserintercept /usr/bin/env LD_PRELOAD=./yalloc.so firefox
+
+=== idem, macos
+  DYLD_INSERT_LIBRARIES=yalloc.so /Applications/Safari.app/Contents/MacOS/Safari

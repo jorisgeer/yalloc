@@ -10,7 +10,7 @@
 
 #define Logfile Fheap
 
-static bool slab_reset(region *reg);
+// static bool slab_reset(region *reg);
 
 static void heap_init(heap *hb)
 {
@@ -24,6 +24,7 @@ static void heap_init(heap *hb)
   hb->stat.minrelen = Hi64;
 }
 
+#if 0
 static void heap_reset(heap *hb)
 {
   region *reg,*nreg;
@@ -35,6 +36,7 @@ static void heap_reset(heap *hb)
     reg = nreg;
   }
 }
+#endif
 
 // create heap for new thread
 static heap *newheap(heapdesc *hd,enum Loc loc,ub4 fln)
@@ -51,7 +53,7 @@ static heap *newheap(heapdesc *hd,enum Loc loc,ub4 fln)
   ub4 len;
   ub4 hlen = sizeof(heap);
   ub4 rsiz = sizeof(region);
-  ub4 xrsiz = sizeof(xregion);
+  ub4 xrsiz = sizeof(mpregion);
   ub4 rlen = Regmem_inc * rsiz;
   ub4 rxlen = Xregmem_inc * xrsiz;
   ub4 dlen = Dirmem_init * Dir2len;
@@ -68,10 +70,9 @@ static heap *newheap(heapdesc *hd,enum Loc loc,ub4 fln)
   len = doalign4(len,16u);
 
   if (id < 3) { // first heaps
-    ydbg1(fln,loc,"page %u clas %u zero %zx",Page,Clascnt,(size_t)zeroblock)
+    ydbg1(fln,loc,"page %u clas %u zero %zx",Page,Clascnt,(size_t)global_zeroblock)
     ydbg1(Fln,loc,"sizes: region %u clasregs %u rootdir %u",rsiz,(ub4)sizeof(hb->clasregs),(ub4)sizeof(hb->rootdir))
   }
-  ydbg2(fln,loc,"new heap %u for %u base %u regs %u+%u dir %up + %up = %u` tag %.01u",hid,id,hlen,rlen,rxlen,dlen,llen,len,fln);
 
   if (hid > tidcnt + 1) {
     errorctx(Fln,Lnone,"base %u",id)
@@ -81,6 +82,8 @@ static heap *newheap(heapdesc *hd,enum Loc loc,ub4 fln)
   if (vbase == nil) return nil;
   base = (size_t)vbase;
   hb = (heap *)base;
+
+  ydbg1(fln,loc,"new heap %u for %u base %u regs %u+%u dir %up + %up = %u` tag %.01u %zx",hid,id,hlen,rlen,rxlen,dlen,llen,len,fln,base);
 
   base += hlen;
   ycheck(nil,loc,(base & 15),"regmem align %zx hlen %x",base,hlen)
@@ -145,9 +148,9 @@ static heap *heap_new(heapdesc *hd,enum Loc loc,ub4 fln)
     if (didcas) {
       vg_drd_wlock_acq(hb)
       Atomset(hb->locfln,Fln,Morel);
-      heap_reset(hb);
+      // heap_reset(hb);
       hd->stat.useheaps++;
-      ydbg2(fln,Lnone,"use next heap %u for %u",hb->id,hd->id);
+      ydbg1(fln,Lnone,"use next heap %u for %u %zx",hb->id,hd->id,(size_t)hb);
       return hb;
     }
 #if Yal_dbg_level > 1

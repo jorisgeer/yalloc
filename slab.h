@@ -53,10 +53,10 @@ static region *newslab(heap *hb,ub4 cellen,ub4 clas,ub4 claseq)
 
     celord = ctz(cellen);
     if ( (cellen & (cellen - 1)) == 0) { // pwr2
-      align = cellen;
+      align = min(cellen,Pagesize);
       cnt = (ub4)(reglen >> celord);
     } else {
-      align = 1u << celord;
+      align = cellen < 16 ? clas2len[clas] : 16;
       celord = 0;
       cnt = (ub4)(reglen / cellen);
       xlen = (size_t)cnt * cellen;
@@ -105,7 +105,7 @@ static region *newslab(heap *hb,ub4 cellen,ub4 clas,ub4 claseq)
 
   ycheck(nil,Lalloc,xlen / cellen < cnt,"region %u cnt %zu vs %zu",rid,xlen / cellen,cnt)
 
-  vg_mem_name(user,ulen,"slab user",reg->uid,cellen)
+  vg_mem_name((void *)reg->user,reg->len,"slab user",reg->uid,cellen)
 
   reg->rbininc = Rbinbuf;
 
@@ -521,6 +521,7 @@ static size_t slab_unbuffer(heap *hb,enum Loc loc,ub4 frees)
         ycheck(0,loc,pos == 0,"class %u seq %u pos 0 nil cnt",clas,seq)
         ycheck(0,loc,pos >= cnt,"class %u seq %u pos %u above %u",clas,seq,pos,cnt)
         reg = remp->reg;
+        openreg(reg)
         ycheck1(0,loc,remp->celcnt != reg->celcnt,"class %u seq %u cellen %u vs %u",clas,seq,remp->celcnt,reg->celcnt)
         ycheck(0,loc,pos > reg->celcnt,"class %u seq %u pos 0 nil cnt",clas,seq)
         ycheck1(0,loc,reg->hid != hid,"hid %u vs %u",hid,reg->hid)
@@ -709,6 +710,7 @@ static Hot ub4 slab_newalcel(region *reg,ub4 align,ub4 cellen)
 {
   size_t ip,base;
   ub4 c,cel,celcnt,ofs;
+  ub4 celord = reg->celord;
   ub4 inipos = reg->inipos;
   ub4 binpos = reg->binpos;
   ub4 *meta;
@@ -720,20 +722,27 @@ static Hot ub4 slab_newalcel(region *reg,ub4 align,ub4 cellen)
 
   celcnt = reg->celcnt;
   cel = inipos;
+
   if (cel == celcnt) {
     reg->fln = Fln;
     return Nocel; // common if no cels are never allocated. Searching in the bin is too expensive
   }
+
+  ycheck(Nocel,Lallocal,celord == 0,"region %u cellen %u",reg->id,cellen)
   ip = base + (size_t)cel * cellen;
   ip = doalign8(ip,align);
   ofs = (ub4)(ip - base);
-  ycheck(Nocel,Lallocal,reg->celord == 0,"region %u cellen %u,cellen",reg->id,cellen)
-  cel = ofs >> reg->celord;
+  cel = ofs >> celord;
 
+  if (cel << celord != ofs) {
+    reg->fln = Fln;
+    return Nocel;
+  }
   if (cel >= celcnt) {
     reg->fln = Fln;
     return Nocel;
   }
+
   ydbg3(Lallocal,"cel %u ini %u",cel,inipos);
   rv = slab_markused(reg,cel,0,Fln);
   if (unlikely(rv != 0)) {
@@ -842,7 +851,7 @@ static Hot ub4 slab_newcel(region *reg,enum Loc loc)
 }
 
 // generic for malloc,calloc,aligned_alloc
-static Hot void *slab_alloc( Unused heapdesc *hd,region *reg,ub4 ulen,ub4 align,enum Loc loc,ub4 tag)
+static Hot void *slab_alloc( Unused heapdesc *hd,heap *hb,region *reg,ub4 ulen,ub4 align,enum Loc loc,ub4 tag)
 {
   ub4 cel,cellen;
   ub4 inipos;
@@ -864,11 +873,10 @@ static Hot void *slab_alloc( Unused heapdesc *hd,region *reg,ub4 ulen,ub4 align,
 
   reg->age = 0;
   if (unlikely(loc == Lallocal && align > reg->align)) { // aligned_alloc
-    ystats(reg->stat.Allocs)
-#if Yal_enable_stats >= 2
-    ub4 abit = ctz(ulen);
-    ub4 acnt = reg->stat.aligns[abit] & Hi31;
-    reg->stat.aligns[abit] = acnt + 1;
+#if Yal_enable_stats > 1
+    ub4 abit = ctz(align);
+    reg->stat.Allocs++;
+    hb->stat.slabaligns[abit]++;
 #endif
     ypush(hd,loc,Fln)
     cel = slab_newalcel(reg,align,cellen);
@@ -1028,7 +1036,14 @@ static Hot ub4 slab_frecel(heap *hb,region *reg,ub4 cel,ub4 cellen,ub4 celcnt,ub
   meta = reg->meta;
   bin = meta + reg->binorg;
   ycheck(0,Lfree,(size_t)(bin + pos) >= reg->metautop,"bin pos %u above meta %zu",pos,reg->metautop)
+
+#if Alloc_last_freed == 0 // swap mru with lru
+  ub4 cel0 = bin[0];
+  bin[pos] = cel0;
+  bin[0] = cel;
+#else
   bin[pos] = cel;
+#endif
 
   pos++;
   reg->binpos = pos;
@@ -1075,10 +1090,12 @@ static Hot ub4 slab_free(heap *hb,region *reg,size_t ip,ub4 cellen,ub4 celcnt,ub
   return bincnt;
 }
 
+#if 0
 static bool slab_reset(region *reg)
 {
   ycheck(1,Lnone,reg->uid == 0,"region %.01llu",reg->uid)
   return 0;
 }
+#endif
 
 #undef Logfile

@@ -20,7 +20,7 @@ double free and invalid free detection:: With configurable handling and reportin
 
 multithreading supported by nonblocking atomics::  creating heaps on-demand to avoid contention.
 
-configurable statistics, tracing and diagnostics:: low-overhead detailed stats.
+configurable statistics, tracing and diagnostics:: low-overhead detailed stats and tracing.
 
 modest code size & complexity:: &tilde; 8 KLOC inclusive, compiling into &tilde; 60 KB code.
 
@@ -28,8 +28,8 @@ good performance:: compares well in many link:https://github.com/daanx/mimalloc-
 
 == Status
 Alpha, no outstanding issues. +
-Most benchmarks and tests work on 64-bit Linux and MacOS and show decent results.
-Integrated in musl C library on Linux (Alpine) system, working (exposing use-after-free in GTK).
+Most benchmarks and tests work on 64-bit Linux and MacOS and show decent results. +
+Integrated in musl C library, installed systemwide on Linux (Alpine) system, working. +
 Preliminary 32-bit Linux test passes.
 Some synthetic tests show high memory usage.
 
@@ -43,46 +43,19 @@ Some synthetic tests show high memory usage.
 yalloc has minimal OS dependencies and, as expected, quite minimal standard library dependencies.
 For diagnostics and statistics formatting, a miniature self-contained printf is included.
 
-== Building
-Review `config.h` and `build.sh`. +
+== Building and installing
 
-The preferred way to build is :
+Review settings in `config.h`. +
+
+Review compiler and options in `build.sh`. +
 
   ./build.sh
 
-If building otherwise, make sure first to run once :
-
-  ./configure
-
-Essentially, you need to compile and run configure, then compile yalloc.c :
-
-  cc -c -fpic os.c
-  cc -o configure configure.c os.o
-  ./configure
-  cc -c -fpic yalloc.c
-  cc -shared -o yalloc.so *.o
-
-  if linking statically, -fpic is not needed. If pic is default and you omit this flag, make sure to add an equivalent of -ftls-model=local-dynamic
-
-== Using
-
-=== static linking, any platform
-  cc -o myprog [ your project ] yalloc/yalloc.o yalloc/os.o
-
-=== dynamic linking, Linux
-
-  LD_PRELOAD=/path/to/yalloc.so gcc -O -c lvm.c
-
-  gdb -iex "set exec-wrapper env LD_PRELOAD=./yalloc.so" --args python -c 'print(1+1)'
-
-=== idem, macos
-  DYLD_INSERT_LIBRARIES=yalloc.so /Applications/Safari.app/Contents/MacOS/Safari
-
-=== included in source
-Alternatively, you can include yalloc.c directly in your source, provided static identifiers will not conflict.
+See link:doc/install.adoc[Install] for details and other options.
 
 == Diagnostics / troubleshooting
-yalloc has various provisions to help troubleshoot issues at your app's side as well as on yalloc's side
+yalloc has various provisions to help troubleshoot issues at your app's side as well as on yalloc's side.
+The overhead is low enough that these can be enabled by default.
 
 === statistics
 You can enable support with compile time variable `Yal_enable_stats`. This will add minimal overhead.

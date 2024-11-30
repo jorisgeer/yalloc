@@ -49,12 +49,12 @@ static Hot size_t Nonnull(1,4) size_heap(heapdesc *hd,heap *hb,size_t ip,struct 
     ytrace(1,hd,loc,tag,0,"size(%zx) tag %.01u",ip,tag)
 
     // empty block ?
-    if (unlikely(ip == (size_t)zeroblock)) {
- #if Yal_enable_valgrind == 0
-      size_t x8 = 0;
-      ub4 i;
-      for (i = 0; i < 8; i++) x8 |= zeroarea[i];
-      if (unlikely(x8 != 0)) error(loc,"written to malloc(0) block (%zx) = %zx",ip,x8)
+    if (unlikely(ip == (size_t)global_zeroblock)) {
+ #if Yal_enable_valgrind == 0 && Yal_enable_check > 1
+      ub4 x4 = 0,i;
+
+      for (i = 0; i < 256; i++) x4 |= global_zeroblock[i];
+      if (unlikely(x4 != 0)) error(loc,"written to malloc(0) block (%zx) = %x",ip,x4)
 #endif
       ytrace(1,hd,loc,tag,0,"size(%zx) len 0",ip)
       return 0;
@@ -78,6 +78,7 @@ static Hot size_t Nonnull(1,4) size_heap(heapdesc *hd,heap *hb,size_t ip,struct 
         alen = bump_free(hd,nil,mhb,ip,Nolen,tag,loc);
         pi->reg = (xregion *)mhb; // todo unused
         pi->len = alen ? alen : Nolen;
+        pi->local = 0;
         return pi->len;
       }
     }
@@ -90,7 +91,7 @@ static Hot size_t Nonnull(1,4) size_heap(heapdesc *hd,heap *hb,size_t ip,struct 
     if (unlikely(reg == nil)) {
       hd->stat.invalid_frees++;
       xreg = region_near(ip,buf,255);
-      if (xreg) errorctx(fln,loc,"heap %u %s",hb ? hb->id : 0,buf)
+      if (xreg) errorctx(fln,loc,"heap %u %.250s",hb ? hb->id : 0,buf)
       error2(loc,Fln,"ptr %zx unallocated - not in any heap tag %.01u",ip,tag)
       return Nolen;
     }
@@ -124,7 +125,6 @@ static Hot size_t Nonnull(1,4) size_heap(heapdesc *hd,heap *hb,size_t ip,struct 
     len4 = bump_free(hd,nil,(bregion *)reg,ip,Nolen,tag,loc);
     pi->reg = reg;
     pi->len = len4 ? len4 : Nolen;
-    pi->local = 0;
     return len4 ? len4 : Nolen;
   }
 

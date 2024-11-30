@@ -6,7 +6,7 @@
    SPDX-License-Identifier: GPL-3.0-or-later
 */
 
-static const char yal_version[] = "0.8.3-alpha.0";
+static const char yal_version[] = "0.8.4-alpha.0";
 
 #if Isgcc || Isclang // enable extensions conditionally
  #define Mallike __attribute__ ((malloc))
@@ -55,7 +55,7 @@ static const char yal_version[] = "0.8.3-alpha.0";
 
 #endif // gcc or clang
 
-#ifdef __musl_libc__ // support integration into musl libc
+#if __musl_libc__ // support integration into musl libc
   #define malloc __libc_malloc_impl
   #define calloc __libc_calloc
   #define realloc __libc_realloc
@@ -64,10 +64,11 @@ static const char yal_version[] = "0.8.3-alpha.0";
   #define mmap __mmap
   #define mremap __mremap
 
-  #undef Yal_psx_memalign
-  #define Yal_psx_memalign 0
+  void __malloc_donate(char Unused * start, char Unused * end) {}
 
-  void __malloc_donate(char *start, char *end) {}
+#elif  __haiku_libroot__  // and Haiku libroot
+ #define Inc_os
+ #define Miniprint_inc
 #endif
 
 #ifndef clz

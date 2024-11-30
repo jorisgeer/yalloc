@@ -99,7 +99,7 @@ void *aligned_alloc(size_t align, size_t size)
   return p;
 }
 
-#if Yal_psx_memalign
+#if Yal_psx_memalign && __musl_libc__ == 0
 #include <errno.h>
 int posix_memalign(void **memptr, size_t align, size_t size)
 {
@@ -130,6 +130,18 @@ void *pvalloc(size_t n) // deprecated
 }
 #endif
 #endif // psx_memalign
+
+#if Yal_reallocarray && __haiku_libroot__ == 0 && __musl_libc__ == 0
+void *reallocarray(void *p,size_t nelem, size_t elsize)
+{
+  size_t len;
+  bool rv = sat_mul(nelem,elsize,&len);
+
+  if (unlikely(rv != 0)) return oom(nil,Fln,Lreal,nelem,elsize);
+
+  return realloc(p,len);
+}
+#endif
 
 #if Yal_enable_c23
 

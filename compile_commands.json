@@ -5,19 +5,19 @@
     "file": "os.c"
    },
   { "directory": ".",
-    "arguments": ["/usr/bin/clang", "-fno-builtin", "-std=c11", "-c", "-o", "printf.o", "printf.c"],
+    "arguments": ["/usr/bin/clang", "-fno-builtin", "-std=c11", "-DYal_dev", "-c", "-o", "printf.o", "printf.c"],
     "file": "printf.c"
    },
   { "directory": ".",
-    "arguments": ["/usr/bin/clang", "-fno-builtin", "-std=c11", "-c", "-o", "configure.o", "configure.c"],
+    "arguments": ["/usr/bin/clang", "-fno-builtin", "-std=c11", "-DYal_dev", "-c", "-o", "configure.o", "configure.c"],
     "file": "configure.c"
    },
   { "directory": ".",
-    "arguments": ["/usr/bin/clang", "-fno-builtin", "-std=c11", "-c", "-o", "yalloc.o", "yalloc.c"],
+    "arguments": ["/usr/bin/clang", "-fno-builtin", "-std=c11", "-DYal_dev", "-c", "-o", "yalloc.o", "yalloc.c"],
     "file": "yalloc.c"
    },
   { "directory": ".",
-    "arguments": ["/usr/bin/clang", "-fno-builtin", "-std=c11", "-c", "-o", "test.o", "test.c"],
+    "arguments": ["/usr/bin/clang", "-fno-builtin", "-std=c11", "-DYal_dev", "-c", "-o", "test.o", "test.c"],
     "file": "test.c"
    }
 ]

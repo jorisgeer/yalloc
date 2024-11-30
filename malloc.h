@@ -60,6 +60,10 @@ struct yal_stats {
   size_t slabmem,mapmem;
   size_t xmaxbin;
 
+  size_t minalign,maxalign;
+  unsigned int slabaligns[32];
+  unsigned int mapaligns[64];
+
   unsigned int minclass,maxclass;
 };
 

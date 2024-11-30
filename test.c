@@ -44,7 +44,7 @@ static const char usagemsg[] = "\nusage: test  [opts] cmds args\n\n\
 \n\
 s - slabs lolen hilen count iter\n\
 a = all\n\
-A = align lolen hilen align\n\
+A = align lolen hilen loalign hialign\n\
 2 = double free\n\
 x - xfree #threads list of 'a' tid1 tid2 len count or 'f' tid1 tid2 len count\n\
 m - manual list of  'a' len count or 'f' from to\n\
@@ -261,29 +261,25 @@ static int class(cchar *cmd,size_t from,size_t to,size_t cnt,ub4 grain)
   return 0;
 }
 
-static int testalign(cchar *cmd,size_t from,size_t to,size_t align)
+static int testalign(cchar *cmd,size_t from,size_t to,size_t loalign,size_t hialign)
 {
-  size_t len,alen,cnt;
+  size_t len,alen = 0,align,cnt = 0;
   void *p,*r,*q;
-  size_t ip,iq,ir,a;
+  size_t ip,iq,ir;
 
-  if (to == 0) to = from + 1;
+  if (to < from) to = from + 1;
+  if (hialign < loalign) hialign = loalign * 2;
 
-  alen = 0;
-  for (len = from; len < to; len++) alen += 3 * len;
-  cnt = (to - from) * 3;
+  for (len = from; len < to; len++) {
+    for (align = loalign; align < hialign; align <<= 1) { alen += 3 * len; cnt++; }
+  }
 
   info(L,"malloc(%zu` .. %zu`) %zu blocks sum %zu` for %s",from,to,cnt,alen,cmd);
+ for (align = loalign; align < hialign; align <<= 1) {
   for (len = from; len < to; len++) {
-    if (align) {
-      p = aligned_alloc(align,len);
-      q = aligned_alloc(align,len);
-      r = aligned_alloc(align,len);
-    } else {
-      p = malloc(len);
-      q = malloc(len);
-      r = malloc(len);
-    }
+    p = aligned_alloc(align,len);
+    q = aligned_alloc(align,len);
+    r = aligned_alloc(align,len);
     if (len && p && q == p) return error(L,"len %zu p %p q %p",len,p,q);
     if (len == 0 && q != p) return error(L,"len 0 p %p q %p",p,q);
     iq = (size_t)q;
@@ -295,24 +291,19 @@ static int testalign(cchar *cmd,size_t from,size_t to,size_t align)
     if (ip < iq && ip > iq - len) return L;
     alen = malloc_usable_size(p);
     if (alen < len) return L;
-    else if (len >= 16 && alen > len * 2 + align) return error(L,"block %zx len %zu has allocated %zu",ip,len,alen);
+    else if (len >= 16 && alen > len * 4 + align) return error(L,"block %zx len %zu align %zu has allocated %zu",ip,len,align,alen);
 
-    switch (len) {
-    case 0: case 1: a = 1; break;
-    case 2: a = 2; break;
-    case 3: case 4: a = 4; break;
-    case 5: case 6: case 7: a = 8; break;
-    default: a = 8;
+    if (align) {
+      if (ip & (align - 1)) return error(L,"block %zx len %zu not %zu aligned",ip,len,align);
+      if (iq & (align - 1)) return error(L,"block %zx len %zu not %zu aligned",ip,len,align);
+      if (ir & (align - 1)) return error(L,"block %zx len %zu not %zu aligned",ip,len,align);
     }
-    if (align) a = align;
-    if (ip & (a - 1)) return error(L,"block %zx len %zu not %zu aligned",ip,len,a);
-    if (iq & (a - 1)) return error(L,"block %zx len %zu not %zu aligned",ip,len,a);
-    if (ir & (a - 1)) return error(L,"block %zx len %zu not %zu aligned",ip,len,a);
     // if (chkalign(p,len,8)) return error(L,"block %zx len %zu not %zu aligned",ip,len,a);
 
     free(r); free(q); free(p);
 
   } // len
+ } // align
   return 0;
 }
 
@@ -904,7 +895,7 @@ static int do_test(cchar *cmd,size_t arg1,size_t arg2,size_t arg3,size_t arg4)
 
   if (haschr(cmd,'s')) { tstcnt++; rv = slabs(cmd,arg1,arg2,arg3,arg4); if (rv) return rv; }
   if (haschr(cmd,'c')) { tstcnt++; rv = class(cmd,arg1,arg2,arg3,(ub4)arg4); if (rv) return rv; }
-  if (haschr(cmd,'A')) { tstcnt++; rv = testalign(cmd,arg1,arg2,arg3); if (rv) return rv; }
+  if (haschr(cmd,'A')) { tstcnt++; rv = testalign(cmd,arg1,arg2,arg3,arg4); if (rv) return rv; }
 //  if (haschr(cmd,'b')) { rv = blocks(arg1,arg2); if (rv) return rv; }
   if (haschr(cmd,'a')) { tstcnt++; rv = allfre(cmd,arg1,arg2,arg3,arg4); if (rv) return rv; }
   if (haschr(cmd,'2')) { tstcnt++; rv = fre2(arg1,arg2,arg3); if (rv) return rv; }

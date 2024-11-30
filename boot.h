@@ -181,6 +181,9 @@ static void init_env(void)
 
   Atomset(global_pid,pid,Monone);
 
+  global_zeroblock = osmmap(Pagesize);
+  vg_mem_noaccess((void *)global_zeroblock,Pagesize);
+
 #ifdef __linux__
   int fd = osopen("/proc/self/cmdline",nil);
 
@@ -194,6 +197,5 @@ static void init_env(void)
   init_check();
   init_trace();
   init_stats(Hi32);
-  vg_mem_noaccess(zeroarea,sizeof(zeroarea))
 }
 #undef Fln

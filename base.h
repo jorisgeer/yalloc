@@ -110,6 +110,7 @@ typedef const char cchar;
  #pragma GCC diagnostic error "-Warray-bounds"
  #pragma GCC diagnostic error "-Wformat"
  #pragma GCC diagnostic error "-Wunused-value"
+ #pragma GCC diagnostic error "-Wincompatible-pointer-types"
 // #pragma GCC diagnostic ignored "-Wunused-variable"
 // #pragma GCC diagnostic ignored "-Wunused-parameter"
  #pragma GCC diagnostic ignored "-Wpadded"

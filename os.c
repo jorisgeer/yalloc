@@ -153,6 +153,30 @@ Vis unsigned int ospagesize(void)
   else return (unsigned int)ret;
 }
 
+// Haiku's own mmap() calls printf which in turn may call malloc. Avoid that
+#if defined __HAIKU__ && defined __haiku_libroot__ // refer src/system/libroot/posix/sys/mman.c
+#include <sys/mman.h>
+#include <OS.h>
+#include <syscalls.h>
+#include <vm_defs.h>
+Vis void *osmmap(size_t len)
+{
+  void *adr;
+  int fd = -1;
+  off_t ofs= 0;
+	int mapping = REGION_PRIVATE_MAP;
+	ub4 spec = B_RANDOMIZED_ANY_ADDRESS;
+	ub4 prot = B_READ_AREA |  B_WRITE_AREA;
+	char *name = "yalloc mmap";
+
+  area_id area = _kern_map_file(name,&adr,spec, len, prot,mapping,1,fd,ofs);
+	if (area < 0) return NULL;
+
+  return adr;
+}
+
+#else
+
 #ifdef __FreeBSD__
   #define __BSD_VISIBLE 1 // for MAP_ANON
 #endif
@@ -186,6 +210,7 @@ Vis void *osmmap(size_t len)
 #endif
   return p;
 }
+#endif
 
 #ifndef __linux__
  #include <string.h> // memcpy

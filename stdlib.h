@@ -20,6 +20,7 @@ extern void *aligned_alloc(size_t align, size_t size);
 extern int posix_memalign(void **memptr, size_t align, size_t size);
 extern void *memalign(size_t a,size_t n);
 extern void *valloc(size_t n);
+extern void *reallocarray(void *p,size_t nelem, size_t elsize);
 
 #if defined Yal_psx_memalign && Yal_psx_memalign > 1
   extern void *pvalloc(size_t n);

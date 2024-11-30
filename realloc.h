@@ -12,11 +12,13 @@
 
 #define Logfile Frealloc
 
+static void real_clear(void Unused * p,size_t Unused oldlen,size_t Unused newlen)
+{
 #if Realloc_clear
-  #define Realclear(p,oldlen,newlen) memset((p) + (oldlen),0,(newlen) - (oldlen));
-#else
-  #define Realclear(p,on,nn)
+  if (newlen > oldlen) memset(p + oldlen,0,newlen - oldlen);
+  else if (newlen < oldlen) memset(p + newlen,0,oldlen - newlen);
 #endif
+}
 
 // copy org part
 static void real_copy(void *p,void *np,size_t ulen,size_t alen)
@@ -28,40 +30,104 @@ static void real_copy(void *p,void *np,size_t ulen,size_t alen)
   memcpy(np,p,len);
 }
 
-static void *real_mmap(heap *hb,bool local,mpregion *reg,size_t orglen,size_t newlen,size_t newulen)
+static size_t real_mmap(heapdesc *hd,heap *hb,bool local,mpregion *reg,size_t newlen,size_t newulen)
 {
+  xregion *xreg = (xregion *)reg;
   void *np;
-  size_t ip = reg->user;
+  size_t oldlen = reg->len;
   size_t align = reg->align;
-
-  // remove old
-  if (align) {
-    if (local) setregion(hb,(xregion *)reg,ip + align,Pagesize,0,Lreal,Fln);
-    else setgregion(hb,(xregion *)reg,ip + align,Pagesize,0,Lreal,Fln);
-    reg->align = 0;
-  }
-
-  if (local) setregion(hb,(xregion *)reg,ip,Pagesize,0,Lreal,Fln);
-  else setgregion(hb,(xregion *)reg,ip,Pagesize,0,Lreal,Fln);
-
-  ydbg2(Fln,Lreal,"reg %u.%u remap %zu -> %zu,%zu local %u",hb->id,reg->id,orglen,newlen,newulen,local)
+  size_t nip,ip = reg->user;
+  size_t naip,aip = ip + align;
+  size_t ulen = reg->ulen;
 
   if (reg->real) newlen += newlen >> 3; // ~10% headroom
   newlen = doalign8(newlen,Pagesize);
 
-  np = osmremap((void *)ip,reg->len,orglen,newlen);
-  if (np == nil) return nil;
+  reg->real = 1;
+
+  // c standard does not specify to preserve alignment. Code is sometimes simpler if we do.
+  // orglen is gross len minus align gap
+  if (align) {
+    ydbg1(Fln,Lreal,"reg %u.%u align %zu remap %zu -> %zu,%zu local %u",hb->id,reg->id,align,oldlen,newlen,newulen,local)
+    ycheck(0,Lreal,align & Pagesize1,"align %zu",align)
+
+    if (local) {
+
+      np = osmremap((void *)ip,oldlen,ulen,newlen + align);
+      nip = (size_t)np;
+      if (nip == 0) return 0;
+      ycheck(0,Lreal,nip & Pagesize1,"mmap %zx not page aligned",nip)
+
+      reg->len = newlen + align;
+      reg->ulen = newulen;
+
+      naip = nip + align;
+      if (nip == ip) {
+        vg_mem_noaccess(np,newlen + align)
+        vg_mem_def((void *)naip,newulen)
+        return ip;
+      }
+
+      setregion(hb,xreg,ip,Pagesize,0,Lreal,Fln);
+      setregion(hb,xreg,aip,Pagesize,0,Lreal,Fln);
+
+      setregion(hb,xreg,nip,Pagesize,1,Lreal,Fln);
+      setregion(hb,xreg,naip,Pagesize,1,Lreal,Fln);
+
+      vg_mem_noaccess((void *)nip,newlen + align)
+      vg_mem_def((void *)naip,newulen)
+
+      reg->user = nip;
+
+      return naip;
+
+    } else {
+      np = alloc_heap(hd,hb,newlen,1,Lreal,Fln);
+      nip = (size_t)np;
+      if (nip == 0) return 0;
+
+      real_copy((void *)aip,(void *)nip,newulen,ulen);
+      free_mmap(hd,nil,reg,ip,0,Lreal,Fln,Fln);
+      vg_mem_def((void *)nip,newulen)
+      return nip;
+    }
+  }
+
+  // common - no align
+
+  ydbg2(Fln,Lreal,"reg %u.%u remap %zu -> %zu,%zu local %u",hb->id,reg->id,orglen,newlen,newulen,local)
+
+  if (local) {
+    np = osmremap((void *)ip,reg->len,ulen,newlen);
+    nip = (size_t)np;
+    if (nip == 0) return 0;
+    reg->len = newlen;
+    reg->ulen = newulen;
+    if (nip == ip) {
+      vg_mem_noaccess(np,newlen)
+      vg_mem_def(np,newulen)
+      return ip;
+    }
+    ycheck(0,Lreal,nip & Pagesize1,"mmap %zx not page aligned",nip)
+    setregion(hb,xreg,ip,Pagesize,0,Lreal,Fln);
+    setregion(hb,xreg,nip,Pagesize,1,Lreal,Fln);
+
+  } else {
+    setgregion(hb,xreg,ip,Pagesize,0,Lreal,Fln);
+    np = alloc_heap(hd,hb,newlen,1,Lreal,0);
+    nip = naip = (size_t)np;
+    if (nip == 0) return 0;
+    ycheck(0,Lreal,nip & Pagesize1,"mmap %zx not page aligned",nip)
+    real_copy((void *)ip,np,newulen,ulen);
+    free_mmap(hd,nil,reg,ip,oldlen,Lreal,Fln,Fln);
+  }
+
   vg_mem_noaccess(np,newlen)
   vg_mem_def(np,newulen)
 
-  reg->len = newlen;
-  reg->ulen = newulen;
-  reg->user = (size_t)np;
-  reg->real = 1;
-  if (local) setregion(hb,(xregion *)reg,(size_t)np,Pagesize,1,Lreal,Fln); // add new
-  else setgregion(hb,(xregion *)reg,(size_t)np,Pagesize,1,Lreal,Fln);
+  reg->user = nip;
 
-  return np;
+  return nip;
 }
 
 // main realloc(). nil ptr and nil newlen already covered
@@ -72,7 +138,7 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
   mpregion *mreg;
   enum Rtype typ;
   void *np;
-  size_t ip = (size_t)p;
+  size_t aip,ip = (size_t)p;
   size_t ulen,flen,newlen = newulen;
   ub4 cellen;
   bool local;
@@ -89,8 +155,8 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
   if (newulen <= alen && local) { // will fit
     hb->stat.reallocles++;
 
-    vg_mem_noaccess(p,newlen)
-    vg_mem_def(p,newulen)
+    vg_mem_def(p,max(alen,newulen))
+    real_clear(p,alen,newulen);
 
     if (likely(typ == Rslab)) {
       reg = (region *)xreg;
@@ -133,11 +199,7 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
       ulen = pi->len;
       if (mreg->align) {
         mreg->ulen = newulen;
-        if (newulen <= ulen) {
-          return p; // keep alignment
-        }
-        mreg->align = 0;
-        return (void *)mreg->user; // sacrifice alignment
+        return p; // keep alignment
       }
       if (alen - newulen <= Pagesize || newulen + (newulen >> 3) > ulen) {
         mreg->ulen = newulen;
@@ -145,15 +207,15 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
         return p; // not worth
       }
       if (newulen >= (1ul << Mmap_threshold) / 2) {
-        np = real_mmap(hb,local,mreg,ulen,newlen,newulen); // typically mremap
+        aip = real_mmap(hd,hb,local,mreg,newlen,newulen); // typically mremap
         ystats(hb->stat.mreallocles)
         pi->fln = Fln;
-        return np;
+        return (void *)aip;
       }
       np = alloc_heap(hd,hb,newulen,1,Lreal,Fln);
       if (unlikely(np == nil)) return (void *)__LINE__;
       real_copy(p,np,ulen,newulen);
-      free_mmap(hd,local ? hb : nil,mreg,ip,ulen,Lreal,Fln,tag);
+      free_mmap(hd,hb,mreg,ip,ulen,Lreal,Fln,tag);
       pi->fln = Fln;
       return np;
     } else if (typ == Rbump) {
@@ -165,7 +227,7 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
     // else if (typ == Rnone) return p; // todo check
     } else return (void *)__LINE__;
 
-  } else { // expand
+  } else { // expand or remote
 
     hb->stat.reallocgts++;
     newlen = doalign8(newulen,Stdalign);
@@ -179,7 +241,7 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
       ulen = cellen > Cel_nolen ? slab_getlen(reg,pi->cel,cellen) : cellen;
       ycheck((void *)__LINE__,Lreal,ulen == 0,"region %u cel %u ulen 0 for %u",reg->id,pi->cel,cellen)
       ycheck((void *)__LINE__,Lreal,ulen > cellen,"region %u cel %u ulen %zu above %u",reg->id,pi->cel,ulen,cellen)
-      real_copy(p,np,ulen,ulen);
+      real_copy(p,np,ulen,newulen);
 
       if (likely(local != 0)) {
         flen = slab_frecel(hb,reg,pi->cel,reg->cellen,reg->celcnt,tag); // put old in recycling bin
@@ -205,19 +267,20 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
 
     } else if (typ == Rbump || typ == Rmini) {
       ydbg2(Fln,Lreal,"len %lu",newlen);
+      if (newulen <= alen) return p;
       np = alloc_heap(hd,hb,newlen,1,Lreal,tag);
       if (unlikely(np == nil)) return (void *)__LINE__;
-      if (likely(alen != 0)) real_copy(p,np,alen,alen);
+      if (likely(alen != 0)) real_copy(p,np,alen,newulen);
       pi->fln = Fln;
       return np;
 
     } else if (typ == Rmmap) {
       newlen = max(newlen,Pagesize);
       ydbg3(Lreal,"reg %u",xreg->id);
-      np = real_mmap(hb,local,(mpregion *)xreg,alen,newlen,newulen);
+      aip = real_mmap(hd,hb,local,(mpregion *)xreg,newlen,newulen);
       ystats(hb->stat.mreallocgts)
       pi->fln = Fln;
-      return np;
+      return (void *)aip;
     } else return (void *)__LINE__;
   } // shrink or expand
 }
@@ -249,7 +312,7 @@ static void *yrealloc(void *p,size_t oldlen,size_t newlen,ub4 tag)
   // realloc(p,0) = free(p) - deprecated since c17. see https://open-std.org/JTC1/SC22/WG14/www/docs/n2396.htm#dr_400
   if (unlikely(newlen == 0)) {
     yfree_heap(hd,p,0,Lreal,tag);
-    np = (void *)zeroblock;
+    np = (void *)global_zeroblock;
     ytrace(0,hd,Lreal,tag,0,"- realloc(nil,%zu) = %p",newlen,np)
     ypush(hd,Lreal | Lapi,Fln)
     return np;
@@ -307,8 +370,7 @@ static void *yrealloc(void *p,size_t oldlen,size_t newlen,ub4 tag)
     } else { // from zero len
 
       np = alloc_heap(hd,hb,doalign8(newlen,Stdalign),1,Lreal,tag);
-      Realclear(np,0,newlen)
-      vg_mem_noaccess(p,alen)
+      real_clear(np,0,newlen);
       vg_mem_def(np,newlen)
 
       //coverity[pass_freed_arg]
@@ -327,15 +389,12 @@ static void *yrealloc(void *p,size_t oldlen,size_t newlen,ub4 tag)
 
   if (likely( (ub4)ip >= Pagesize)) {
     ytrace(1,hd,Lreal,tag,0,"- %p len %zu",np,newlen)
-    if (pi.len < newlen) {
-      Realclear(np,pi.len,newlen)
-    }
     ypush(hd,Lreal | Lapi,Fln)
     return np;
   }
   fln = (ub4)(size_t)np;
   fln |= (Logfile << 16);
-  error2(Lreal,fln,"realloc(%p,%zu) failed",p,newlen)
+  error2(Lreal,fln,"realloc(%zx,%zu) failed",ip,newlen)
   return nil;
 }
 #undef Logfile

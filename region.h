@@ -319,7 +319,7 @@ static void *region_near(size_t ip,char *buf,ub4 len)
 
   *buf = 0;
 
-  if (ip == (size_t)zeroblock) {
+  if (ip == (size_t)global_zeroblock) {
     snprintf_mini(buf,0,len,"ptr  %zx is a zero-len block",ip);
     return nil;
   }
@@ -720,20 +720,20 @@ static mpregion *newmpregion(heap *hb,size_t len,enum Loc loc,ub4 fln)
   void *p;
   yalstats *sp = &hb->stat;
 
-  if (len < mmap_limit) {
+  if (len < mmap_limit && loc != Lallocal) {
     do_ylog(Diagcode,loc,fln,Assert,0,"mmap region len %zu",len);
     return nil;
   }
 
   order = ord = sizeof(size_t) * 8 - clzl(len);
 
-  ycheck(nil,Lnone,order < Mmap_threshold,"region len %zu` order %u below %u",len,order,Mmap_threshold)
+  ycheck(nil,Lnone,order < Page,"region len %zu` order %u below %u",len,order,Page)
   ycheck(nil,Lnone,order >= Vmbits,"region len %zu` order %u above %u",len,order,Vmbits)
 
   // recycle ?
   iter = 80;
   do {
-    ureg = hb->freempregs[ord - Mmap_threshold];
+    ureg = hb->freempregs[ord];
     while (ureg && --iter) {
       ydbg2(Fln,loc,"try xreg %u len %zu` for %zu` ord %u/%u",ureg->id,ureg->len,len,ord,order)
       if (len <= ureg->len) {
@@ -743,7 +743,7 @@ static mpregion *newmpregion(heap *hb,size_t len,enum Loc loc,ub4 fln)
         nreg = reg->frenxt; // unlist
         preg = reg->freprv;
         if (preg) preg->frenxt = nreg;
-        else hb->freempregs[ord - Mmap_threshold] = nreg;
+        else hb->freempregs[ord] = nreg;
         if (nreg) nreg->freprv = preg;
         sp->usempregions++;
         break; // suitable size
@@ -841,6 +841,8 @@ static mpregion *newmpregion(heap *hb,size_t len,enum Loc loc,ub4 fln)
     p = osmmap(len);
     user = (size_t)p;
     if (user == 0) return nil;
+    ycheck(nil,loc,user & Pagesize1,"mmap %zx not page aligned",user)
+
     reg->user = user;
     reg->len = len;
     reg->order = order;
