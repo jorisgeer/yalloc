@@ -2,4 +2,4 @@
 
 set -ex
 
-valgrind --show-below-main=yes --trace-children=yes --exit-on-first-error=yes --error-exitcode=2 --read-var-info=yes --soname-synonyms=somalloc=nouserintercept "$@"
+valgrind --show-below-main=yes --trace-children=yes --track-origins=yes --exit-on-first-error=yes --error-exitcode=2 --read-var-info=yes --soname-synonyms=somalloc=nouserintercept "$@"

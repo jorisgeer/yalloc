@@ -9,9 +9,9 @@
 */
 
 #ifdef __unix__
- #ifdef __linux__
+ #if defined __linux__ && ! defined _GNU_SOURCE
  #define _GNU_SOURCE // for mmap
- #else
+ #elif ! define _POSIX_C_SOURCE
   #define _POSIX_C_SOURCE 200809L
  #endif
 #endif

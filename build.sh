@@ -242,7 +242,7 @@ if [ -n "$cmd" ]; then
   if [ "$platform" = "Darwin" ]; then
     verbose "ld -dyn yalloc" "$cc $lflags -dynamiclib -o yalloc.dylib yalloc.o $objs -flat_namespace"
     $cc -dynamiclib -o yalloc.dylib yalloc.o $objs -flat_namespace
-  elif [ "$platform" = "Linux" -o "$platform" = "Haiku"  ]; then
+  elif [ "$platform" = "Linux" -o "$platform" = "Haiku" -o "$platform" = "FreeBSD"  ]; then
     verbose "ld -dyn yalloc" "$cc $lflags -shared -o yalloc.so yalloc.o $objs"
     $cc -g -shared -o yalloc.so yalloc.o $objs
     echo 'yalloc.so built successfully'

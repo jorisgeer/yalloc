@@ -65,7 +65,10 @@
 #endif // Dev
 
 #if Yal_signal
+ #undef _POSIX_C_SOURCE
  #define _POSIX_C_SOURCE 199309L // needs to be at first system header
+ #undef __XSI_VISIBLE
+ #define __XSI_VISIBLE // FreeBSD
  #include <signal.h>
 #endif
 
@@ -762,9 +765,30 @@ static _Atomic ub4 global_hid = 1;
  #if __musl_libc__
   #error "TODO tidmode 1 in musl"
 
- #elif defined __HAIKU__ && __haiku_libroot__
+ #elif defined __HAIKU__
 
   #include <support/TLS.h>
+
+  static ub4 global_tls_index;
+  static _Atomic ub4 global_tls_check;
+
+  static int haiku_init_heap(void)
+  {
+    ub4 index,from = 0;
+    bool didcas = Cas(global_tls_check,from,1);
+
+    if (didcas == 0) {
+      minidiag(Yfln,Lnone,Warn,0,"int_heap check %u",global_tls_check);
+      return -1;
+    }
+    index = tls_allocate();
+
+    global_tls_index = index;
+    minidiag(Yfln,Lnone,Debug,0,"tls index %u",index);
+    return 0;
+  }
+
+ #if __haiku_libroot__
  
   extern void __heap_thread_init(void);
   extern void __heap_thread_exit(void);
@@ -780,31 +804,21 @@ static _Atomic ub4 global_hid = 1;
   void __heap_after_fork_child(void) {}
   void  __heap_after_fork_parent(void) {}
 
-  static ub4 global_tls_index;
-  static _Atomic ub4 global_tls_check;
-
   extern int __init_heap(void);
   int __init_heap(void)
   {
-    ub4 index,from = 0;
-    bool didcas = Cas(global_tls_check,from,1);;
-
-    if (didcas == 0) {
-      minidiag(Yfln,Lnone,Warn,0,"int_heap check %u",global_tls_check);
-      return 0;
-    }
-    index = tls_allocate();
-
-    global_tls_index = index;
-    minidiag(Yfln,Lnone,Debug,0,"tls index %u",index);
-    return 0;
+    return haiku_init_heap();
   }
+#endif
 
   static inline heapdesc *tid_gethd(void)
   {
     heapdesc *hd;
 
-    if (global_tls_index == 0) minidiag(Yfln,Lnone,Fatal,0,"tls index 0 for chk %u",Atomget(global_tls_check,Moacq));
+    if (unlikely(global_tls_index == 0)) {
+      haiku_init_heap();
+      if (global_tls_index == 0) minidiag(Yfln,Lnone,Fatal,0,"tls index 0 for chk %u",Atomget(global_tls_check,Moacq));
+    }
     hd = tls_get(global_tls_index);
     return hd;
   }
@@ -1131,6 +1145,14 @@ extern size_t malloc_size(const void * ptr); // todo malloc.h
 size_t malloc_size(const void * ptr)
 {
   return ysize((void *)ptr,Yfln);
+}
+#endif
+
+#ifdef FreeBSD
+extern void *reallocf(void *p,size_t newlen);
+void *reallocf(void *p,size_t newlen)
+{
+  return yrealloc(p,Nolen,newlen,0);
 }
 #endif
 

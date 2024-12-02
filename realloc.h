@@ -81,7 +81,7 @@ static size_t real_mmap(heapdesc *hd,heap *hb,bool local,mpregion *reg,size_t ne
 
       return naip;
 
-    } else {
+    } else { // remote
       np = alloc_heap(hd,hb,newlen,1,Lreal,Fln);
       nip = (size_t)np;
       if (nip == 0) return 0;
@@ -112,8 +112,7 @@ static size_t real_mmap(heapdesc *hd,heap *hb,bool local,mpregion *reg,size_t ne
     setregion(hb,xreg,ip,Pagesize,0,Lreal,Fln);
     setregion(hb,xreg,nip,Pagesize,1,Lreal,Fln);
 
-  } else {
-    setgregion(hb,xreg,ip,Pagesize,0,Lreal,Fln);
+  } else { // remote
     np = alloc_heap(hd,hb,newlen,1,Lreal,0);
     nip = naip = (size_t)np;
     if (nip == 0) return 0;

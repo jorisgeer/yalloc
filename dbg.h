@@ -6,7 +6,7 @@
    SPDX-License-Identifier: GPL-3.0-or-later
   */
 
-#ifdef Backtrace // glibc-linux or macos 10.5+, see build.sh
+#ifdef Backtrace // glibc-linux or macos 10.5+, see build.sh. FreeBSD calls malloc()
 
  #ifndef _POSIX_C_SOURCE
   #define _POSIX_C_SOURCE 200809L
@@ -16,10 +16,13 @@
 
  static void showtrace(void)
  {
-   static void *buf[256];
+   void *buf[64];
+   int fd = Yal_err_fd;
 
-   int len = backtrace(buf,100);
-   backtrace_symbols_fd(buf,len,2);
+   if (fd < 0) fd = Yal_Err_fd;
+
+   ub4 len = (ub4)backtrace(buf,64);
+   backtrace_symbols_fd(buf,min(len,64),fd);
  }
 #elif Yal_signal
  static void showtrace(void) {}
@@ -64,7 +67,7 @@ static unsigned long asm_get_caller(void)
  #define Caller() 0
 #endif
 
-#if Yal_signal && ! defined __FreeBSD__
+#if Yal_signal
 
 static struct sigaction g_orgsa;
 
