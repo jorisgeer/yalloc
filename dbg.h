@@ -22,7 +22,7 @@
    if (fd < 0) fd = Yal_Err_fd;
 
    ub4 len = (ub4)backtrace(buf,64);
-   backtrace_symbols_fd(buf,min(len,64),fd);
+   if (len < 64) backtrace_symbols_fd(buf,(int)len,fd);
  }
 #elif Yal_signal
  static void showtrace(void) {}

@@ -68,7 +68,7 @@
  #undef _POSIX_C_SOURCE
  #define _POSIX_C_SOURCE 199309L // needs to be at first system header
  #undef __XSI_VISIBLE
- #define __XSI_VISIBLE // FreeBSD
+ #define __XSI_VISIBLE 500 // FreeBSD
  #include <signal.h>
 #endif
 
@@ -1148,7 +1148,7 @@ size_t malloc_size(const void * ptr)
 }
 #endif
 
-#ifdef FreeBSD
+#ifdef __FreeBSD__
 extern void *reallocf(void *p,size_t newlen);
 void *reallocf(void *p,size_t newlen)
 {

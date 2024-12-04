@@ -11,7 +11,7 @@
 #ifdef __unix__
  #if defined __linux__ && ! defined _GNU_SOURCE
  #define _GNU_SOURCE // for mmap
- #elif ! define _POSIX_C_SOURCE
+ #elif ! defined _POSIX_C_SOURCE
   #define _POSIX_C_SOURCE 200809L
  #endif
 #endif

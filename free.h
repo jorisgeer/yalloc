@@ -71,6 +71,7 @@ static enum Status free_mmap(heapdesc *hd,heap *hb,mpregion *reg,size_t ap,size_
       osmunmap((void *)ip,len);
       hd->stat.munmaps++;
       reg->len = 0;
+      reg->aged = 3;
       return St_ok;
     }
 

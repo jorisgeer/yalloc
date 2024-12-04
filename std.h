@@ -39,10 +39,18 @@ void *calloc (size_t count, size_t size)
   void *p;
   size_t len;
 
+// syscall wrappers call calloc() ...
+#ifdef __FreeBSD__
+  static ub4 bootallocs;
+
+  if (unlikely(bootallocs++ < 3)) return bootalloc(Fln,0,Lnone,(ub4)(count * size));
+#endif
+
 #if Yal_prep_TLS
   if (unlikely(yal_tls_inited == 0)) {
     p = bootalloc(Fln,0,Lnone,(ub4)(count * size));
     minidiag(Fln,Lcalloc,Debug,0,"TLS init %zu * %zu = %zx",count,size,(size_t)p);
+    return  p;
   }
 #endif
 

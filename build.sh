@@ -72,7 +72,7 @@ case $tool in
     libs=
   fi
   copt='-O2'
-  lflags="-O2 $cdbg"
+  lflags="$copt $cdbg"
   ;;
 
 # a64 gcc >= 8 2018 -fcf-protection  -fno-stack-clash-protection'
@@ -164,7 +164,7 @@ ld()
   obj="$2"
 
   verbose "ld -o $tgt $obj" "$cc -o $tgt $lflags $obj"
-  $cc -o "$tgt" "$lflags" $obj $libs
+  $cc $lflags -o "$tgt" "$lflags" $obj $libs
   if [ $map -eq 1 ]; then
     nm --line-numbers -S -r --size-sort $tgt > $tgt.map
   fi
@@ -241,10 +241,10 @@ if [ -n "$cmd" ]; then
   platform="$($cmd)"
   if [ "$platform" = "Darwin" ]; then
     verbose "ld -dyn yalloc" "$cc $lflags -dynamiclib -o yalloc.dylib yalloc.o $objs -flat_namespace"
-    $cc -dynamiclib -o yalloc.dylib yalloc.o $objs -flat_namespace
+    $cc -dynamiclib $lflags -o yalloc.dylib yalloc.o $objs -flat_namespace
   elif [ "$platform" = "Linux" -o "$platform" = "Haiku" -o "$platform" = "FreeBSD"  ]; then
     verbose "ld -dyn yalloc" "$cc $lflags -shared -o yalloc.so yalloc.o $objs"
-    $cc -g -shared -o yalloc.so yalloc.o $objs
+    $cc -g $lflags -shared -o yalloc.so yalloc.o $objs
     echo 'yalloc.so built successfully'
   fi
 fi
