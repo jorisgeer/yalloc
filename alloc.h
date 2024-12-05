@@ -548,6 +548,7 @@ static void *ymalloc(size_t len,ub4 tag)
 #if Yal_enable_check > 1
             if (unlikely(len >= Stdalign && chkalign(p,len,Stdalign) != 0)) error(Lalloc,"alloc(%u) = %zx not aligns",len4,(size_t)p)
 #endif
+            ytrace(0,hd,Lalloc,tag,0,"alloc %u = %zx",len4,(size_t)p)
             if (tidstate != Ts_private) {
               Atomset(hb->lock,0,Morel);
               vg_drd_wlock_rel(hb)

@@ -56,12 +56,14 @@ time=$(date -u '+%H%M')
 # clang >= 8 aug 19  '-mbranch-protection=none'  aarch64 only
 # clang >= 7 '-fcf-protection=none'
 
+# refer: https://sourceware.org/glibc/manual/latest/html_node/Replacing-malloc.html
+
 case $tool in
   'clang' | 'icx')
   cc=$tool
   cdiag='-Wall -Wextra -Wunused -Wno-unused-command-line-argument -Wsign-conversion -Wchar-subscripts -Werror=format -Werror=return-type -Wno-poison-system-directories'
   cfmt='-fno-caret-diagnostics -fno-color-diagnostics -fno-diagnostics-show-option -fno-diagnostics-fixit-info -fno-diagnostics-show-note-include-stack -fno-show-column'
-  cxtra='-std=c11 -funsigned-char -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -fpic -ftls-model=global-dynamic -fno-plt'
+  cxtra='-std=c11 -funsigned-char -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -fpic -ftls-model=initial-exec -fno-plt'
   cana="--analyze"
   if [ $dbg -eq 1 ]; then
     cdbg='-g -fsanitize=undefined,signed-integer-overflow,bounds -fno-sanitize-recover=all -ftrapv -fstack-protector -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3'
@@ -81,7 +83,7 @@ case $tool in
   cc=$tool
   cdiag='-Wall -Wextra -Wshadow -Wundef -Wunused -Wformat-overflow=2 -Wformat-truncation=2 -Winline -Werror=stack-usage=35000'
   cfmt='-fmax-errors=60 -fno-diagnostics-show-caret -fno-diagnostics-show-option -fno-diagnostics-color -fcompare-debug-second'
-  cxtra='-std=c11 -funsigned-char -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -fpic -ftls-model=global-dynamic -fno-plt'
+  cxtra='-std=c11 -funsigned-char -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -fpic -ftls-model=initial-exec -fno-plt'
   cana="-fanalyzer"
   if [ $dbg -eq 1 ]; then
     cdbg='-g -fsanitize=address,undefined,signed-integer-overflow,bounds -fno-sanitize-recover=all -ftrapv -fstack-protector'
