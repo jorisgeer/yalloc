@@ -882,7 +882,7 @@ static heapdesc *new_heapdesc(enum Loc loc)
     init_env();
     hd->trace = global_trace & 3;
     hd->trcfln = global_trace & 8;
-    minidiag(Yfln,loc,Debug,id,"first base heap size %u.%u state %u caller %lx",len,(ub4)sizeof(struct hdstats),hd->tidstate,caller);
+    minidiag(Yfln,loc,Debug,id,"first base heap size %u.%u state %d caller %lx",len,(ub4)sizeof(struct hdstats),hd->tidstate,caller);
     minidiag(Yfln,loc,Debug,id,"trace %u %u",hd->trace,global_trace);
     return hd;
   }
@@ -1153,6 +1153,13 @@ extern void *reallocf(void *p,size_t newlen);
 void *reallocf(void *p,size_t newlen)
 {
   return yrealloc(p,Nolen,newlen,0);
+}
+#endif
+
+#if Yal_psx_memalign > 2
+void *__libc_memalign(size_t a,size_t n) // glibc
+{
+  return yalloc_align(a,n,Yfln);
 }
 #endif
 

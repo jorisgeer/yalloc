@@ -102,7 +102,7 @@ static Hot size_t Nonnull(1,4) size_heap(heapdesc *hd,heap *hb,size_t ip,struct 
 
   typ = reg->typ;
   if (likely(reg->typ == Rslab)) {
-    creg = (region *)reg;
+    creg = (region *)reg; // -V1027 PVS unrelated obj cast
     vg_mem_def(creg,sizeof(region))
     vg_mem_def(creg->meta,creg->metalen)
     cellen = creg->cellen;
@@ -122,7 +122,7 @@ static Hot size_t Nonnull(1,4) size_heap(heapdesc *hd,heap *hb,size_t ip,struct 
   }
 
   if (unlikely(typ == Rbump || typ == Rmini)) {
-    len4 = bump_free(hd,nil,(bregion *)reg,ip,Nolen,tag,loc);
+    len4 = bump_free(hd,nil,(bregion *)reg,ip,Nolen,tag,loc); // -V1027 PVS unrelated obj cast
     pi->reg = reg;
     pi->len = len4 ? len4 : Nolen;
     return len4 ? len4 : Nolen;
@@ -130,7 +130,7 @@ static Hot size_t Nonnull(1,4) size_heap(heapdesc *hd,heap *hb,size_t ip,struct 
 
   // mmap
   if (unlikely(typ == Rmmap)) {
-    mpreg = (mpregion *)reg;
+    mpreg = (mpregion *)reg; // -V1027 PVS unrelated obj cast
     rlen = reg->len;
     ulen = mpreg->ulen;
     ycheck(Nolen,loc,rlen == 0,"region %u len zero",reg->id)
@@ -179,7 +179,7 @@ static Nonnull(1,2,3) size_t ysize_heap(heapdesc *hd,void *p,struct ptrinfo *pi,
 #if Yal_enable_stats > 1
       if (likely(didcas != 0)) {
         hd->stat.getheaps++;
-        hb->stat.sizes++;
+        if (hb) hb->stat.sizes++;
       } else hd->stat.nogetheaps++;
 #endif
     } else {

@@ -523,7 +523,7 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,enum Loc
   typ = reg->typ;
   if (likely(reg->typ == Rslab)) {
     ycheck(Nolen,loc,hb == nil,"nil hb for reg %u",reg->id)
-    creg = (region *)reg;
+    creg = (region *)reg; // -V1027 PVS unrelated obj cast
     vg_mem_def(creg,sizeof(region))
     vg_mem_def(creg->meta,creg->metalen)
     ycheck(Nolen,loc,reg->hb == nil,"region %zx has no hb",(size_t)reg)
@@ -572,13 +572,13 @@ static Hot size_t free_heap(heapdesc *hd,heap *hb,void *p,size_t reqlen,enum Loc
   // mini or bump
   if (unlikely(typ == Rbump || typ == Rmini)) {
     ytrace(1,hd,loc,tag,0,"ptr+%zx",ip)
-    len4 = bump_free(hd,nil,(bregion *)reg,ip,reqlen,tag,loc);
+    len4 = bump_free(hd,nil,(bregion *)reg,ip,reqlen,tag,loc); // -V1027 PVS unrelated obj cast
     return len4 ? len4 : Nolen;
   }
 
   // mmap
   if (unlikely(typ == Rmmap)) {
-    mpreg = (mpregion *)reg;
+    mpreg = (mpregion *)reg; // -V1027 PVS unrelated obj cast
     ytrace(1,hd,loc,tag,hb ? hb->stat.mapfrees : 0,"ptr+%zx len %zu",ip,mpreg->len)
     rlen = reg->len - mpreg->align;
 

@@ -114,8 +114,8 @@ static size_t real_mmap(heapdesc *hd,heap *hb,bool local,mpregion *reg,size_t ne
 
   } else { // remote
     np = alloc_heap(hd,hb,newlen,1,Lreal,0);
+    if (np == nil) return 0;
     nip = naip = (size_t)np;
-    if (nip == 0) return 0;
     ycheck(0,Lreal,nip & Pagesize1,"mmap %zx not page aligned",nip)
     real_copy((void *)ip,np,newulen,ulen);
     free_mmap(hd,nil,reg,ip,oldlen,Lreal,Fln,Fln);
@@ -158,7 +158,7 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
     real_clear(p,alen,newulen);
 
     if (likely(typ == Rslab)) {
-      reg = (region *)xreg;
+      reg = (region *)xreg; // -V1027 PVS unrelated obj cast
       openreg(reg)
       cellen = reg->cellen;
       if (alen - newulen < 32 || newulen + (newulen >> 2) > alen) { // not worth
@@ -194,7 +194,7 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
       return (void *)__LINE__;
 
     } else if (typ == Rmmap) {
-      mreg = (mpregion *)xreg;
+      mreg = (mpregion *)xreg; // -V1027 PVS unrelated obj cast
       ulen = pi->len;
       if (mreg->align) {
         mreg->ulen = newulen;
@@ -234,7 +234,7 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
     if (likely(typ == Rslab)) {
       np = alloc_heap(hd,hb,newulen,1,Lreal,tag);
       if (unlikely(np == nil)) return (void *)__LINE__;
-      reg = (region *)xreg;
+      reg = (region *)xreg; // -V1027 PVS unrelated obj cast
       openreg(reg)
       cellen = reg->cellen;
       ulen = cellen > Cel_nolen ? slab_getlen(reg,pi->cel,cellen) : cellen;
@@ -276,7 +276,7 @@ static void *real_heap(heapdesc *hd,heap *hb,void *p,size_t alen,size_t newulen,
     } else if (typ == Rmmap) {
       newlen = max(newlen,Pagesize);
       ydbg3(Lreal,"reg %u",xreg->id);
-      aip = real_mmap(hd,hb,local,(mpregion *)xreg,newlen,newulen);
+      aip = real_mmap(hd,hb,local,(mpregion *)xreg,newlen,newulen); // -V1027 PVS unrelated obj cast
       ystats(hb->stat.mreallocgts)
       pi->fln = Fln;
       return (void *)aip;
