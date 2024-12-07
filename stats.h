@@ -506,6 +506,18 @@ static Cold size_t yal_mstats_heap(int fd,heap *hb,yalstats *ret,bool print,ub4 
   return errs;
 }
 
+// Verify glibc allocator is not used e.g. by a missing nonstandard call
+#if defined __GLIBC__ && Yal_malloc_stats == 0
+extern void malloc_stats(void);
+
+static void stats_libc(void)
+{
+  malloc_stats();
+}
+#else
+static void stats_libc(void) {}
+#endif
+
 static void sumup(yalstats *sum,yalstats *one)
 {
   ub4 i,a;
@@ -793,6 +805,10 @@ size_t Cold yal_mstats(yalstats *ret,ub4 opts,ub4 tag,const char *desc)
         pos += snprintf_mini(buf,pos,len,"%-3u ",bootnolocks);
       }
     }
+
+    oswrite(fd,buf,pos,Fln); pos = 0;
+
+    stats_libc();
 
     // add rusage(2)
     struct osrusage usg;
