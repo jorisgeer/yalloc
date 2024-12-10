@@ -74,7 +74,7 @@ case $tool in
     libs=
   fi
   copt='-O2'
-  lflags="$copt $cdbg"
+  lflags="-g"
   ;;
 
 # a64 gcc >= 8 2018 -fcf-protection  -fno-stack-clash-protection'
@@ -92,7 +92,7 @@ case $tool in
     cdbg='-g -fno-stack-protector -fcf-protection=none -fno-stack-clash-protection -fno-asynchronous-unwind-tables -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0'
   fi
   copt='-O2 -fwrapv -fgcse-after-reload -ftree-partial-pre -fsplit-paths'
-  lflags="-O2 -fuse-ld=gold $cdbg"
+  lflags="-g"
     libs=
   ;;
 

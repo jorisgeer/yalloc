@@ -69,4 +69,4 @@ First, build yalloc in a separate directory as above. You may want to add a -V f
   valgrind --trace-children=yes --soname-synonyms=somalloc=nouserintercept /usr/bin/env LD_PRELOAD=./yalloc.so firefox
 
 === idem, macos
-  DYLD_INSERT_LIBRARIES=yalloc.so /Applications/Safari.app/Contents/MacOS/Safari
+  DYLD_INSERT_LIBRARIES=./yalloc.so /Applications/Safari.app/Contents/MacOS/Safari

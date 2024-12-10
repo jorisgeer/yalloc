@@ -87,7 +87,7 @@ void *realloc(void *p,size_t newlen)
   }
 #endif
 
-  q = yrealloc(p,Nolen,newlen,0);
+  q = yrealloc(p,Nolen,newlen,Fln);
   return q;
 }
 
@@ -147,7 +147,7 @@ void *reallocarray(void *p,size_t nelem, size_t elsize)
 
   if (unlikely(rv != 0)) return oom(nil,Fln,Lreal,nelem,elsize);
 
-  return realloc(p,len);
+  return yrealloc(p,Nolen,len,Fln);
 }
 #endif
 

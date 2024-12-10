@@ -82,7 +82,7 @@
 
   enum Dumfpcls { FP_NORMAL,FP_SUBNORMAL,FP_INFINITE,FP_NAN,FP_ZERO };
 
-  #define fpclassify(x) FP_NORMAL
+  #define fpclassify(x) (x) == 0 ? FP_ZERO : FP_NORMAL
 
 #endif
 
